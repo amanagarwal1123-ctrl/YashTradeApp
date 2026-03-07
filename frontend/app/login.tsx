@@ -30,7 +30,7 @@ export default function LoginScreen() {
           <View style={styles.logoContainer}>
             <Ionicons name="diamond" size={48} color={Colors.gold} />
           </View>
-          <Text style={styles.brand}>AMAN AGARWAL</Text>
+          <Text style={styles.brand}>YASH TRADE</Text>
           <Text style={styles.subtitle}>JEWELLERS</Text>
           <Text style={styles.tagline}>Premium Silver • Gold • Diamond</Text>
         </View>

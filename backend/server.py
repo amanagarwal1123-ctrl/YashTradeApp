@@ -401,7 +401,7 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         session_id = req.session_id or f"jeweller-{user['id']}"
         system_msg = (
-            "You are the AI business assistant for Aman Agarwal Jewellers, a leading wholesale and retail jewellery business "
+            "You are the AI business assistant for Yash Trade Jewellers, a leading wholesale and retail jewellery business "
             "specializing in silver, gold, and diamond. You help jewellers with:\n"
             "- Selling tips: How to pitch silver anklets, chains, articles, gifting items to their own customers\n"
             "- Silver knowledge: Why silver turns black, cleaning methods, storage tips, benefits\n"
@@ -599,7 +599,7 @@ async def seed_data():
     admin = await db.users.find_one({"phone": "9999999999"})
     if not admin:
         await db.users.insert_one({
-            "id": str(uuid.uuid4()), "phone": "9999999999", "name": "Aman Agarwal",
+            "id": str(uuid.uuid4()), "phone": "9999999999", "name": "Yash Trade Admin",
             "city": "Delhi", "customer_code": "ADMIN01", "customer_type": "admin",
             "role": "admin", "category_interests": [], "is_eligible_rewards": False,
             "assigned_salesperson": "", "status": "active", "reward_points": 0,

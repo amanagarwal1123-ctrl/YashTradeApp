@@ -69,7 +69,7 @@ export default function AIAssistantScreen() {
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="sparkles" size={48} color={Colors.gold} />
-            <Text style={styles.emptyTitle}>Jewellery Business AI</Text>
+            <Text style={styles.emptyTitle}>Yash Trade AI</Text>
             <Text style={styles.emptySubtitle}>Ask me about selling tips, silver knowledge, trends, and customer education content.</Text>
             <View style={styles.promptsGrid}>
               {QUICK_PROMPTS.map(p => (
