@@ -27,4 +27,34 @@ export const api = {
   put: (path: string, body?: any) => request(path, { method: 'PUT', body: JSON.stringify(body) }),
   patch: (path: string, body?: any) => request(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (path: string) => request(path, { method: 'DELETE' }),
+  uploadFiles: async (path: string, files: File[], onProgress?: (done: number, total: number) => void) => {
+    const CHUNK = 3;
+    const allResults: any[] = [];
+    for (let i = 0; i < files.length; i += CHUNK) {
+      const chunk = files.slice(i, i + CHUNK);
+      const formData = new FormData();
+      chunk.forEach(f => formData.append('files', f));
+      const headers: Record<string, string> = {};
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+      const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+        throw new Error(err.detail || `Error ${res.status}`);
+      }
+      const data = await res.json();
+      allResults.push(data);
+      onProgress?.(Math.min(i + CHUNK, files.length), files.length);
+    }
+    return allResults;
+  },
+};
+
+export const getImageUrl = (product: any, thumbnail = true): string => {
+  if (thumbnail && product?.thumbnail_path) {
+    return `${API_BASE}/files/${product.thumbnail_path}`;
+  }
+  if (product?.storage_path) {
+    return `${API_BASE}/files/${product.storage_path}`;
+  }
+  return product?.images?.[0] || '';
 };

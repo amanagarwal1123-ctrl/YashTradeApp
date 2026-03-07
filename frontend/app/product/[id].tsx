@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
+import { getImageUrl } from '../../src/api';
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,6 +27,8 @@ export default function ProductDetail() {
   if (!product) return <View style={styles.loader}><Text style={styles.errorText}>Product not found</Text></View>;
 
   const images = product.images || [];
+  const mainImageUri = getImageUrl(product, false);
+  const hasStorageImage = !!product.storage_path;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -42,7 +45,9 @@ export default function ProductDetail() {
 
         {/* Image */}
         <View style={styles.imageContainer}>
-          {images.length > 0 ? (
+          {(mainImageUri) ? (
+            <Image source={{ uri: mainImageUri }} style={styles.mainImage} />
+          ) : images.length > 0 ? (
             <Image source={{ uri: images[currentImage] }} style={styles.mainImage} />
           ) : (
             <View style={[styles.mainImage, { backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' }]}>

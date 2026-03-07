@@ -1,13 +1,13 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api } from '../../src/api';
+import { api, getImageUrl } from '../../src/api';
 import { useLang } from '../../src/context/LanguageContext';
 
-interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; }
+interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; }
 const CATEGORIES = ['All', 'payal', 'chain', 'articles', 'necklace', 'ring', 'bangles', 'bracelet', 'gifting', 'coins', 'kadaa', 'pendant', 'kids', 'toe_rings', 'earrings', 'mens', 'nose_ring', 'waist_belt'];
 const METALS = ['All', 'silver', 'gold', 'diamond'];
 
@@ -24,12 +24,13 @@ export default function FeedScreen() {
   const [metal, setMetal] = useState('');
   const [search, setSearch] = useState('');
   const [hasMore, setHasMore] = useState(true);
+  const flatListRef = useRef<FlatList>(null);
 
   const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false) => {
     if (loadingMore && p > 1) return;
     try {
       if (p === 1) setLoading(true); else setLoadingMore(true);
-      const params = new URLSearchParams({ page: String(p), limit: '12' });
+      const params = new URLSearchParams({ page: String(p), limit: '20' });
       if (category) params.set('category', category);
       if (metal) params.set('metal_type', metal);
       if (search) params.set('search', search);
@@ -53,21 +54,31 @@ export default function FeedScreen() {
   const loadMore = () => { if (!loadingMore && hasMore && page < totalPages) fetchProducts(page + 1); };
   const doSearch = () => fetchProducts(1, true);
 
-  const renderItem = ({ item }: { item: Product }) => (
-    <TouchableOpacity testID={`feed-item-${item.id}`} style={styles.card} onPress={() => router.push({ pathname: '/product/[id]', params: { id: item.id } })} activeOpacity={0.85}>
-      <Image source={{ uri: item.images?.[0] }} style={styles.cardImage} />
-      <View style={styles.cardOverlay}>
-        <View style={styles.cardBadge}>
-          <Text style={styles.cardBadgeText}>{item.metal_type?.toUpperCase()}</Text>
+  const openViewer = (index: number) => {
+    const item = products[index];
+    if (item) {
+      router.push({ pathname: '/image-viewer', params: { productId: item.id, startIndex: String(index) } });
+    }
+  };
+
+  const renderItem = ({ item, index }: { item: Product; index: number }) => {
+    const thumbUri = getImageUrl(item, true);
+    return (
+      <TouchableOpacity testID={`feed-item-${item.id}`} style={styles.card} onPress={() => openViewer(index)} activeOpacity={0.85}>
+        <Image source={{ uri: thumbUri }} style={styles.cardImage} />
+        <View style={styles.cardOverlay}>
+          <View style={styles.cardBadge}>
+            <Text style={styles.cardBadgeText}>{item.metal_type?.toUpperCase()}</Text>
+          </View>
+          {item.is_trending && <View style={[styles.cardBadge, { backgroundColor: Colors.warning + '30' }]}><Ionicons name="flame" size={10} color={Colors.warning} /></View>}
         </View>
-        {item.is_trending && <View style={[styles.cardBadge, { backgroundColor: Colors.warning + '30' }]}><Ionicons name="flame" size={10} color={Colors.warning} /></View>}
-      </View>
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.cardMeta}>{item.category?.replace(/_/g, ' ')} • {item.approx_weight}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.cardBody}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={styles.cardMeta}>{item.category?.replace(/_/g, ' ')}{item.approx_weight ? ` • ${item.approx_weight}` : ''}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -103,6 +114,7 @@ export default function FeedScreen() {
 
       {loading ? <ActivityIndicator color={Colors.gold} style={{ marginTop: 40 }} /> : (
         <FlatList
+          ref={flatListRef}
           testID="feed-list"
           data={products}
           keyExtractor={item => item.id}
@@ -112,7 +124,11 @@ export default function FeedScreen() {
           contentContainerStyle={styles.listContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
           onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
+          onEndReachedThreshold={0.5}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews={true}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={Colors.gold} style={{ padding: 20 }} /> : hasMore ? null : products.length > 0 ? <Text style={styles.endText}>You've seen all products</Text> : null}
           ListEmptyComponent={<Text style={styles.emptyText}>{t('no_products')}</Text>}
         />

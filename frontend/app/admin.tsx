@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
 
-type Tab = 'dashboard' | 'products' | 'rates' | 'requests' | 'customers' | 'rewards';
+type Tab = 'dashboard' | 'products' | 'rates' | 'requests' | 'customers' | 'batches';
 
 export default function AdminScreen() {
   const router = useRouter();
@@ -125,6 +125,7 @@ export default function AdminScreen() {
 
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: 'dashboard', label: 'Dashboard', icon: 'stats-chart' },
+    { key: 'batches', label: 'Batches', icon: 'folder' },
     { key: 'products', label: 'Products', icon: 'grid' },
     { key: 'rates', label: 'Rates', icon: 'trending-up' },
     { key: 'requests', label: 'Requests', icon: 'call' },
@@ -367,6 +368,21 @@ export default function AdminScreen() {
             </>
           )}
 
+          {/* BATCHES - Quick link to full manager */}
+          {activeTab === 'batches' && (
+            <>
+              <TouchableOpacity testID="open-batch-manager" style={styles.batchManagerBtn} onPress={() => router.push('/admin-batches')}>
+                <Ionicons name="folder-open" size={28} color={Colors.gold} />
+                <Text style={styles.batchManagerText}>Open Batch Manager</Text>
+                <Text style={styles.batchManagerHint}>Upload images, manage batches, hide/show content</Text>
+              </TouchableOpacity>
+              <View style={styles.batchInfoCard}>
+                <Ionicons name="information-circle" size={18} color={Colors.info} />
+                <Text style={styles.batchInfoText}>Use the Batch Manager to upload real image files from your device. Create batches, organize by metal/category, and manage your entire photo library.</Text>
+              </View>
+            </>
+          )}
+
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
@@ -414,4 +430,9 @@ const styles = StyleSheet.create({
   requestActions: { flexDirection: 'row', gap: 8, marginTop: Spacing.sm },
   miniBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
   miniBtnText: { fontSize: FontSize.xs, fontWeight: '600' },
+  batchManagerBtn: { backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.xl, alignItems: 'center', marginTop: Spacing.md, borderWidth: 1, borderColor: Colors.borderGold, gap: 8 },
+  batchManagerText: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.gold },
+  batchManagerHint: { fontSize: FontSize.sm, color: Colors.textSecondary, textAlign: 'center' },
+  batchInfoCard: { flexDirection: 'row', gap: 10, backgroundColor: Colors.info + '10', borderRadius: 12, padding: Spacing.md, marginTop: Spacing.md, alignItems: 'flex-start' },
+  batchInfoText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 20 },
 });

@@ -1,8 +1,10 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Header
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Header, File, UploadFile
+from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import io
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -11,6 +13,8 @@ import uuid
 from datetime import datetime, timezone
 import jwt
 import asyncio
+import requests as http_requests
+from PIL import Image as PILImage
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -29,6 +33,60 @@ EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# ===================== OBJECT STORAGE =====================
+
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "yash-trade"
+storage_key = None
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    resp = http_requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    logger.info("Object storage initialized successfully")
+    return storage_key
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = http_requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def get_object(path: str):
+    key = init_storage()
+    resp = http_requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+def process_image(data: bytes, max_size: int = 1600, quality: int = 85) -> bytes:
+    img = PILImage.open(io.BytesIO(data))
+    if img.mode in ('RGBA', 'P', 'LA'):
+        img = img.convert('RGB')
+    if max(img.size) > max_size:
+        img.thumbnail((max_size, max_size), PILImage.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=quality, optimize=True)
+    return buf.getvalue()
+
+def create_thumbnail(data: bytes, size: int = 400, quality: int = 60) -> bytes:
+    img = PILImage.open(io.BytesIO(data))
+    if img.mode in ('RGBA', 'P', 'LA'):
+        img = img.convert('RGB')
+    img.thumbnail((size, size), PILImage.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=quality, optimize=True)
+    return buf.getvalue()
 
 # ===================== MODELS =====================
 
@@ -81,7 +139,7 @@ class BulkUploadRequest(BaseModel):
     visibility: str = "all"
 
 class RequestCreate(BaseModel):
-    request_type: str  # call, video_call, ask_price, hold_item, ask_similar, quick_reorder
+    request_type: str
     category: str = ""
     preferred_time: str = ""
     notes: str = ""
@@ -135,6 +193,20 @@ class RequestStatusUpdate(BaseModel):
     status: str
     assigned_to: str = ""
     notes: str = ""
+
+class BatchCreate(BaseModel):
+    name: str
+    metal_type: str = "silver"
+    category: str = ""
+
+class BatchUpdate(BaseModel):
+    name: str = ""
+    metal_type: str = ""
+    category: str = ""
+    status: str = ""
+
+class BatchImageDelete(BaseModel):
+    image_ids: List[str]
 
 # ===================== AUTH HELPERS =====================
 
@@ -233,9 +305,12 @@ async def update_profile(updates: Dict[str, Any], user=Depends(get_current_user)
 async def list_products(
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=50),
     category: str = Query(""), metal_type: str = Query(""),
-    search: str = Query(""), post_type: str = Query("")
+    search: str = Query(""), post_type: str = Query(""),
+    include_hidden: bool = Query(False)
 ):
-    query = {}
+    query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
+    if not include_hidden:
+        query["visibility"] = {"$ne": "hidden"}
     if category:
         query["category"] = category
     if metal_type:
@@ -266,6 +341,7 @@ async def create_product(req: ProductCreate, user=Depends(get_admin_user)):
         "id": str(uuid.uuid4()),
         **req.dict(),
         "views": 0,
+        "is_deleted": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -277,8 +353,22 @@ async def bulk_upload(req: BulkUploadRequest, user=Depends(get_admin_user)):
     if not req.image_urls:
         raise HTTPException(status_code=400, detail="No image URLs provided")
     now = datetime.now(timezone.utc).isoformat()
-    batch_id = str(uuid.uuid4())[:8]
-    batch_label = req.batch_name or f"Batch {batch_id}"
+    batch_id = str(uuid.uuid4())
+    batch_label = req.batch_name or f"Batch {batch_id[:8]}"
+    # Create a batch record for URL uploads too
+    batch_doc = {
+        "id": batch_id,
+        "name": batch_label,
+        "metal_type": req.metal_type or "silver",
+        "category": req.category or "",
+        "status": "visible",
+        "image_count": 0,
+        "upload_type": "url",
+        "created_by": user["id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.batches.insert_one(batch_doc)
     products = []
     for i, url in enumerate(req.image_urls):
         url = url.strip()
@@ -295,7 +385,7 @@ async def bulk_upload(req: BulkUploadRequest, user=Depends(get_admin_user)):
             "video_url": "",
             "approx_weight": "",
             "stock_status": "in_stock",
-            "tags": [req.metal_type or "silver", "bulk_upload", batch_id],
+            "tags": [req.metal_type or "silver", "bulk_upload", batch_id[:8]],
             "is_pinned": False,
             "is_new_arrival": True,
             "is_trending": False,
@@ -304,11 +394,13 @@ async def bulk_upload(req: BulkUploadRequest, user=Depends(get_admin_user)):
             "batch_id": batch_id,
             "batch_name": batch_label,
             "views": 0,
+            "is_deleted": False,
             "created_at": now,
             "updated_at": now,
         })
     if products:
         await db.products.insert_many(products)
+    await db.batches.update_one({"id": batch_id}, {"$set": {"image_count": len(products)}})
     return {"message": f"Uploaded {len(products)} images", "count": len(products), "batch_id": batch_id, "batch_name": batch_label}
 
 @api_router.put("/products/{product_id}")
@@ -330,6 +422,206 @@ async def get_categories():
     metals = await db.products.distinct("metal_type")
     return {"categories": [c for c in cats if c], "metal_types": [m for m in metals if m]}
 
+# ===================== BATCH MANAGEMENT =====================
+
+@api_router.post("/batches")
+async def create_batch(req: BatchCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    batch = {
+        "id": str(uuid.uuid4()),
+        "name": req.name,
+        "metal_type": req.metal_type,
+        "category": req.category,
+        "status": "visible",
+        "image_count": 0,
+        "upload_type": "file",
+        "created_by": user["id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.batches.insert_one(batch)
+    return {k: v for k, v in batch.items() if k != "_id"}
+
+@api_router.get("/batches")
+async def list_batches(
+    status: str = Query(""),
+    search: str = Query(""),
+    user=Depends(get_admin_user)
+):
+    query: Dict[str, Any] = {"status": {"$ne": "archived"}}
+    if status:
+        query["status"] = status
+    if search:
+        query["name"] = {"$regex": search, "$options": "i"}
+    batches = await db.batches.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"batches": batches}
+
+@api_router.get("/batches/{batch_id}")
+async def get_batch(batch_id: str, user=Depends(get_admin_user)):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+@api_router.get("/batches/{batch_id}/images")
+async def get_batch_images(
+    batch_id: str,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    user=Depends(get_admin_user)
+):
+    query = {"batch_id": batch_id, "is_deleted": {"$ne": True}}
+    total = await db.products.count_documents(query)
+    skip = (page - 1) * limit
+    products = await db.products.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return {"images": products, "total": total, "page": page, "pages": (total + limit - 1) // limit}
+
+@api_router.put("/batches/{batch_id}")
+async def update_batch(batch_id: str, req: BatchUpdate, user=Depends(get_admin_user)):
+    updates: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if req.name:
+        updates["name"] = req.name
+    if req.metal_type:
+        updates["metal_type"] = req.metal_type
+    if req.category:
+        updates["category"] = req.category
+    if req.status:
+        updates["status"] = req.status
+        visibility = "all" if req.status == "visible" else "hidden"
+        await db.products.update_many({"batch_id": batch_id, "is_deleted": {"$ne": True}}, {"$set": {"visibility": visibility}})
+    await db.batches.update_one({"id": batch_id}, {"$set": updates})
+    # Also update products metadata if metal/category changed
+    prod_updates = {}
+    if req.metal_type:
+        prod_updates["metal_type"] = req.metal_type
+    if req.category:
+        prod_updates["category"] = req.category
+    if prod_updates:
+        await db.products.update_many({"batch_id": batch_id, "is_deleted": {"$ne": True}}, {"$set": prod_updates})
+    return await db.batches.find_one({"id": batch_id}, {"_id": 0})
+
+@api_router.delete("/batches/{batch_id}")
+async def delete_batch(batch_id: str, user=Depends(get_admin_user)):
+    await db.batches.update_one({"id": batch_id}, {"$set": {"status": "archived", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await db.products.update_many({"batch_id": batch_id}, {"$set": {"visibility": "hidden", "is_deleted": True}})
+    return {"message": "Batch deleted"}
+
+@api_router.patch("/batches/{batch_id}/visibility")
+async def toggle_batch_visibility(batch_id: str, user=Depends(get_admin_user)):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    new_status = "hidden" if batch["status"] == "visible" else "visible"
+    visibility = "all" if new_status == "visible" else "hidden"
+    await db.batches.update_one({"id": batch_id}, {"$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await db.products.update_many({"batch_id": batch_id, "is_deleted": {"$ne": True}}, {"$set": {"visibility": visibility}})
+    return {"status": new_status}
+
+# ===================== FILE UPLOAD =====================
+
+@api_router.post("/batches/{batch_id}/upload")
+async def upload_to_batch(
+    batch_id: str,
+    files: List[UploadFile] = File(...),
+    user=Depends(get_admin_user)
+):
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    results = []
+    current_count = batch.get("image_count", 0)
+    for file in files:
+        try:
+            data = await file.read()
+            if len(data) > 20 * 1024 * 1024:
+                results.append({"filename": file.filename, "status": "error", "detail": "File too large (max 20MB)"})
+                continue
+            if len(data) < 100:
+                results.append({"filename": file.filename, "status": "error", "detail": "File too small or empty"})
+                continue
+            file_id = str(uuid.uuid4())
+            # Process images
+            original_data = process_image(data, max_size=1600, quality=85)
+            thumb_data = create_thumbnail(data, size=400, quality=60)
+            # Upload to storage
+            original_path = f"{APP_NAME}/originals/{file_id}.jpg"
+            thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
+            put_object(original_path, original_data, "image/jpeg")
+            put_object(thumb_path, thumb_data, "image/jpeg")
+            # Create product record
+            now = datetime.now(timezone.utc).isoformat()
+            current_count += 1
+            product = {
+                "id": file_id,
+                "title": f"{batch['name']} #{current_count}",
+                "description": "",
+                "metal_type": batch.get("metal_type", "silver"),
+                "category": batch.get("category", ""),
+                "subcategory": "",
+                "images": [],
+                "storage_path": original_path,
+                "thumbnail_path": thumb_path,
+                "original_filename": file.filename,
+                "file_size": len(data),
+                "video_url": "",
+                "approx_weight": "",
+                "stock_status": "in_stock",
+                "tags": [batch.get("metal_type", "silver"), "upload", batch["id"][:8]],
+                "is_pinned": False,
+                "is_new_arrival": True,
+                "is_trending": False,
+                "visibility": "all" if batch.get("status") == "visible" else "hidden",
+                "post_type": "product",
+                "batch_id": batch["id"],
+                "batch_name": batch["name"],
+                "views": 0,
+                "is_deleted": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.products.insert_one(product)
+            results.append({"filename": file.filename, "status": "ok", "id": file_id})
+        except Exception as e:
+            logger.error(f"Upload error for {file.filename}: {e}")
+            results.append({"filename": file.filename, "status": "error", "detail": str(e)})
+    # Update batch count
+    uploaded = sum(1 for r in results if r["status"] == "ok")
+    if uploaded > 0:
+        await db.batches.update_one(
+            {"id": batch_id},
+            {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    return {"results": results, "uploaded": uploaded, "failed": len(results) - uploaded, "batch_image_count": current_count}
+
+@api_router.post("/batches/{batch_id}/images/delete")
+async def delete_batch_images(batch_id: str, req: BatchImageDelete, user=Depends(get_admin_user)):
+    count = 0
+    for img_id in req.image_ids:
+        result = await db.products.update_one(
+            {"id": img_id, "batch_id": batch_id},
+            {"$set": {"is_deleted": True, "visibility": "hidden"}}
+        )
+        if result.modified_count:
+            count += 1
+    if count > 0:
+        await db.batches.update_one({"id": batch_id}, {"$inc": {"image_count": -count}})
+    return {"deleted": count}
+
+# ===================== FILE SERVING =====================
+
+@api_router.get("/files/{file_path:path}")
+async def serve_file(file_path: str):
+    try:
+        data, content_type = get_object(file_path)
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    except Exception as e:
+        logger.error(f"File serve error for {file_path}: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
+
 # ===================== RATE ENDPOINTS =====================
 
 @api_router.get("/rates/latest")
@@ -341,7 +633,6 @@ async def get_latest_rates():
                 "silver_movement": "stable", "gold_movement": "stable", "market_summary": "No data",
                 "silver_physical_mode": "manual", "gold_physical_mode": "manual",
                 "silver_physical_premium": 0, "gold_physical_premium": 0}
-    # Calculate physical rates if in calculated mode
     for metal in ["silver", "gold"]:
         mode = rate.get(f"{metal}_physical_mode", "manual")
         if mode == "calculated":
@@ -349,7 +640,6 @@ async def get_latest_rates():
             base_val = rate.get(f"{metal}_{base_src}_rate", 0) if base_src in ("dollar", "mcx") else 0
             premium = rate.get(f"{metal}_physical_premium", 0)
             rate[f"{metal}_physical_rate"] = base_val + premium
-    # Backward compat
     rate["silver_rate"] = rate.get("silver_physical_rate", rate.get("silver_rate", 0))
     rate["gold_rate"] = rate.get("gold_physical_rate", rate.get("gold_rate", 0))
     return rate
@@ -357,7 +647,6 @@ async def get_latest_rates():
 @api_router.post("/rates")
 async def update_rates(req: RateUpdate, user=Depends(get_admin_user)):
     data = req.dict()
-    # Auto-calculate physical if in calculated mode
     for metal in ["silver", "gold"]:
         if data.get(f"{metal}_physical_mode") == "calculated":
             base_src = data.get(f"{metal}_physical_base", "mcx")
@@ -382,9 +671,11 @@ async def create_request(req: RequestCreate, user=Depends(get_current_user)):
         "user_id": user["id"],
         "user_phone": user.get("phone", ""),
         "user_name": user.get("name", ""),
+        "user_city": user.get("city", ""),
         "status": "pending",
         "assigned_to": "",
         "admin_notes": "",
+        "notes_history": [],
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.requests.insert_one(request_data)
@@ -396,24 +687,57 @@ async def my_requests(user=Depends(get_current_user)):
     return {"requests": reqs}
 
 @api_router.get("/requests")
-async def list_requests(status: str = Query(""), request_type: str = Query(""), user=Depends(get_executive_or_admin)):
-    query = {}
+async def list_requests(
+    status: str = Query(""),
+    request_type: str = Query(""),
+    city: str = Query(""),
+    assigned_to: str = Query(""),
+    user=Depends(get_executive_or_admin)
+):
+    query: Dict[str, Any] = {}
     if status:
         query["status"] = status
     if request_type:
         query["request_type"] = request_type
+    if city:
+        query["user_city"] = {"$regex": city, "$options": "i"}
+    if assigned_to:
+        query["assigned_to"] = assigned_to
     reqs = await db.requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return {"requests": reqs}
 
 @api_router.patch("/requests/{request_id}")
 async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends(get_executive_or_admin)):
-    updates = {"status": req.status}
+    updates: Dict[str, Any] = {"status": req.status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if req.assigned_to:
         updates["assigned_to"] = req.assigned_to
     if req.notes:
         updates["admin_notes"] = req.notes
+        # Append to notes history
+        note_entry = {
+            "note": req.notes,
+            "by": user.get("name", user.get("phone", "")),
+            "by_id": user["id"],
+            "status": req.status,
+            "at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.requests.update_one({"id": request_id}, {"$push": {"notes_history": note_entry}})
     await db.requests.update_one({"id": request_id}, {"$set": updates})
     return await db.requests.find_one({"id": request_id}, {"_id": 0})
+
+@api_router.get("/requests/{request_id}/history")
+async def get_request_history(request_id: str, user=Depends(get_executive_or_admin)):
+    req = await db.requests.find_one({"id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    # Get customer's other requests
+    customer_requests = await db.requests.find(
+        {"user_id": req["user_id"], "id": {"$ne": request_id}},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    # Get customer details
+    customer = await db.users.find_one({"id": req["user_id"]}, {"_id": 0})
+    return {"request": req, "customer": customer, "past_requests": customer_requests}
 
 # ===================== REWARD ENDPOINTS =====================
 
@@ -498,32 +822,25 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
             "Speak as a knowledgeable trade insider. Help jewellers sell more and educate their customers."
             f"{lang_instruction}"
         )
-        # Load chat history
         history = await db.ai_chat_history.find(
             {"session_id": session_id}, {"_id": 0}
         ).sort("created_at", -1).limit(10).to_list(10)
         history.reverse()
-
         chat = LlmChat(
             api_key=EMERGENT_KEY,
             session_id=session_id,
             system_message=system_msg
         ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
-        # Replay history for context
         for h in history:
             if h.get("role") == "user":
                 chat._messages.append({"role": "user", "content": h["content"]})
             elif h.get("role") == "assistant":
                 chat._messages.append({"role": "assistant", "content": h["content"]})
-
         user_message = UserMessage(text=req.message)
         response = await chat.send_message(user_message)
-
         now = datetime.now(timezone.utc).isoformat()
         await db.ai_chat_history.insert_one({"session_id": session_id, "role": "user", "content": req.message, "created_at": now})
         await db.ai_chat_history.insert_one({"session_id": session_id, "role": "assistant", "content": response, "created_at": now})
-
         return {"response": response, "session_id": session_id}
     except Exception as e:
         logger.error(f"AI chat error: {e}")
@@ -623,15 +940,19 @@ async def track_event(event: Dict[str, Any], user=Depends(get_current_user)):
 @api_router.get("/analytics/dashboard")
 async def analytics_dashboard(user=Depends(get_admin_user)):
     total_users = await db.users.count_documents({"role": "customer"})
-    total_products = await db.products.count_documents({})
+    total_products = await db.products.count_documents({"is_deleted": {"$ne": True}})
+    total_batches = await db.batches.count_documents({"status": {"$ne": "archived"}})
     total_requests = await db.requests.count_documents({})
     pending_requests = await db.requests.count_documents({"status": "pending"})
     total_points = 0
     async for u in db.users.find({"role": "customer"}, {"reward_points": 1, "_id": 0}):
         total_points += u.get("reward_points", 0)
+    # Storage stats
+    storage_products = await db.products.count_documents({"storage_path": {"$exists": True}, "is_deleted": {"$ne": True}})
     recent_requests = await db.requests.find({}, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10)
     return {
         "total_users": total_users, "total_products": total_products,
+        "total_batches": total_batches, "uploaded_images": storage_products,
         "total_requests": total_requests, "pending_requests": pending_requests,
         "total_reward_points": total_points, "recent_requests": recent_requests
     }
@@ -682,7 +1003,6 @@ async def seed_data():
     if existing > 0:
         return {"message": "Data already seeded", "products": existing}
 
-    # Admin user
     admin = await db.users.find_one({"phone": "9999999999"})
     if not admin:
         await db.users.insert_one({
@@ -694,7 +1014,6 @@ async def seed_data():
             "last_login": datetime.now(timezone.utc).isoformat()
         })
 
-    # Demo customer
     await db.users.update_one({"phone": "8888888888"}, {"$setOnInsert": {
         "id": str(uuid.uuid4()), "phone": "8888888888", "name": "Rajesh Kumar",
         "city": "Jaipur", "customer_code": "AA8888", "customer_type": "retailer",
@@ -704,23 +1023,15 @@ async def seed_data():
         "last_login": datetime.now(timezone.utc).isoformat()
     }}, upsert=True)
 
-    # Products
     products = [
-        {"title": "Designer Silver Payal", "description": "Handcrafted silver anklets with intricate jali work. Perfect for bridal and festive wear.", "metal_type": "silver", "category": "payal", "subcategory": "bridal", "images": ["https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=600"], "approx_weight": "45-55 grams", "stock_status": "in_stock", "tags": ["bridal", "festive", "bestseller"], "is_trending": True, "is_new_arrival": True},
-        {"title": "Pure Silver Chain Collection", "description": "Premium Italian-style silver chains in various thicknesses. High polish finish.", "metal_type": "silver", "category": "chain", "subcategory": "italian", "images": ["https://images.unsplash.com/photo-1679973296611-82470327c513?w=600"], "approx_weight": "20-80 grams", "stock_status": "in_stock", "tags": ["chain", "daily_wear", "men"], "is_trending": True},
-        {"title": "Silver Articles - Pooja Thali Set", "description": "Complete silver pooja thali with kalash, diya, and bell. 925 hallmarked.", "metal_type": "silver", "category": "articles", "subcategory": "pooja", "images": ["https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=600"], "approx_weight": "150-200 grams", "stock_status": "in_stock", "tags": ["pooja", "gifting", "articles", "hallmarked"]},
-        {"title": "Gold Temple Necklace Set", "description": "Traditional temple design gold necklace with matching earrings. 22K gold.", "metal_type": "gold", "category": "necklace", "subcategory": "temple", "images": ["https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600"], "approx_weight": "35-45 grams", "stock_status": "in_stock", "tags": ["bridal", "temple", "traditional"], "is_pinned": True},
-        {"title": "Diamond Solitaire Ring", "description": "Elegant solitaire diamond ring in 18K white gold setting. VVS clarity.", "metal_type": "diamond", "category": "ring", "subcategory": "solitaire", "images": ["https://images.unsplash.com/photo-1606623546924-a4f3ae5ea3e8?w=600"], "approx_weight": "4.5 grams", "stock_status": "limited", "tags": ["diamond", "engagement", "premium"]},
-        {"title": "Silver Toe Rings Set", "description": "Traditional silver toe rings with oxidized finish. Set of 6 pairs.", "metal_type": "silver", "category": "toe_rings", "subcategory": "traditional", "images": ["https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600"], "approx_weight": "8-12 grams", "stock_status": "in_stock", "tags": ["toe_rings", "daily_wear", "women"]},
-        {"title": "Gold Bangles - Rajasthani Design", "description": "Beautiful Rajasthani meenakari gold bangles. 22K hallmarked gold.", "metal_type": "gold", "category": "bangles", "subcategory": "meenakari", "images": ["https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=600"], "approx_weight": "25-35 grams per pair", "stock_status": "in_stock", "tags": ["bangles", "rajasthani", "festive"]},
-        {"title": "Silver Baby Gifting Set", "description": "Complete baby gift set in pure silver - spoon, bowl, glass, and rattle.", "metal_type": "silver", "category": "gifting", "subcategory": "baby", "images": ["https://images.unsplash.com/photo-1515562141589-67f0d97dc11b?w=600"], "approx_weight": "80-100 grams", "stock_status": "in_stock", "tags": ["gifting", "baby", "premium"]},
-        {"title": "Mens Silver Bracelet - Heavy", "description": "Bold heavy silver bracelet for men. Curb link design with high polish.", "metal_type": "silver", "category": "bracelet", "subcategory": "mens", "images": ["https://images.unsplash.com/photo-1693213085231-fc580d8916de?w=600"], "approx_weight": "60-80 grams", "stock_status": "in_stock", "tags": ["mens", "bracelet", "heavy", "daily_wear"]},
-        {"title": "Silver Coin - Lakshmi Ji", "description": "Pure 999 silver coin with Lakshmi Ji embossing. Available in 10g, 20g, 50g, 100g.", "metal_type": "silver", "category": "coins", "subcategory": "religious", "images": ["https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=600"], "approx_weight": "10-100 grams", "stock_status": "in_stock", "tags": ["coins", "gifting", "diwali", "investment"], "is_trending": True},
-        {"title": "Designer Kundan Choker", "description": "Exquisite kundan choker set with pearl drops and matching maang tikka.", "metal_type": "gold", "category": "necklace", "subcategory": "kundan", "images": ["https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600"], "approx_weight": "55-65 grams", "stock_status": "limited", "tags": ["bridal", "kundan", "premium"]},
-        {"title": "Silver Kadaa - Sikh Design", "description": "Traditional Sikh style silver kadaa in heavy gauge. High polish.", "metal_type": "silver", "category": "kadaa", "subcategory": "sikh", "images": ["https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=600"], "approx_weight": "40-60 grams", "stock_status": "in_stock", "tags": ["kadaa", "mens", "traditional"]},
-        {"title": "Diamond Pendant - Heart", "description": "Beautiful heart-shaped diamond pendant in 18K rose gold with chain.", "metal_type": "diamond", "category": "pendant", "subcategory": "heart", "images": ["https://images.unsplash.com/photo-1515562141589-67f0d97dc11b?w=600"], "approx_weight": "3.2 grams", "stock_status": "in_stock", "tags": ["diamond", "pendant", "valentine", "gifting"]},
-        {"title": "Silver Dinner Set - 51 Pcs", "description": "Complete 51 piece silver dinner set. Premium quality for gifting and personal use.", "metal_type": "silver", "category": "articles", "subcategory": "dinner_set", "images": ["https://images.unsplash.com/photo-1679973296611-82470327c513?w=600"], "approx_weight": "2500-3000 grams", "stock_status": "in_stock", "tags": ["articles", "dinner_set", "premium", "gifting"]},
-        {"title": "Kids Silver Bracelet - Cartoon", "description": "Fun cartoon character silver bracelet for kids. Lightweight and comfortable.", "metal_type": "silver", "category": "kids", "subcategory": "bracelet", "images": ["https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600"], "approx_weight": "8-12 grams", "stock_status": "in_stock", "tags": ["kids", "bracelet", "fun", "daily_wear"]},
+        {"title": "Designer Silver Payal", "description": "Handcrafted silver anklets with intricate jali work.", "metal_type": "silver", "category": "payal", "subcategory": "bridal", "images": ["https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=600"], "approx_weight": "45-55 grams", "stock_status": "in_stock", "tags": ["bridal", "festive", "bestseller"], "is_trending": True, "is_new_arrival": True},
+        {"title": "Pure Silver Chain Collection", "description": "Premium Italian-style silver chains.", "metal_type": "silver", "category": "chain", "subcategory": "italian", "images": ["https://images.unsplash.com/photo-1679973296611-82470327c513?w=600"], "approx_weight": "20-80 grams", "stock_status": "in_stock", "tags": ["chain", "daily_wear", "men"], "is_trending": True},
+        {"title": "Silver Articles - Pooja Thali Set", "description": "Complete silver pooja thali. 925 hallmarked.", "metal_type": "silver", "category": "articles", "subcategory": "pooja", "images": ["https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=600"], "approx_weight": "150-200 grams", "stock_status": "in_stock", "tags": ["pooja", "gifting", "articles"]},
+        {"title": "Gold Temple Necklace Set", "description": "Traditional temple design gold necklace. 22K gold.", "metal_type": "gold", "category": "necklace", "subcategory": "temple", "images": ["https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600"], "approx_weight": "35-45 grams", "stock_status": "in_stock", "tags": ["bridal", "temple", "traditional"], "is_pinned": True},
+        {"title": "Diamond Solitaire Ring", "description": "Elegant solitaire diamond ring in 18K white gold.", "metal_type": "diamond", "category": "ring", "subcategory": "solitaire", "images": ["https://images.unsplash.com/photo-1606623546924-a4f3ae5ea3e8?w=600"], "approx_weight": "4.5 grams", "stock_status": "limited", "tags": ["diamond", "engagement", "premium"]},
+        {"title": "Silver Toe Rings Set", "description": "Traditional silver toe rings. Set of 6 pairs.", "metal_type": "silver", "category": "toe_rings", "subcategory": "traditional", "images": ["https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600"], "approx_weight": "8-12 grams", "stock_status": "in_stock", "tags": ["toe_rings", "daily_wear", "women"]},
+        {"title": "Gold Bangles - Rajasthani", "description": "Beautiful Rajasthani meenakari gold bangles. 22K.", "metal_type": "gold", "category": "bangles", "subcategory": "meenakari", "images": ["https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=600"], "approx_weight": "25-35 grams per pair", "stock_status": "in_stock", "tags": ["bangles", "rajasthani", "festive"]},
+        {"title": "Silver Baby Gifting Set", "description": "Complete baby gift set in pure silver.", "metal_type": "silver", "category": "gifting", "subcategory": "baby", "images": ["https://images.unsplash.com/photo-1515562141589-67f0d97dc11b?w=600"], "approx_weight": "80-100 grams", "stock_status": "in_stock", "tags": ["gifting", "baby", "premium"]},
     ]
     for p in products:
         p["id"] = str(uuid.uuid4())
@@ -730,12 +1041,12 @@ async def seed_data():
         p["is_new_arrival"] = p.get("is_new_arrival", True)
         p["is_trending"] = p.get("is_trending", False)
         p["visibility"] = "all"
+        p["is_deleted"] = False
         p["video_url"] = ""
         p["created_at"] = datetime.now(timezone.utc).isoformat()
         p["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.products.insert_many(products)
 
-    # Rates
     await db.rates.insert_one({
         "id": str(uuid.uuid4()),
         "silver_dollar_rate": 31.25, "silver_mcx_rate": 95.80, "silver_physical_rate": 96.50,
@@ -748,13 +1059,10 @@ async def seed_data():
         "created_at": datetime.now(timezone.utc).isoformat()
     })
 
-    # Knowledge articles
     knowledge_items = [
-        {"title": "Why Does Silver Turn Black?", "content": "Silver turns black due to a chemical reaction with sulphur compounds in the air. This is called tarnishing or oxidation. It is completely natural and does NOT mean the silver is impure.\n\nKey points to share with customers:\n- Tarnishing is a sign of REAL silver\n- It happens faster in humid weather\n- Perfumes, lotions, and sweat speed it up\n- It can be easily cleaned at home\n- 925 silver tarnishes slower than pure silver", "category": "silver_care", "card_type": "article", "tags": ["care", "education", "customer_facing"]},
-        {"title": "How to Clean Silver at Home", "content": "Simple home cleaning methods:\n\n1. Baking Soda Paste: Mix baking soda with water, apply gently, rinse\n2. Toothpaste Method: Use plain white toothpaste, rub gently, wash\n3. Aluminium Foil Method: Boil water with baking soda and aluminium foil, dip silver\n4. Lemon + Salt: Rub with lemon and salt for quick shine\n\nTips:\n- Always dry completely after cleaning\n- Use soft cloth, never rough materials\n- Store in airtight bags when not wearing", "category": "silver_care", "card_type": "article", "tags": ["cleaning", "tips", "customer_facing"]},
-        {"title": "Benefits of Wearing Silver", "content": "Silver has been valued for centuries. Share these benefits with customers:\n\n1. Antimicrobial properties - kills bacteria naturally\n2. Regulates body temperature\n3. Believed to improve blood circulation\n4. Hypoallergenic - safe for sensitive skin\n5. Affordable luxury compared to gold\n6. Versatile for daily wear and occasions\n7. Silver turns dark if toxins are near (traditional belief)\n8. Investment value - silver prices rising steadily", "category": "benefits", "card_type": "article", "tags": ["benefits", "selling_point", "customer_facing"]},
-        {"title": "Silver Storage Best Practices", "content": "Proper storage prevents 80% of tarnishing:\n\n- Store in anti-tarnish cloth or bag\n- Keep in airtight ziplock bags\n- Add silica gel packets to storage\n- Separate pieces to avoid scratching\n- Keep away from bathroom humidity\n- Remove before swimming or bathing\n- Apply perfume BEFORE wearing jewellery", "category": "silver_care", "card_type": "article", "tags": ["storage", "care", "customer_facing"]},
-        {"title": "Silver Gifting Ideas", "content": "Silver makes the perfect gift for every occasion:\n\nWedding: Dinner sets, pooja thali, photo frames\nBaby: Spoon set, bowl, glass, rattle\nDiwali: Lakshmi coins, diyas, puja items\nBirthday: Personalized jewelry, cufflinks\nAnniversary: Photo frames, wine glasses\nHousewarming: Flower vase, decorative items\nCorporate: Pens, card holders, desk items\n\nSilver gifts feel premium and last forever.", "category": "gifting", "card_type": "article", "tags": ["gifting", "ideas", "selling_point"]},
+        {"title": "Why Does Silver Turn Black?", "content": "Silver turns black due to tarnishing. It is natural and does NOT mean the silver is impure.", "category": "silver_care", "card_type": "article", "tags": ["care", "education"]},
+        {"title": "How to Clean Silver at Home", "content": "Baking soda paste, toothpaste method, aluminium foil method, lemon + salt.", "category": "silver_care", "card_type": "article", "tags": ["cleaning", "tips"]},
+        {"title": "Benefits of Wearing Silver", "content": "Antimicrobial, regulates temperature, hypoallergenic, affordable luxury.", "category": "benefits", "card_type": "article", "tags": ["benefits", "selling_point"]},
     ]
     for k in knowledge_items:
         k["id"] = str(uuid.uuid4())
@@ -762,13 +1070,10 @@ async def seed_data():
         k["created_at"] = datetime.now(timezone.utc).isoformat()
     await db.knowledge.insert_many(knowledge_items)
 
-    # Stories
     stories = [
         {"title": "New Silver Collection", "image_url": "https://images.unsplash.com/photo-1679973296611-82470327c513?w=400", "category": "new_arrivals", "link_type": "category", "link_id": "chain"},
         {"title": "Today's Silver Rate", "image_url": "https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=400", "category": "rates", "link_type": "rates", "link_id": ""},
         {"title": "Trending: Payal", "image_url": "https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=400", "category": "trending", "link_type": "category", "link_id": "payal"},
-        {"title": "Video Selection", "image_url": "https://images.unsplash.com/photo-1606623546924-a4f3ae5ea3e8?w=400", "category": "video_call", "link_type": "request", "link_id": "video_call"},
-        {"title": "Festival Offers", "image_url": "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=400", "category": "offers", "link_type": "feed", "link_id": ""},
     ]
     for s in stories:
         s["id"] = str(uuid.uuid4())
@@ -776,27 +1081,27 @@ async def seed_data():
         s["created_at"] = datetime.now(timezone.utc).isoformat()
     await db.stories.insert_many(stories)
 
-    # Reward config
     await db.reward_config.update_one({}, {"$set": {
         "points_per_1000": 10, "welcome_bonus": 100, "first_purchase_bonus": 50,
         "first_video_bonus": 25, "eligible_types": ["retailer", "mixed"]
     }}, upsert=True)
 
-    # Indexes
     await db.products.create_index([("created_at", -1)])
     await db.products.create_index([("category", 1)])
     await db.products.create_index([("metal_type", 1)])
+    await db.products.create_index([("batch_id", 1)])
+    await db.products.create_index([("is_deleted", 1)])
     await db.rates.create_index([("created_at", -1)])
     await db.requests.create_index([("user_id", 1)])
     await db.requests.create_index([("status", 1)])
     await db.users.create_index([("phone", 1)], unique=True)
+    await db.batches.create_index([("created_at", -1)])
+    await db.batches.create_index([("status", 1)])
 
     return {"message": "Seed data created successfully", "products": len(products)}
 
 @api_router.post("/seed/expand")
 async def seed_expand():
-    """Add executive user and expand products to 50+"""
-    # Executive user
     exec_exists = await db.users.find_one({"phone": "7777777777"})
     if not exec_exists:
         await db.users.insert_one({
@@ -807,11 +1112,9 @@ async def seed_expand():
             "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
             "last_login": datetime.now(timezone.utc).isoformat()
         })
-
     count = await db.products.count_documents({})
     if count >= 50:
         return {"message": "Already expanded", "products": count}
-
     imgs = [
         "https://images.unsplash.com/photo-1679973296611-82470327c513?w=600",
         "https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=600",
@@ -824,56 +1127,37 @@ async def seed_expand():
         "https://images.unsplash.com/photo-1693213085231-fc580d8916de?w=600",
     ]
     extra = [
-        ("Heavy Silver Payal - Rajasthani","silver","payal","60-80g","bridal"),
+        ("Heavy Silver Payal","silver","payal","60-80g","bridal"),
         ("Light Daily Wear Payal","silver","payal","15-25g","daily_wear"),
         ("Oxidized Silver Payal","silver","payal","30-40g","oxidized"),
-        ("Baby Silver Payal","silver","payal","8-12g","kids"),
         ("Italian Silver Chain 22inch","silver","chain","30-50g","italian"),
         ("Rope Silver Chain Heavy","silver","chain","60-100g","mens"),
-        ("Box Chain Silver","silver","chain","20-35g","daily_wear"),
-        ("Figaro Gold Chain","gold","chain","15-25g","italian"),
         ("Silver Pooja Bell","silver","articles","50-80g","pooja"),
         ("Silver Photo Frame","silver","articles","100-150g","gifting"),
-        ("Silver Flower Vase","silver","articles","200-300g","premium"),
-        ("Silver Wine Glass Set","silver","articles","150-200g","premium"),
         ("Kundan Gold Necklace","gold","necklace","40-55g","bridal"),
         ("Gold Choker Set","gold","necklace","30-40g","festive"),
         ("Polki Diamond Set","diamond","necklace","25-35g","bridal"),
         ("Gold Jhumka Earrings","gold","earrings","10-15g","festive"),
         ("Diamond Studs","diamond","earrings","3-5g","daily_wear"),
-        ("Silver Nose Ring Set","silver","nose_ring","2-4g","traditional"),
         ("Gold Bangles Set of 4","gold","bangles","40-60g","festive"),
         ("Silver Kada Heavy Mens","silver","kadaa","80-120g","mens"),
         ("Silver Coin 50g Ganesh","silver","coins","50g","gifting"),
-        ("Silver Coin 100g Lakshmi","silver","coins","100g","investment"),
         ("Gold Coin 10g","gold","coins","10g","investment"),
         ("Silver Bracelet Curb Link","silver","bracelet","30-50g","mens"),
-        ("Silver Bangle Oxidized","silver","bangles","20-30g","oxidized"),
         ("Diamond Tennis Bracelet","diamond","bracelet","8-12g","premium"),
         ("Silver Anklet Ghungroo","silver","payal","25-35g","traditional"),
         ("Gold Mangalsutra","gold","necklace","15-25g","bridal"),
-        ("Silver Spoon Set Baby","silver","gifting","40-60g","baby"),
-        ("Silver Rakhi Special","silver","gifting","5-10g","festive"),
-        ("Gold Pendant Peacock","gold","pendant","5-8g","daily_wear"),
-        ("Silver Cufflinks Mens","silver","mens","10-15g","corporate"),
-        ("Diamond Nose Pin","diamond","nose_ring","1-2g","daily_wear"),
-        ("Silver Waist Belt","silver","waist_belt","100-150g","bridal"),
-        ("Kids Gold Bracelet","gold","kids","5-8g","kids"),
-        ("Silver Ring Oxidized","silver","ring","5-8g","daily_wear"),
-        ("Gold Engagement Ring","gold","ring","4-6g","bridal"),
-        ("Silver Glass Set","silver","articles","200-250g","gifting"),
-        ("Navratna Gold Ring","gold","ring","6-8g","traditional"),
-        ("Silver Temple Jewellery Set","silver","necklace","80-120g","temple"),
     ]
     new_products = []
     for i, (title, metal, cat, wt, tag) in enumerate(extra):
         new_products.append({
-            "id": str(uuid.uuid4()), "title": title, "description": f"Premium quality {metal} {cat}. {title}.",
+            "id": str(uuid.uuid4()), "title": title, "description": f"Premium quality {metal} {cat}.",
             "metal_type": metal, "category": cat, "subcategory": tag, "images": [imgs[i % len(imgs)]],
             "video_url": "", "approx_weight": wt, "stock_status": "in_stock",
-            "tags": [tag, metal, cat], "is_pinned": False, "is_new_arrival": i < 15,
+            "tags": [tag, metal, cat], "is_pinned": False, "is_new_arrival": i < 10,
             "is_trending": i % 5 == 0, "visibility": "all", "post_type": "product",
-            "views": 0, "created_at": datetime.now(timezone.utc).isoformat(),
+            "is_deleted": False, "views": 0,
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         })
     if new_products:
@@ -900,6 +1184,11 @@ async def startup():
         logger.info("Seed data initialized")
     except Exception as e:
         logger.info(f"Seed check: {e}")
+    try:
+        init_storage()
+        logger.info("Object storage ready")
+    except Exception as e:
+        logger.warning(f"Storage init deferred: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

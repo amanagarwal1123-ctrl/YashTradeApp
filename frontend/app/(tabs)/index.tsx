@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
+import { getImageUrl } from '../../src/api';
 
 interface Rate { silver_dollar_rate: number; silver_mcx_rate: number; silver_physical_rate: number; gold_dollar_rate: number; gold_mcx_rate: number; gold_physical_rate: number; silver_movement: string; gold_movement: string; market_summary: string; silver_physical_premium: number; gold_physical_premium: number; silver_rate?: number; gold_rate?: number; created_at?: string; }
 interface Story { id: string; title: string; image_url: string; category: string; }
@@ -31,7 +32,7 @@ const StoryItem = ({ story }: { story: Story }) => (
 
 const ProductCard = ({ item, onPress }: { item: Product; onPress: () => void }) => (
   <TouchableOpacity testID={`product-card-${item.id}`} style={styles.productCard} onPress={onPress} activeOpacity={0.8}>
-    <Image source={{ uri: item.images?.[0] }} style={styles.productImage} />
+    <Image source={{ uri: getImageUrl(item, true) }} style={styles.productImage} />
     <View style={styles.productInfo}>
       <View style={styles.productBadges}>
         <View style={[styles.badge, { backgroundColor: item.metal_type === 'gold' ? '#D4AF3720' : item.metal_type === 'diamond' ? '#3B82F620' : '#E0E0E020' }]}>
