@@ -21,15 +21,18 @@ Private mobile app for Yash Trade jewelry business, serving ~40,000 wholesale an
 
 ## Core Architecture
 ```
-/app/backend/server.py  - Monolithic FastAPI (all routes + models + storage)
-/app/frontend/app/      - Expo Router file-based routing
-  ├── (tabs)/            - Main tabs (Home, Feed, Calculator, Profile)
-  ├── admin.tsx          - Admin panel with tabs
-  ├── admin-batches.tsx  - Batch management + file upload
-  ├── admin-batch-detail.tsx - Batch image grid + management
-  ├── image-viewer.tsx   - Full-screen image viewer
+/app/backend/server.py       - FastAPI backend (all routes + models + storage)
+/app/frontend/app/
+  ├── (tabs)/                 - Customer app tabs (Home, Feed, Calculator, Profile)
+  ├── panel.tsx               - STANDALONE web admin/executive panel (own auth, own dashboard)
+  ├── image-viewer.tsx        - Full-screen image viewer
+  ├── my-requests.tsx         - Customer request history
+  ├── wishlist.tsx            - Customer wishlist
   └── ...
-/app/frontend/src/api.ts - API layer with file upload support
+/app/frontend/src/api.ts     - API layer with file upload support
+
+Customer App:  {base_url}/          → Mobile app (Play Store / App Store ready)
+Admin Panel:   {base_url}/panel     → Web dashboard for admin + executive
 ```
 
 ## What's Been Implemented
