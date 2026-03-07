@@ -94,11 +94,6 @@ export default function HomeScreen() {
             <Text style={styles.userName}>{user?.name || 'Jeweller'}</Text>
           </View>
           <View style={styles.headerRight}>
-            {user?.role === 'admin' && (
-              <TouchableOpacity testID="admin-btn" onPress={() => router.push('/admin')} style={styles.headerIcon}>
-                <Ionicons name="settings" size={22} color={Colors.gold} />
-              </TouchableOpacity>
-            )}
             <TouchableOpacity testID="notifications-btn" style={styles.headerIcon}>
               <Ionicons name="notifications-outline" size={22} color={Colors.text} />
               <View style={styles.notifDot} />

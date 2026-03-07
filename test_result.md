@@ -102,7 +102,7 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: Test the Yash Trade App - a jewelry business mobile app built with FastAPI backend and Expo React Native frontend, focusing on NEW batch management and file upload features.
+user_problem_statement: Test the Yash Trade App architecture split - customer mobile app + admin/executive web panel with role-based access control and comprehensive API functionality.
 
 backend:
   - task: "Authentication System"
@@ -210,35 +210,125 @@ backend:
         - agent: "testing"
         - comment: "✅ PASSED: Rate system working correctly. GET /api/rates/latest returns 6-point rate system (silver_dollar_rate: $31.25, silver_mcx_rate: ₹95.80, silver_physical_rate: ₹96.50, gold rates). Admin rate updates via POST /api/rates successful. Rate history retrieval working with proper pagination."
 
-  - task: "Analytics Dashboard Enhancement"
+  - task: "Web Panel Role Authentication"
     implemented: true
     working: true
     file: "server.py"
     stuck_count: 0
-    priority: "low"
+    priority: "high"
     needs_retesting: false
     status_history:
         - working: "NA"
         - agent: "testing"
-        - comment: "Test GET /api/analytics/dashboard includes total_batches and uploaded_images counts"
+        - comment: "Test role-based authentication for web panel architecture: admin (9999999999), executive (7777777777), customer (8888888888) with proper role validation"
         - working: true
         - agent: "testing"
-        - comment: "✅ PASSED: Analytics dashboard enhanced correctly. GET /api/analytics/dashboard includes new fields: total_batches (2), uploaded_images (1), along with existing metrics (total_products: 59, total_users: 1). Admin access properly enforced."
+        - comment: "✅ PASSED: Web panel role authentication working perfectly. Admin, executive, and customer roles correctly returned by POST /api/auth/verify-otp. Backend properly validates roles for web panel access control."
 
-  - task: "Bulk Product Upload (Legacy)"
+  - task: "Admin Analytics Dashboard Access"
     implemented: true
     working: true
     file: "server.py"
     stuck_count: 0
-    priority: "low"
+    priority: "high"
     needs_retesting: false
     status_history:
         - working: "NA"
         - agent: "testing"
-        - comment: "Regression test: ensure POST /api/products/bulk URL-based upload still works after new file upload features"
+        - comment: "Test admin can access GET /api/analytics/dashboard with proper authorization"
         - working: true
         - agent: "testing"
-        - comment: "✅ PASSED: Legacy bulk upload regression test successful. POST /api/products/bulk URL-based upload still working correctly, creating products and batch records. No conflicts with new file upload system. Both upload methods coexist properly."
+        - comment: "✅ PASSED: Admin analytics dashboard access working correctly. GET /api/analytics/dashboard returns 8 metrics including total_batches, uploaded_images, total_products, total_users. Admin-only access properly enforced."
+
+  - task: "Executive Request Management"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test executive can access GET /api/requests, manage request status updates, and status normalization (done -> resolved)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Executive request management working perfectly. Executive can list requests (19 available), update request status via PATCH /api/requests/{id}, and status normalization correctly converts 'done' to 'resolved'. Request lifecycle management functional."
+
+  - task: "Admin Rate Management"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test admin can create rates via POST /api/rates and rates are reflected in GET /api/rates/latest"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Admin rate management working correctly. POST /api/rates successfully creates new rate entries with silver/gold rates. GET /api/rates/latest immediately reflects updated rates (Silver Physical: ₹98.0, Gold Physical: ₹7500.0)."
+
+  - task: "Admin Batch Management"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test admin can create batches via POST /api/batches, list via GET /api/batches, and toggle visibility"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Admin batch management working perfectly. POST /api/batches creates new batches, GET /api/batches lists 3 batches, PATCH /api/batches/{id}/visibility successfully toggles visibility to hidden/visible."
+
+  - task: "Protected Seed Endpoints"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test POST /api/seed and POST /api/seed/expand return 401 without authentication"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Seed endpoints properly protected. Both POST /api/seed and POST /api/seed/expand correctly return 401 Unauthorized when called without authentication headers."
+
+  - task: "Customer Endpoints Functionality"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test customer endpoints: GET /api/products, GET /api/rates/latest (public), POST /api/requests, GET /api/requests/my, wishlist operations"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Customer endpoints fully functional. Public endpoints (products, rates) work without auth. Authenticated customer endpoints working: request creation, own requests retrieval (9 requests), wishlist toggle/retrieval. Customer mobile app functionality preserved."
+
+  - task: "Redeem Points Validation"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "Test POST /api/rewards/redeem validation with points=0 and points=-1 should return 422"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Redeem validation working correctly. POST /api/rewards/redeem with points=0 and points=-1 both return 422 Unprocessable Entity as expected. Input validation properly implemented."
 
 frontend:
   - task: "Login Flow Testing"
@@ -356,7 +446,7 @@ test_plan:
   current_focus: []
   stuck_tasks: []
   test_all: true
-  test_priority: "completed"
+  test_priority: "web_panel_architecture_completed"
 
 agent_communication:
     - agent: "testing"
@@ -365,3 +455,5 @@ agent_communication:
     - message: "✅ COMPREHENSIVE BACKEND TESTING COMPLETED SUCCESSFULLY! All 10 test suites passed (100% success rate). NEW batch management and file upload features working perfectly. Authentication, product visibility filtering, request management, rates system, analytics dashboard, and legacy bulk upload all functioning correctly. Backend API is production-ready. 🎉"
     - agent: "testing"
     - message: "🎯 COMPREHENSIVE FRONTEND UI TESTING COMPLETED! Tested all key user flows including admin (9999999999) and user (8888888888) login, home screen with rate ticker and quick actions, admin panel with batch management, feed screen with product grid and filters, image viewer with full-screen display and actions. All major functionality working correctly on mobile viewport (iPhone 14). Role-based access control properly implemented."
+    - agent: "testing"
+    - message: "🏢 WEB PANEL ARCHITECTURE TESTING COMPLETED! Successfully verified customer mobile app + admin/executive web panel split. All 9 test scenarios PASSED: Role authentication (admin/executive/customer), panel login rejection for customers, admin analytics dashboard access, executive request management, admin rate/batch management, protected seed endpoints, customer functionality preservation, and redeem validation. Backend APIs fully support web panel architecture with proper role-based access control."

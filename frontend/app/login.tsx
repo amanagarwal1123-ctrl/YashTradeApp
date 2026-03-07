@@ -56,7 +56,6 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <Text style={styles.hint}>Demo: Use any 10-digit number, OTP is 1234</Text>
-          <Text style={styles.hint}>Admin: 9999999999 | Executive: 7777777777</Text>
         </View>
 
         <View style={styles.footer}>
@@ -73,7 +72,6 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginTop: 60, marginBottom: 48 },
   logoContainer: { width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(212,175,55,0.1)', borderWidth: 1, borderColor: Colors.borderGold, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.lg },
   brand: { fontSize: FontSize.xxl, fontWeight: '700', color: Colors.gold, letterSpacing: 4 },
-  subtitle: { fontSize: FontSize.lg, fontWeight: '300', color: Colors.silver, letterSpacing: 6, marginTop: 4 },
   tagline: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: Spacing.md, letterSpacing: 1 },
   form: { width: '100%' },
   label: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 2, marginBottom: Spacing.sm, fontWeight: '600' },

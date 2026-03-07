@@ -18,13 +18,10 @@ export default function RootLayout() {
           <Stack.Screen name="rewards" options={{ presentation: 'modal' }} />
           <Stack.Screen name="request-call" options={{ presentation: 'modal' }} />
           <Stack.Screen name="knowledge" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="admin" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="admin-batches" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="admin-batch-detail" options={{ presentation: 'modal' }} />
           <Stack.Screen name="image-viewer" options={{ presentation: 'modal', animation: 'fade' }} />
           <Stack.Screen name="my-requests" options={{ presentation: 'modal' }} />
           <Stack.Screen name="wishlist" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="executive" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="panel" options={{ presentation: 'modal' }} />
         </Stack>
       </LanguageProvider>
     </AuthProvider>

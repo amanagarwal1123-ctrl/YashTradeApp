@@ -117,13 +117,7 @@ export default function ProfileScreen() {
           <MenuItem testID="video-menu-btn" icon="videocam" label="Request Video Call" onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call' } })} />
         </View>
 
-        {(user?.role === 'admin' || user?.role === 'executive') && (
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>{user.role === 'admin' ? t('admin') : 'EXECUTIVE'}</Text>
-            {user.role === 'admin' && <MenuItem testID="admin-menu-btn" icon="settings" label={t('admin_dashboard')} onPress={() => router.push('/admin')} />}
-            <MenuItem testID="exec-menu-btn" icon="headset" label={t('executive_panel')} onPress={() => router.push('/executive')} />
-          </View>
-        )}
+        {/* Removed admin/executive panel section - moved to /panel web URL */}
 
         <TouchableOpacity testID="logout-btn" style={styles.logoutBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color={Colors.error} />
