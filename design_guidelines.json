@@ -1,0 +1,201 @@
+{
+  "identity": {
+    "name": "E1: The Anti-AI Designer",
+    "mission": "Create a 'Vault-Grade' luxury trading experience that feels expensive, secure, and professional. Avoid generic e-commerce templates.",
+    "tone": {
+      "primary": "Luxury Industrial",
+      "secondary": "Fintech Precision",
+      "voice": "Professional, Direct, Exclusive"
+    }
+  },
+  "visual_language": {
+    "theme": "Dark Premium (Mandatory)",
+    "mood_board": [
+      "High-contrast metals against deep voids",
+      "Bespoke typography (Serif headings)",
+      "Financial data presented as art",
+      "Tactile interactions (Haptic visual cues)"
+    ]
+  },
+  "colors": {
+    "palette": {
+      "background": {
+        "main": "#050505",
+        "surface": "#121212",
+        "card": "#1A1A1A",
+        "modal": "#202020"
+      },
+      "primary": {
+        "gold": "#D4AF37",
+        "gold_dim": "#AA8C2C",
+        "gold_light": "#F4D03F"
+      },
+      "secondary": {
+        "silver": "#E0E0E0",
+        "silver_dim": "#A0A0A0",
+        "platinum": "#E5E4E2"
+      },
+      "text": {
+        "primary": "#FFFFFF",
+        "secondary": "#A1A1AA",
+        "muted": "#52525B",
+        "inverse": "#000000"
+      },
+      "functional": {
+        "success": "#10B981",
+        "error": "#EF4444",
+        "warning": "#F59E0B",
+        "info": "#3B82F6"
+      },
+      "border": {
+        "subtle": "#27272A",
+        "gold_faint": "rgba(212, 175, 55, 0.2)"
+      }
+    },
+    "gradients": {
+      "gold_rush": "linear-gradient(135deg, #D4AF37 0%, #AA8C2C 100%)",
+      "dark_void": "radial-gradient(circle at center, #1A1A1A 0%, #050505 100%)",
+      "glass_surface": "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%)"
+    }
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Playfair Display, serif",
+      "body": "Manrope, sans-serif",
+      "numbers": "JetBrains Mono, monospace"
+    },
+    "scale": {
+      "h1": {
+        "size": "text-4xl md:text-5xl",
+        "weight": "font-bold",
+        "tracking": "tracking-tight",
+        "line_height": "leading-none"
+      },
+      "h2": {
+        "size": "text-3xl",
+        "weight": "font-semibold",
+        "tracking": "tracking-tight"
+      },
+      "h3": {
+        "size": "text-2xl",
+        "weight": "font-medium"
+      },
+      "body_lg": {
+        "size": "text-lg",
+        "weight": "font-normal",
+        "line_height": "leading-relaxed"
+      },
+      "body_base": {
+        "size": "text-base",
+        "weight": "font-normal"
+      },
+      "caption": {
+        "size": "text-xs",
+        "weight": "font-medium",
+        "uppercase": "uppercase tracking-widest"
+      }
+    }
+  },
+  "layout_strategy": {
+    "mobile": {
+      "type": "Endless Feed",
+      "safe_area": "pt-12 pb-8",
+      "grid_cols": "grid-cols-1",
+      "card_spacing": "gap-6"
+    },
+    "admin_dashboard": {
+      "type": "Bento Grid",
+      "grid_cols": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+      "gap": "gap-4 md:gap-6",
+      "sidebar_width": "w-64"
+    },
+    "container": {
+      "max_width": "max-w-7xl",
+      "padding": "px-4 md:px-8"
+    }
+  },
+  "components": {
+    "cards": {
+      "product": "bg-card border border-border/50 rounded-xl overflow-hidden hover:border-gold/50 transition-colors duration-300",
+      "stat": "bg-surface p-6 rounded-2xl border border-white/5 relative overflow-hidden",
+      "glass": "bg-black/40 backdrop-blur-xl border border-white/10"
+    },
+    "buttons": {
+      "primary": "bg-gradient-to-r from-[#D4AF37] to-[#AA8C2C] text-black font-bold px-6 py-3 rounded-lg shadow-[0_0_20px_rgba(212,175,55,0.3)] hover:shadow-[0_0_30px_rgba(212,175,55,0.5)] transition-all",
+      "secondary": "bg-white/5 border border-white/10 text-white px-6 py-3 rounded-lg hover:bg-white/10 transition-all",
+      "ghost": "text-gold hover:text-gold-light transition-colors"
+    },
+    "inputs": {
+      "style": "bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-gold/50 focus:ring-1 focus:ring-gold/50 outline-none transition-all placeholder:text-neutral-600"
+    },
+    "navigation": {
+      "mobile_bottom": "fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-lg border-t border-white/10 pb-safe pt-4 px-6 flex justify-between items-center z-50",
+      "admin_sidebar": "h-screen bg-surface border-r border-white/5 p-6 flex flex-col gap-2"
+    }
+  },
+  "assets": {
+    "images": {
+      "hero_texture": "https://images.pexels.com/photos/5594992/pexels-photo-5594992.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "gold_dust": "https://images.pexels.com/photos/9665186/pexels-photo-9665186.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "products": [
+        {
+          "category": "Gold Earrings",
+          "url": "https://images.unsplash.com/photo-1693213085231-fc580d8916de?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBnb2xkJTIwZGlhbW9uZCUyMGpld2VscnklMjBibGFjayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzcyODczNTg3fDA&ixlib=rb-4.1.0&q=85"
+        },
+        {
+          "category": "Diamond Ring",
+          "url": "https://images.unsplash.com/photo-1606623546924-a4f3ae5ea3e8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwzfHxsdXh1cnklMjBnb2xkJTIwZGlhbW9uZCUyMGpld2VscnklMjBibGFjayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzcyODczNTg3fDA&ixlib=rb-4.1.0&q=85"
+        },
+        {
+          "category": "Silver Chain",
+          "url": "https://images.unsplash.com/photo-1679973296611-82470327c513?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwzfHxzaWx2ZXIlMjBuZWNrbGFjZSUyMGNoYWluJTIwamV3ZWxyeSUyMGx1eHVyeXxlbnwwfHx8fDE3NzI4NzM1ODd8MA&ixlib=rb-4.1.0&q=85"
+        },
+        {
+          "category": "Silver Pendant",
+          "url": "https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwyfHxzaWx2ZXIlMjBuZWNrbGFjZSUyMGNoYWluJTIwamV3ZWxyeSUyMGx1eHVyeXxlbnwwfHx8fDE3NzI4NzM1ODd8MA&ixlib=rb-4.1.0&q=85"
+        }
+      ]
+    },
+    "icons": {
+      "library": "Lucide React (Web) / Lucide React Native",
+      "style": "Stroke width 1.5px, Sharp or Rounded based on context"
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure Gold text on Black passes WCAG AA. Use lighter gold (#F4D03F) for small text if needed.",
+    "touch_targets": "Minimum 44x44px for all mobile interactions."
+  },
+  "tech_specifics": {
+    "react_native": {
+      "styling": "NativeWind (Tailwind classes) or StyleSheet",
+      "navigation": "Expo Router / React Navigation",
+      "status_bar": "Light Content (Dark Background)"
+    },
+    "web_admin": {
+      "framework": "React + Vite",
+      "ui_lib": "Shadcn UI (Customized to Dark Mode)",
+      "charts": "Recharts (Custom Gold/Silver axis colors)"
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. IMPLEMENTATION PRIORITY: Mobile First. Focus on the 'Feed' and 'Calculator' experience.",
+    "2. THEME: Force Dark Mode. Do not implement a Light Mode toggle unless explicitly requested for accessibility.",
+    "3. HEADER: The Daily Rates must be visible immediately. Use a 'Ticker' or 'Sticky Header' approach.",
+    "4. IMAGES: Use 'aspect-square' for product grids and 'aspect-[4/5]' for detail views.",
+    "5. DATA: Mock the Silver/Gold rates with realistic fluctuations for the demo.",
+    "6. ADMIN: The dashboard must look like a 'Trading Terminal' - dense data, clear charts, no fluff.",
+    "7. UNIVERSAL GUIDELINES: Follow the 'Anti-AI' rules - no generic purple gradients, no centered text everywhere."
+  ],
+  "universal_guidelines": {
+    "dos": [
+      "Use Z-index layers to create depth (Background > Glow > Card > Content)",
+      "Use specific transitions: 'transition-transform duration-300 ease-out'",
+      "Use 'backdrop-blur' for overlays to maintain context"
+    ],
+    "donts": [
+      "No default blue/purple generic SaaS colors",
+      "No 'text-gray-500' on dark mode (use 'text-white/60' for better blending)",
+      "No skeletal loaders that look broken (use subtle shimmer)"
+    ]
+  }
+}
