@@ -154,6 +154,16 @@ Admin Panel:   {base_url}/panel     → Web dashboard for admin + executive
 - [x] Fix 11: Frontend .env.example created + runtime console warning if EXPO_PUBLIC_BACKEND_URL missing
 - [x] Fix 12: Executive user seeded at startup via `_internal_seed()` (no manual seed/expand needed)
 
+### Feature Update (2026-03-07) — Crash Fixes + Cart + Calculator + Highlights + Product Metadata
+- [x] Fix: "router is not defined" crash — ProductCard component used `router` from parent scope; moved all actions inline within HomeScreen where `useRouter()` is available
+- [x] Fix: LanguageContext verified stable — uses React Context + AsyncStorage, no expo-router dependency conflicts
+- [x] Calculator: Item Name replaced with searchable dropdown/modal selector (22 preset items + custom entry)
+- [x] Highlights/Stories: Now clickable — category stories open category feed, request stories open request flow, rate stories scroll to rates
+- [x] Product metadata: Added `purity`, `selling_touch`, `selling_label` fields (backend model + product detail display)
+- [x] Cart system: Add to Selection (product card + detail), Cart screen, Submit Selection workflow
+- [x] Cart → Executive: Cart submissions create `cart_selection` request type with full item details, visible in executive panel
+- [x] Cart status flow: pending → in_progress → contacted → resolved/no_response
+
 ## Prioritized Backlog
 
 ### P1 - Upcoming

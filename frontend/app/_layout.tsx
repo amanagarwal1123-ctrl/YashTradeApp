@@ -21,6 +21,7 @@ export default function RootLayout() {
           <Stack.Screen name="image-viewer" options={{ presentation: 'modal', animation: 'fade' }} />
           <Stack.Screen name="my-requests" options={{ presentation: 'modal' }} />
           <Stack.Screen name="wishlist" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
           <Stack.Screen name="panel" options={{ presentation: 'modal' }} />
         </Stack>
       </LanguageProvider>

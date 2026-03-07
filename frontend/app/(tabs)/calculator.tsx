@@ -1,10 +1,49 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Modal, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 
+const ITEM_PRESETS = ['Silver Payal', 'Silver Chain', 'Silver Ring', 'Silver Article', 'Silver Gift Item', 'Silver Bowl', 'Silver Pooja Item', 'Silver Bracelet', 'Silver Anklet', 'Silver Coin', 'Silver Kadaa', 'Silver Toe Ring', 'Silver Necklace', 'Silver Earring', 'Silver Pendant', 'Silver Dinner Set', 'Gold Chain', 'Gold Necklace', 'Gold Ring', 'Gold Bangles', 'Diamond Ring', 'Diamond Pendant'];
+
 interface CalcItem { name: string; weight: string; rate: string; making: string; }
+
+function ItemSelector({ value, onChange, testID }: { value: string; onChange: (v: string) => void; testID?: string }) {
+  const [show, setShow] = useState(false);
+  const [search, setSearch] = useState('');
+  const filtered = ITEM_PRESETS.filter(i => i.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>Item Name</Text>
+      <TouchableOpacity testID={testID} style={styles.selectorBtn} onPress={() => setShow(true)}>
+        <Text style={value ? styles.selectorText : styles.selectorPlaceholder}>{value || 'Select or type item name'}</Text>
+        <Ionicons name="chevron-down" size={16} color={Colors.textMuted} />
+      </TouchableOpacity>
+      <Modal visible={show} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Item</Text>
+              <TouchableOpacity onPress={() => setShow(false)}><Ionicons name="close" size={24} color={Colors.text} /></TouchableOpacity>
+            </View>
+            <TextInput style={styles.modalSearch} placeholder="Search or type custom name..." placeholderTextColor={Colors.textMuted} value={search} onChangeText={setSearch} autoFocus />
+            <FlatList data={filtered} keyExtractor={i => i} renderItem={({ item }) => (
+              <TouchableOpacity style={styles.modalItem} onPress={() => { onChange(item); setShow(false); setSearch(''); }}>
+                <Ionicons name="diamond-outline" size={16} color={Colors.gold} />
+                <Text style={styles.modalItemText}>{item}</Text>
+              </TouchableOpacity>
+            )} ListEmptyComponent={search.length > 0 ? (
+              <TouchableOpacity style={styles.modalItem} onPress={() => { onChange(search); setShow(false); setSearch(''); }}>
+                <Ionicons name="add" size={16} color={Colors.success} />
+                <Text style={[styles.modalItemText, { color: Colors.success }]}>Use "{search}"</Text>
+              </TouchableOpacity>
+            ) : null} />
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
 
 export default function CalculatorScreen() {
   const [mode, setMode] = useState<'single' | 'multi'>('single');
@@ -78,7 +117,7 @@ export default function CalculatorScreen() {
 
           {mode === 'single' ? (
             <View style={styles.calcCard}>
-              <InputField testID="item-name-input" label="Item Name" value={itemName} onChangeText={setItemName} placeholder="e.g. Silver Payal" />
+              <ItemSelector testID="item-name-input" value={itemName} onChange={setItemName} />
               <View style={styles.row}>
                 <View style={{ flex: 1 }}><InputField testID="weight-input" label="Weight (grams)" value={weight} onChangeText={setWeight} placeholder="0" /></View>
                 <View style={{ flex: 1 }}><InputField testID="rate-input" label="Rate (₹/gram)" value={rate} onChangeText={setRate} placeholder="0" /></View>
@@ -105,7 +144,7 @@ export default function CalculatorScreen() {
                     <Text style={styles.multiItemTitle}>Item {idx + 1}</Text>
                     {items.length > 1 && <TouchableOpacity onPress={() => removeItem(idx)}><Ionicons name="close-circle" size={20} color={Colors.error} /></TouchableOpacity>}
                   </View>
-                  <TextInput style={styles.miniInput} placeholder="Item name" placeholderTextColor={Colors.textMuted} value={item.name} onChangeText={v => updateItem(idx, 'name', v)} />
+                  <ItemSelector value={item.name} onChange={v => updateItem(idx, 'name', v)} />
                   <View style={styles.row}>
                     <TextInput style={[styles.miniInput, { flex: 1 }]} placeholder="Weight (g)" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" value={item.weight} onChangeText={v => updateItem(idx, 'weight', v)} />
                     <TextInput style={[styles.miniInput, { flex: 1 }]} placeholder="Rate ₹/g" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" value={item.rate} onChangeText={v => updateItem(idx, 'rate', v)} />
@@ -178,4 +217,14 @@ const styles = StyleSheet.create({
   addBtnText: { fontSize: FontSize.sm, color: Colors.gold, fontWeight: '600' },
   clearBtn: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
   clearBtnText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
+  selectorBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 10, paddingHorizontal: Spacing.md, paddingVertical: 14, borderWidth: 1, borderColor: Colors.border },
+  selectorText: { fontSize: FontSize.base, color: Colors.text },
+  selectorPlaceholder: { fontSize: FontSize.base, color: Colors.textMuted },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: Colors.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', padding: Spacing.lg },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
+  modalSearch: { backgroundColor: Colors.surface, borderRadius: 10, paddingHorizontal: Spacing.md, paddingVertical: 12, fontSize: FontSize.md, color: Colors.text, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.md },
+  modalItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  modalItemText: { fontSize: FontSize.md, color: Colors.text },
 });

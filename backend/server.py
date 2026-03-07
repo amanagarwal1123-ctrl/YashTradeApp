@@ -106,6 +106,9 @@ class ProductCreate(BaseModel):
     images: List[str] = []
     video_url: str = ""
     approx_weight: str = ""
+    purity: str = ""
+    selling_touch: str = ""
+    selling_label: str = ""
     stock_status: str = "in_stock"
     tags: List[str] = []
     is_pinned: bool = False
@@ -207,6 +210,14 @@ class BatchUpdate(BaseModel):
 
 class BatchImageDelete(BaseModel):
     image_ids: List[str]
+
+class CartAddRequest(BaseModel):
+    product_id: str
+    quantity: int = 1
+    notes: str = ""
+
+class CartSubmitRequest(BaseModel):
+    notes: str = ""
 
 # ===================== AUTH HELPERS =====================
 
@@ -933,6 +944,71 @@ async def get_wishlist(user=Depends(get_current_user)):
     product_ids = [i["product_id"] for i in items]
     products = await db.products.find({"id": {"$in": product_ids}}, {"_id": 0}).to_list(100)
     return {"products": products}
+
+# ===================== CART ENDPOINTS =====================
+
+@api_router.post("/cart/add")
+async def cart_add(req: CartAddRequest, user=Depends(get_current_user)):
+    existing = await db.cart.find_one({"user_id": user["id"], "product_id": req.product_id, "status": "active"})
+    if existing:
+        await db.cart.update_one({"id": existing["id"]}, {"$inc": {"quantity": req.quantity}})
+        return {"message": "Quantity updated", "item_id": existing["id"]}
+    item = {
+        "id": str(uuid.uuid4()), "user_id": user["id"], "product_id": req.product_id,
+        "quantity": req.quantity, "notes": req.notes, "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.cart.insert_one(item)
+    return {"message": "Added to cart", "item_id": item["id"]}
+
+@api_router.get("/cart")
+async def get_cart(user=Depends(get_current_user)):
+    items = await db.cart.find({"user_id": user["id"], "status": "active"}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    product_ids = [i["product_id"] for i in items]
+    products = await db.products.find({"id": {"$in": product_ids}}, {"_id": 0}).to_list(100)
+    prod_map = {p["id"]: p for p in products}
+    enriched = []
+    for i in items:
+        p = prod_map.get(i["product_id"])
+        if p:
+            enriched.append({**i, "product": p})
+    count = len(enriched)
+    return {"items": enriched, "count": count}
+
+@api_router.delete("/cart/{item_id}")
+async def cart_remove(item_id: str, user=Depends(get_current_user)):
+    await db.cart.delete_one({"id": item_id, "user_id": user["id"]})
+    return {"message": "Removed from cart"}
+
+@api_router.post("/cart/submit")
+async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
+    items = await db.cart.find({"user_id": user["id"], "status": "active"}, {"_id": 0}).to_list(100)
+    if not items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+    product_ids = [i["product_id"] for i in items]
+    products = await db.products.find({"id": {"$in": product_ids}}, {"_id": 0}).to_list(100)
+    prod_map = {p["id"]: p for p in products}
+    cart_details = []
+    for i in items:
+        p = prod_map.get(i["product_id"], {})
+        cart_details.append({"product_id": i["product_id"], "title": p.get("title", ""), "metal_type": p.get("metal_type", ""), "category": p.get("category", ""), "quantity": i.get("quantity", 1), "notes": i.get("notes", "")})
+    now = datetime.now(timezone.utc).isoformat()
+    request_data = {
+        "id": str(uuid.uuid4()), "request_type": "cart_selection",
+        "user_id": user["id"], "user_phone": user.get("phone", ""), "user_name": user.get("name", ""), "user_city": user.get("city", ""),
+        "category": "", "notes": req.notes, "product_id": "",
+        "cart_items": cart_details, "cart_count": len(cart_details),
+        "status": "pending", "assigned_to": "", "admin_notes": "", "notes_history": [],
+        "created_at": now
+    }
+    await db.requests.insert_one(request_data)
+    await db.cart.update_many({"user_id": user["id"], "status": "active"}, {"$set": {"status": "submitted"}})
+    return {"message": "Cart submitted", "request_id": request_data["id"], "items_count": len(cart_details)}
+
+@api_router.get("/cart/count")
+async def cart_count(user=Depends(get_current_user)):
+    count = await db.cart.count_documents({"user_id": user["id"], "status": "active"})
+    return {"count": count}
 
 # ===================== ANALYTICS ENDPOINTS =====================
 

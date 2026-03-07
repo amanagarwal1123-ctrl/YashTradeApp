@@ -86,6 +86,23 @@ export default function ProductDetail() {
               <Text style={styles.detailValue}>{product.approx_weight}</Text>
             </View>
           )}
+          {product.purity && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Purity</Text>
+              <Text style={styles.detailValue}>{product.purity}</Text>
+            </View>
+          )}
+          {product.selling_touch && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Touch</Text>
+              <Text style={styles.detailValue}>{product.selling_touch}</Text>
+            </View>
+          )}
+          {product.selling_label && (
+            <View style={[styles.badge, { backgroundColor: Colors.gold + '20', alignSelf: 'flex-start', marginBottom: Spacing.sm }]}>
+              <Text style={[styles.badgeText, { color: Colors.gold }]}>{product.selling_label}</Text>
+            </View>
+          )}
 
           {product.tags?.length > 0 && (
             <View style={styles.tagsRow}>
@@ -96,19 +113,21 @@ export default function ProductDetail() {
 
         {/* CTAs */}
         <View style={styles.ctaSection}>
-          <TouchableOpacity testID="ask-price-btn" style={styles.ctaPrimary} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: id } })}>
-            <Ionicons name="pricetag" size={18} color="#000" />
-            <Text style={styles.ctaPrimaryText}>Ask Price</Text>
+          <TouchableOpacity testID="add-to-cart-btn" style={styles.ctaPrimary} onPress={async () => {
+            try { await api.post('/cart/add', { product_id: id }); Alert.alert('Added', 'Item added to your selection'); } catch {}
+          }}>
+            <Ionicons name="cart" size={18} color="#000" />
+            <Text style={styles.ctaPrimaryText}>Add to Selection</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="video-call-btn" style={styles.ctaSecondary} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
-            <Ionicons name="videocam" size={18} color={Colors.gold} />
-            <Text style={styles.ctaSecondaryText}>Video Call</Text>
+          <TouchableOpacity testID="ask-price-btn" style={styles.ctaSecondary} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: id } })}>
+            <Ionicons name="pricetag" size={18} color={Colors.gold} />
+            <Text style={styles.ctaSecondaryText}>Ask Price</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.ctaSection}>
-          <TouchableOpacity testID="ask-similar-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_similar', productId: id } })}>
-            <Text style={styles.ctaOutlineText}>Ask Similar</Text>
+          <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
+            <Text style={styles.ctaOutlineText}>Video Call</Text>
           </TouchableOpacity>
           <TouchableOpacity testID="hold-item-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'hold_item', productId: id } })}>
             <Text style={styles.ctaOutlineText}>Hold Item</Text>
