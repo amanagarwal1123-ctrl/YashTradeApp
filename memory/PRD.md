@@ -137,19 +137,19 @@ Private mobile app for Yash Trade jewelry business, serving ~40,000 wholesale an
 - **knowledge** - articles/tips
 - **stories** - highlights
 
-### Bug Fixes (2026-03-07)
-- [x] Fix 1: Prevent points exploit — POST /api/rewards/redeem rejects points <= 0
-- [x] Fix 2: Seed endpoints protected with admin auth
-- [x] Fix 3: Product detail gallery — thumbnail selection changes main image correctly
-- [x] Fix 4: Image viewer index — productId match prioritized over startIndex fallback
-- [x] Fix 5: verify-otp returns fresh user state after welcome-bonus credit
-- [x] Fix 6: Wired dead CTAs — Home Ask Price/Wishlist, Profile My Requests/Wishlist, Product wishlist
-- [x] Fix 7: Unified request statuses (pending/in_progress/contacted/resolved/no_response), `done`→`resolved` and `assigned`→`in_progress` aliased
-- [x] Fix 8: Admin rates tab hydrates movement + market summary on load
-- [x] Fix 9: Frontend .env.example + missing-env console warning
-- [x] Fix 10: Executive user seeded at startup (no manual seed/expand needed)
-- [x] Fix 11: i18n strings verified as proper UTF-8 Hindi/Punjabi
-- [x] Fix 12: PATCH /api/requests/{id} returns 404 for non-existent requests
+### Bug Fixes (2026-03-07) — 12-point patch set
+- [x] Fix 1: Redeem rejects points ≤ 0 — Pydantic `Field(gt=0)` + endpoint guard → HTTP 422
+- [x] Fix 2: `/api/seed` + `/api/seed/expand` require admin auth → HTTP 401 unauthenticated
+- [x] Fix 3: PATCH /api/requests/{id} returns 404 for non-existent requests
+- [x] Fix 4: Unified request statuses — canonical: `pending|in_progress|contacted|resolved|no_response`. Backend aliases `done→resolved`, `assigned→in_progress`
+- [x] Fix 5: Wired dead CTAs — Home Ask Price→request flow, Heart→wishlist toggle, Profile→My Requests screen, Profile→Wishlist screen, Product detail→wishlist toggle
+- [x] Fix 6: Product gallery — thumbnail selection updates main image for URL-based products; storage-backed products use full-res image
+- [x] Fix 7: Image viewer — productId match prioritized over startIndex fallback
+- [x] Fix 8: Admin rates tab hydrates movement + market summary from existing values (prevents accidental overwrite)
+- [x] Fix 9: i18n verified clean UTF-8 (Devanagari + Gurmukhi); backend AI prompts verified
+- [x] Fix 10: .gitignore cleaned — removed 4x duplicate env blocks + malformed `-e` line; metro cache removed from git index
+- [x] Fix 11: Frontend .env.example created + runtime console warning if EXPO_PUBLIC_BACKEND_URL missing
+- [x] Fix 12: Executive user seeded at startup via `_internal_seed()` (no manual seed/expand needed)
 
 ## Prioritized Backlog
 

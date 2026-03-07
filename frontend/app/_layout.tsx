@@ -22,6 +22,8 @@ export default function RootLayout() {
           <Stack.Screen name="admin-batches" options={{ presentation: 'modal' }} />
           <Stack.Screen name="admin-batch-detail" options={{ presentation: 'modal' }} />
           <Stack.Screen name="image-viewer" options={{ presentation: 'modal', animation: 'fade' }} />
+          <Stack.Screen name="my-requests" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="wishlist" options={{ presentation: 'modal' }} />
           <Stack.Screen name="executive" options={{ presentation: 'modal' }} />
         </Stack>
       </LanguageProvider>

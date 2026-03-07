@@ -158,7 +158,7 @@ class RewardCreditRequest(BaseModel):
     reason: str = ""
 
 class RedeemRequest(BaseModel):
-    points: int
+    points: int = Field(gt=0, description="Must be a positive integer")
     reward_name: str = ""
 
 class AIChatRequest(BaseModel):
