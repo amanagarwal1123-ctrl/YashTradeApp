@@ -23,7 +23,7 @@ db = client[os.environ.get('DB_NAME', 'jewellers_app')]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'aman-jewellers-secret-key-2024')
+JWT_SECRET = os.environ.get('JWT_SECRET', 'aman-jewellers-secret-key-2024-prod-v1')
 JWT_ALGORITHM = 'HS256'
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
