@@ -137,6 +137,20 @@ Private mobile app for Yash Trade jewelry business, serving ~40,000 wholesale an
 - **knowledge** - articles/tips
 - **stories** - highlights
 
+### Bug Fixes (2026-03-07)
+- [x] Fix 1: Prevent points exploit — POST /api/rewards/redeem rejects points <= 0
+- [x] Fix 2: Seed endpoints protected with admin auth
+- [x] Fix 3: Product detail gallery — thumbnail selection changes main image correctly
+- [x] Fix 4: Image viewer index — productId match prioritized over startIndex fallback
+- [x] Fix 5: verify-otp returns fresh user state after welcome-bonus credit
+- [x] Fix 6: Wired dead CTAs — Home Ask Price/Wishlist, Profile My Requests/Wishlist, Product wishlist
+- [x] Fix 7: Unified request statuses (pending/in_progress/contacted/resolved/no_response), `done`→`resolved` and `assigned`→`in_progress` aliased
+- [x] Fix 8: Admin rates tab hydrates movement + market summary on load
+- [x] Fix 9: Frontend .env.example + missing-env console warning
+- [x] Fix 10: Executive user seeded at startup (no manual seed/expand needed)
+- [x] Fix 11: i18n strings verified as proper UTF-8 Hindi/Punjabi
+- [x] Fix 12: PATCH /api/requests/{id} returns 404 for non-existent requests
+
 ## Prioritized Backlog
 
 ### P1 - Upcoming

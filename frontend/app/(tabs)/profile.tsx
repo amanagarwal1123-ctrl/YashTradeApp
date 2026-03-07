@@ -85,8 +85,8 @@ export default function ProfileScreen() {
         {/* Menu Items */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>ACCOUNT</Text>
-          <MenuItem testID="my-orders-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => {}} />
-          <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => {}} />
+          <MenuItem testID="my-orders-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => router.push('/request-call')} />
+          <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => router.push('/(tabs)/feed')} />
           <MenuItem testID="rewards-btn" icon="gift" label="Rewards History" onPress={() => router.push('/rewards')} />
         </View>
 
@@ -143,8 +143,8 @@ export default function ProfileScreen() {
                     <Text style={styles.requestDate}>{new Date(r.created_at).toLocaleDateString()}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: r.status === 'pending' ? Colors.warning + '20' : r.status === 'done' ? Colors.success + '20' : Colors.info + '20' }]}>
-                  <Text style={[styles.statusText, { color: r.status === 'pending' ? Colors.warning : r.status === 'done' ? Colors.success : Colors.info }]}>{r.status}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: r.status === 'pending' ? Colors.warning + '20' : r.status === 'resolved' ? Colors.success + '20' : Colors.info + '20' }]}>
+                  <Text style={[styles.statusText, { color: r.status === 'pending' ? Colors.warning : r.status === 'resolved' ? Colors.success : Colors.info }]}>{r.status}</Text>
                 </View>
               </View>
             ))}

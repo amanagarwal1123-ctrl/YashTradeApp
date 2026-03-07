@@ -7,7 +7,7 @@ import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
 import { useLang } from '../src/context/LanguageContext';
 
-const STATUSES = ['all', 'pending', 'in_progress', 'contacted', 'resolved', 'no_response', 'assigned', 'done'];
+const STATUSES = ['all', 'pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
 const TYPES = ['all', 'call', 'video_call', 'ask_price', 'ask_similar', 'hold_item', 'quick_reorder'];
 
 export default function ExecutiveScreen() {
@@ -46,9 +46,9 @@ export default function ExecutiveScreen() {
   const statusColor = (s: string) => {
     switch (s) {
       case 'pending': return Colors.warning;
-      case 'in_progress': case 'assigned': return Colors.info;
+      case 'in_progress': return Colors.info;
       case 'contacted': return '#A855F7';
-      case 'resolved': case 'done': return Colors.success;
+      case 'resolved': return Colors.success;
       case 'no_response': return Colors.error;
       default: return Colors.textMuted;
     }

@@ -283,8 +283,9 @@ async def verify_otp(req: VerifyOTPRequest):
             "type": "credit", "reason": "Welcome bonus", "created_at": datetime.now(timezone.utc).isoformat()
         })
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
-    token = create_token(user["id"], user.get("role", "customer"))
-    return {"token": token, "user": {**user, "is_new": is_new}}
+    fresh_user = await db.users.find_one({"phone": req.phone.strip()}, {"_id": 0})
+    token = create_token(fresh_user["id"], fresh_user.get("role", "customer"))
+    return {"token": token, "user": {**fresh_user, "is_new": is_new}}
 
 @api_router.get("/auth/me")
 async def get_me(user=Depends(get_current_user)):
@@ -706,9 +707,16 @@ async def list_requests(
     reqs = await db.requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return {"requests": reqs}
 
+CANONICAL_STATUSES = {"pending", "in_progress", "contacted", "resolved", "no_response"}
+STATUS_ALIASES = {"done": "resolved", "assigned": "in_progress"}
+
 @api_router.patch("/requests/{request_id}")
 async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends(get_executive_or_admin)):
-    updates: Dict[str, Any] = {"status": req.status, "updated_at": datetime.now(timezone.utc).isoformat()}
+    existing = await db.requests.find_one({"id": request_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Request not found")
+    normalized_status = STATUS_ALIASES.get(req.status, req.status)
+    updates: Dict[str, Any] = {"status": normalized_status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if req.assigned_to:
         updates["assigned_to"] = req.assigned_to
     if req.notes:
@@ -760,6 +768,8 @@ async def get_wallet(user=Depends(get_current_user)):
 
 @api_router.post("/rewards/redeem")
 async def redeem_points(req: RedeemRequest, user=Depends(get_current_user)):
+    if req.points <= 0:
+        raise HTTPException(status_code=400, detail="Points must be greater than zero")
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     if fresh.get("reward_points", 0) < req.points:
         raise HTTPException(status_code=400, detail="Insufficient points")
@@ -997,8 +1007,54 @@ async def update_customer(customer_id: str, req: CustomerUpdate, user=Depends(ge
 
 # ===================== SEED DATA =====================
 
+async def _internal_seed():
+    """Internal seed called at startup - no auth needed"""
+    existing = await db.products.count_documents({})
+    if existing > 0:
+        return
+    # ... delegate to the route handler logic by calling the core
+    admin = await db.users.find_one({"phone": "9999999999"})
+    if not admin:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()), "phone": "9999999999", "name": "Yash Trade Admin",
+            "city": "Delhi", "customer_code": "ADMIN01", "customer_type": "admin",
+            "role": "admin", "category_interests": [], "is_eligible_rewards": False,
+            "assigned_salesperson": "", "status": "active", "reward_points": 0,
+            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        })
+    # Executive user (fix #10)
+    exec_exists = await db.users.find_one({"phone": "7777777777"})
+    if not exec_exists:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()), "phone": "7777777777", "name": "Priya Executive",
+            "city": "Delhi", "customer_code": "EXEC01", "customer_type": "executive",
+            "role": "executive", "category_interests": [], "is_eligible_rewards": False,
+            "assigned_salesperson": "", "status": "active", "reward_points": 0,
+            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        })
+    # Demo customer
+    await db.users.update_one({"phone": "8888888888"}, {"$setOnInsert": {
+        "id": str(uuid.uuid4()), "phone": "8888888888", "name": "Rajesh Kumar",
+        "city": "Jaipur", "customer_code": "AA8888", "customer_type": "retailer",
+        "role": "customer", "category_interests": ["payal", "chain", "articles"],
+        "is_eligible_rewards": True, "assigned_salesperson": "", "status": "active",
+        "reward_points": 250, "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": datetime.now(timezone.utc).isoformat()
+    }}, upsert=True)
+    # Indexes
+    await db.products.create_index([("created_at", -1)])
+    await db.products.create_index([("batch_id", 1)])
+    await db.products.create_index([("is_deleted", 1)])
+    await db.rates.create_index([("created_at", -1)])
+    await db.requests.create_index([("user_id", 1)])
+    await db.requests.create_index([("status", 1)])
+    await db.users.create_index([("phone", 1)], unique=True)
+    await db.batches.create_index([("created_at", -1)])
+
 @api_router.post("/seed")
-async def seed_data():
+async def seed_data(user=Depends(get_admin_user)):
     existing = await db.products.count_documents({})
     if existing > 0:
         return {"message": "Data already seeded", "products": existing}
@@ -1101,7 +1157,7 @@ async def seed_data():
     return {"message": "Seed data created successfully", "products": len(products)}
 
 @api_router.post("/seed/expand")
-async def seed_expand():
+async def seed_expand(user=Depends(get_admin_user)):
     exec_exists = await db.users.find_one({"phone": "7777777777"})
     if not exec_exists:
         await db.users.insert_one({
@@ -1180,7 +1236,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     try:
-        await seed_data()
+        await _internal_seed()
         logger.info("Seed data initialized")
     except Exception as e:
         logger.info(f"Seed check: {e}")

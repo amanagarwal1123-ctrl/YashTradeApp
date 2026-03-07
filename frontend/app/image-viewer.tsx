@@ -42,13 +42,15 @@ export default function ImageViewerScreen() {
   useEffect(() => { loadImages(1); }, []);
 
   useEffect(() => {
-    if (images.length > 0 && productId) {
+    if (images.length === 0) return;
+    // Fix #4: prioritize productId match over startIndex
+    if (productId) {
       const idx = images.findIndex(i => i.id === productId);
-      if (idx >= 0) setCurrentIndex(idx);
+      if (idx >= 0) { setCurrentIndex(idx); return; }
     }
     if (startIndexStr) {
       const si = parseInt(startIndexStr);
-      if (!isNaN(si)) setCurrentIndex(si);
+      if (!isNaN(si) && si < images.length) setCurrentIndex(si);
     }
   }, [images, productId, startIndexStr]);
 

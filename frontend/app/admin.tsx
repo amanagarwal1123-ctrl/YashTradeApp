@@ -65,6 +65,8 @@ export default function AdminScreen() {
             setSilverPhysicalMode(r.silver_physical_mode || 'manual'); setSilverPremium(String(r.silver_physical_premium || 0));
             setGoldDollar(String(r.gold_dollar_rate || '')); setGoldMcx(String(r.gold_mcx_rate || '')); setGoldPhysical(String(r.gold_physical_rate || ''));
             setGoldPhysicalMode(r.gold_physical_mode || 'manual'); setGoldPremium(String(r.gold_physical_premium || 0));
+            setSilverMov(r.silver_movement || 'stable'); setGoldMov(r.gold_movement || 'stable');
+            setMarketSummary(r.market_summary || '');
           }
           break;
         }
@@ -329,19 +331,19 @@ export default function AdminScreen() {
                 <View key={r.id} style={styles.requestCard}>
                   <View style={styles.requestHeader}>
                     <Text style={styles.listTitle}>{r.request_type?.replace(/_/g, ' ')}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: r.status === 'pending' ? Colors.warning + '20' : r.status === 'done' ? Colors.success + '20' : Colors.info + '20' }]}>
-                      <Text style={[styles.statusText, { color: r.status === 'pending' ? Colors.warning : r.status === 'done' ? Colors.success : Colors.info }]}>{r.status}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: r.status === 'pending' ? Colors.warning + '20' : r.status === 'resolved' ? Colors.success + '20' : Colors.info + '20' }]}>
+                      <Text style={[styles.statusText, { color: r.status === 'pending' ? Colors.warning : r.status === 'resolved' ? Colors.success : Colors.info }]}>{r.status}</Text>
                     </View>
                   </View>
                   <Text style={styles.listMeta}>{r.user_name || r.user_phone} • {r.category} • {r.preferred_time}</Text>
                   {r.notes ? <Text style={styles.notesText}>Notes: {r.notes}</Text> : null}
-                  {r.status === 'pending' && (
+                    {r.status === 'pending' && (
                     <View style={styles.requestActions}>
-                      <TouchableOpacity style={[styles.miniBtn, { backgroundColor: Colors.success + '20' }]} onPress={() => updateRequestStatus(r.id, 'assigned')}>
-                        <Text style={[styles.miniBtnText, { color: Colors.success }]}>Assign</Text>
+                      <TouchableOpacity style={[styles.miniBtn, { backgroundColor: Colors.info + '20' }]} onPress={() => updateRequestStatus(r.id, 'in_progress')}>
+                        <Text style={[styles.miniBtnText, { color: Colors.info }]}>In Progress</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.miniBtn, { backgroundColor: Colors.gold + '20' }]} onPress={() => updateRequestStatus(r.id, 'done')}>
-                        <Text style={[styles.miniBtnText, { color: Colors.gold }]}>Done</Text>
+                      <TouchableOpacity style={[styles.miniBtn, { backgroundColor: Colors.success + '20' }]} onPress={() => updateRequestStatus(r.id, 'resolved')}>
+                        <Text style={[styles.miniBtnText, { color: Colors.success }]}>Resolved</Text>
                       </TouchableOpacity>
                       <TouchableOpacity style={[styles.miniBtn, { backgroundColor: Colors.error + '20' }]} onPress={() => updateRequestStatus(r.id, 'no_response')}>
                         <Text style={[styles.miniBtnText, { color: Colors.error }]}>No Response</Text>

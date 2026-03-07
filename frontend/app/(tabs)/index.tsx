@@ -46,8 +46,8 @@ const ProductCard = ({ item, onPress }: { item: Product; onPress: () => void }) 
       <Text style={styles.productTitle} numberOfLines={2}>{item.title}</Text>
       <Text style={styles.productMeta}>{item.category?.replace(/_/g, ' ')} • {item.approx_weight}</Text>
       <View style={styles.productActions}>
-        <TouchableOpacity style={styles.askPriceBtn}><Text style={styles.askPriceText}>Ask Price</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn}><Ionicons name="heart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
+        <TouchableOpacity style={styles.askPriceBtn} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: item.id } })}><Text style={styles.askPriceText}>Ask Price</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={async () => { try { await api.post(`/wishlist/toggle?product_id=${item.id}`); } catch {} }}><Ionicons name="heart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
       </View>
     </View>
   </TouchableOpacity>

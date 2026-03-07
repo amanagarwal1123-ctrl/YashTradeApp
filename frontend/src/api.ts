@@ -1,4 +1,7 @@
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+if (!BACKEND_URL && typeof window !== 'undefined') {
+  console.error('[API] EXPO_PUBLIC_BACKEND_URL is not set. Check your .env file. See .env.example for reference.');
+}
 const API_BASE = `${BACKEND_URL}/api`;
 
 let authToken: string | null = null;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,8 +27,11 @@ export default function ProductDetail() {
   if (!product) return <View style={styles.loader}><Text style={styles.errorText}>Product not found</Text></View>;
 
   const images = product.images || [];
-  const mainImageUri = getImageUrl(product, false);
   const hasStorageImage = !!product.storage_path;
+  // Fix #3: Gallery selection respects currentImage for URL-based, storage for uploaded
+  const displayImageUri = hasStorageImage
+    ? getImageUrl(product, false)
+    : images[currentImage] || getImageUrl(product, false);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -38,17 +41,17 @@ export default function ProductDetail() {
           <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={Colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity testID="wishlist-btn" style={styles.backBtn}>
+          <TouchableOpacity testID="wishlist-btn" style={styles.backBtn} onPress={async () => {
+            try { const r = await api.post(`/wishlist/toggle?product_id=${id}`); Alert.alert(r.wishlisted ? 'Added to Wishlist' : 'Removed from Wishlist'); } catch {}
+          }}>
             <Ionicons name="heart-outline" size={24} color={Colors.text} />
           </TouchableOpacity>
         </View>
 
         {/* Image */}
         <View style={styles.imageContainer}>
-          {(mainImageUri) ? (
-            <Image source={{ uri: mainImageUri }} style={styles.mainImage} />
-          ) : images.length > 0 ? (
-            <Image source={{ uri: images[currentImage] }} style={styles.mainImage} />
+          {displayImageUri ? (
+            <Image source={{ uri: displayImageUri }} style={styles.mainImage} />
           ) : (
             <View style={[styles.mainImage, { backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
               <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
