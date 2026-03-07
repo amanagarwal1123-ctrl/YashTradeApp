@@ -17,10 +17,18 @@ export default function AdminScreen() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Rate form
-  const [silverRate, setSilverRate] = useState('');
-  const [goldRate, setGoldRate] = useState('');
+  // Rate form - 6 rates + premium
+  const [silverDollar, setSilverDollar] = useState('');
+  const [silverMcx, setSilverMcx] = useState('');
+  const [silverPhysical, setSilverPhysical] = useState('');
+  const [silverPhysicalMode, setSilverPhysicalMode] = useState('manual');
+  const [silverPremium, setSilverPremium] = useState('0');
   const [silverMov, setSilverMov] = useState('stable');
+  const [goldDollar, setGoldDollar] = useState('');
+  const [goldMcx, setGoldMcx] = useState('');
+  const [goldPhysical, setGoldPhysical] = useState('');
+  const [goldPhysicalMode, setGoldPhysicalMode] = useState('manual');
+  const [goldPremium, setGoldPremium] = useState('0');
   const [goldMov, setGoldMov] = useState('stable');
   const [marketSummary, setMarketSummary] = useState('');
 
@@ -33,6 +41,15 @@ export default function AdminScreen() {
   const [newWeight, setNewWeight] = useState('');
   const [newImageUrl, setNewImageUrl] = useState('');
 
+  // Bulk upload
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkUrls, setBulkUrls] = useState('');
+  const [bulkMetal, setBulkMetal] = useState('silver');
+  const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkBatchName, setBulkBatchName] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState('');
+
   const loadTab = async (tab: Tab) => {
     setLoading(true);
     try {
@@ -43,7 +60,12 @@ export default function AdminScreen() {
         case 'customers': { const r = await api.get('/customers?limit=50'); setCustomers(r.customers || []); break; }
         case 'rates': {
           const r = await api.get('/rates/latest');
-          if (r.silver_rate) { setSilverRate(String(r.silver_rate)); setGoldRate(String(r.gold_rate)); }
+          if (r.silver_dollar_rate !== undefined) {
+            setSilverDollar(String(r.silver_dollar_rate || '')); setSilverMcx(String(r.silver_mcx_rate || '')); setSilverPhysical(String(r.silver_physical_rate || ''));
+            setSilverPhysicalMode(r.silver_physical_mode || 'manual'); setSilverPremium(String(r.silver_physical_premium || 0));
+            setGoldDollar(String(r.gold_dollar_rate || '')); setGoldMcx(String(r.gold_mcx_rate || '')); setGoldPhysical(String(r.gold_physical_rate || ''));
+            setGoldPhysicalMode(r.gold_physical_mode || 'manual'); setGoldPremium(String(r.gold_physical_premium || 0));
+          }
           break;
         }
       }
@@ -54,11 +76,30 @@ export default function AdminScreen() {
   useEffect(() => { loadTab(activeTab); }, [activeTab]);
 
   const updateRates = async () => {
-    if (!silverRate || !goldRate) { Alert.alert('Error', 'Enter both rates'); return; }
+    if (!silverDollar && !silverMcx && !silverPhysical) { Alert.alert('Error', 'Enter at least one silver rate'); return; }
     try {
-      await api.post('/rates', { silver_rate: parseFloat(silverRate), gold_rate: parseFloat(goldRate), silver_movement: silverMov, gold_movement: goldMov, market_summary: marketSummary });
+      await api.post('/rates', {
+        silver_dollar_rate: parseFloat(silverDollar) || 0, silver_mcx_rate: parseFloat(silverMcx) || 0, silver_physical_rate: parseFloat(silverPhysical) || 0,
+        silver_physical_mode: silverPhysicalMode, silver_physical_premium: parseFloat(silverPremium) || 0, silver_physical_base: 'mcx', silver_movement: silverMov,
+        gold_dollar_rate: parseFloat(goldDollar) || 0, gold_mcx_rate: parseFloat(goldMcx) || 0, gold_physical_rate: parseFloat(goldPhysical) || 0,
+        gold_physical_mode: goldPhysicalMode, gold_physical_premium: parseFloat(goldPremium) || 0, gold_physical_base: 'mcx', gold_movement: goldMov,
+        market_summary: marketSummary
+      });
       Alert.alert('Success', 'Rates updated!');
     } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
+  const bulkUpload = async () => {
+    const urls = bulkUrls.split('\n').map(u => u.trim()).filter(u => u);
+    if (urls.length === 0) { Alert.alert('Error', 'Paste image URLs (one per line)'); return; }
+    setUploading(true); setUploadResult('');
+    try {
+      const res = await api.post('/products/bulk', { image_urls: urls, metal_type: bulkMetal, category: bulkCategory, batch_name: bulkBatchName });
+      setUploadResult(`Uploaded ${res.count} images (Batch: ${res.batch_name})`);
+      setBulkUrls('');
+      Alert.alert('Success', `${res.count} images uploaded!`);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    finally { setUploading(false); }
   };
 
   const addProduct = async () => {
@@ -152,10 +193,39 @@ export default function AdminScreen() {
           {/* PRODUCTS */}
           {activeTab === 'products' && (
             <>
-              <TouchableOpacity testID="add-product-btn" style={styles.actionBtn} onPress={() => setShowAddProduct(!showAddProduct)}>
-                <Ionicons name={showAddProduct ? 'close' : 'add'} size={18} color="#000" />
-                <Text style={styles.actionBtnText}>{showAddProduct ? 'Cancel' : 'Add Product'}</Text>
-              </TouchableOpacity>
+              <View style={styles.formRow}>
+                <TouchableOpacity testID="add-product-btn" style={[styles.actionBtn, { flex: 1 }]} onPress={() => { setShowAddProduct(!showAddProduct); setShowBulkUpload(false); }}>
+                  <Ionicons name={showAddProduct ? 'close' : 'add'} size={18} color="#000" />
+                  <Text style={styles.actionBtnText}>{showAddProduct ? 'Cancel' : 'Add Product'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity testID="bulk-upload-btn" style={[styles.actionBtn, { flex: 1, backgroundColor: '#A855F7' }]} onPress={() => { setShowBulkUpload(!showBulkUpload); setShowAddProduct(false); }}>
+                  <Ionicons name={showBulkUpload ? 'close' : 'cloud-upload'} size={18} color="#fff" />
+                  <Text style={[styles.actionBtnText, { color: '#fff' }]}>{showBulkUpload ? 'Cancel' : 'Bulk Upload'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* BULK UPLOAD SECTION */}
+              {showBulkUpload && (
+                <View style={styles.formCard}>
+                  <Text style={styles.formTitle}>Bulk Photo Upload</Text>
+                  <Text style={[styles.formLabel, { color: Colors.textSecondary }]}>Paste image URLs below (one per line). No title/description needed.</Text>
+                  <TextInput testID="bulk-urls" style={[styles.formInput, { minHeight: 120 }]} placeholder={'https://example.com/photo1.jpg\nhttps://example.com/photo2.jpg\nhttps://example.com/photo3.jpg'} placeholderTextColor={Colors.textMuted} value={bulkUrls} onChangeText={setBulkUrls} multiline textAlignVertical="top" />
+                  <Text style={styles.formLabel}>Batch Name (optional)</Text>
+                  <TextInput style={styles.formInput} placeholder="e.g., New Silver Collection Feb 2026" placeholderTextColor={Colors.textMuted} value={bulkBatchName} onChangeText={setBulkBatchName} />
+                  <Text style={styles.formLabel}>Metal Type</Text>
+                  <View style={styles.formRow}>
+                    {['silver', 'gold', 'diamond'].map(m => (
+                      <TouchableOpacity key={m} style={[styles.metalBtn, bulkMetal === m && styles.metalBtnActive]} onPress={() => setBulkMetal(m)}><Text style={[styles.metalBtnText, bulkMetal === m && styles.metalBtnTextActive]}>{m}</Text></TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.formLabel}>Category (optional)</Text>
+                  <TextInput style={styles.formInput} placeholder="e.g., payal, chain, articles" placeholderTextColor={Colors.textMuted} value={bulkCategory} onChangeText={setBulkCategory} />
+                  {uploadResult ? <Text style={[styles.formLabel, { color: Colors.success }]}>{uploadResult}</Text> : null}
+                  <TouchableOpacity testID="do-bulk-upload" style={[styles.saveBtn, { backgroundColor: '#A855F7' }]} onPress={bulkUpload} disabled={uploading}>
+                    {uploading ? <ActivityIndicator color="#fff" /> : <Text style={[styles.saveBtnText, { color: '#fff' }]}>UPLOAD {bulkUrls.split('\n').filter(u => u.trim()).length} IMAGES</Text>}
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {showAddProduct && (
                 <View style={styles.formCard}>
@@ -196,31 +266,57 @@ export default function AdminScreen() {
           {activeTab === 'rates' && (
             <View style={styles.formCard}>
               <Text style={styles.formTitle}>Update Daily Rates</Text>
-              <Text style={styles.formLabel}>Silver Rate (₹/gram)</Text>
-              <TextInput testID="admin-silver-rate" style={styles.formInput} value={silverRate} onChangeText={setSilverRate} keyboardType="decimal-pad" placeholder="e.g., 96.50" placeholderTextColor={Colors.textMuted} />
-              <Text style={styles.formLabel}>Gold Rate (₹/gram)</Text>
-              <TextInput testID="admin-gold-rate" style={styles.formInput} value={goldRate} onChangeText={setGoldRate} keyboardType="decimal-pad" placeholder="e.g., 7450" placeholderTextColor={Colors.textMuted} />
+              {/* Silver */}
+              <Text style={[styles.formLabel, { color: Colors.silver, fontSize: FontSize.md }]}>SILVER RATES</Text>
+              <View style={styles.formRow}>
+                <View style={{ flex: 1 }}><Text style={styles.formLabel}>Dollar $/oz</Text><TextInput style={styles.formInput} value={silverDollar} onChangeText={setSilverDollar} keyboardType="decimal-pad" placeholder="31.25" placeholderTextColor={Colors.textMuted} /></View>
+                <View style={{ flex: 1 }}><Text style={styles.formLabel}>MCX ₹/g</Text><TextInput style={styles.formInput} value={silverMcx} onChangeText={setSilverMcx} keyboardType="decimal-pad" placeholder="95.80" placeholderTextColor={Colors.textMuted} /></View>
+              </View>
+              <Text style={styles.formLabel}>Physical Rate Mode</Text>
+              <View style={styles.formRow}>
+                {['manual', 'calculated'].map(m => (
+                  <TouchableOpacity key={m} style={[styles.metalBtn, silverPhysicalMode === m && styles.metalBtnActive]} onPress={() => setSilverPhysicalMode(m)}><Text style={[styles.metalBtnText, silverPhysicalMode === m && styles.metalBtnTextActive]}>{m}</Text></TouchableOpacity>
+                ))}
+              </View>
+              {silverPhysicalMode === 'manual' ? (
+                <><Text style={styles.formLabel}>Physical Rate ₹/g (Manual)</Text><TextInput style={styles.formInput} value={silverPhysical} onChangeText={setSilverPhysical} keyboardType="decimal-pad" placeholder="96.50" placeholderTextColor={Colors.textMuted} /></>
+              ) : (
+                <><Text style={styles.formLabel}>Premium over MCX (₹)</Text><TextInput style={styles.formInput} value={silverPremium} onChangeText={setSilverPremium} keyboardType="decimal-pad" placeholder="0.70" placeholderTextColor={Colors.textMuted} />
+                <Text style={[styles.formLabel, { color: Colors.gold }]}>Physical = MCX ({silverMcx || '0'}) + Premium ({silverPremium || '0'}) = ₹{(parseFloat(silverMcx || '0') + parseFloat(silverPremium || '0')).toFixed(2)}</Text></>
+              )}
               <Text style={styles.formLabel}>Silver Movement</Text>
               <View style={styles.formRow}>
-                {['up', 'down', 'stable'].map(m => (
-                  <TouchableOpacity key={m} style={[styles.metalBtn, silverMov === m && styles.metalBtnActive]} onPress={() => setSilverMov(m)}>
-                    <Text style={[styles.metalBtnText, silverMov === m && styles.metalBtnTextActive]}>{m}</Text>
-                  </TouchableOpacity>
+                {['up', 'down', 'stable'].map(m => (<TouchableOpacity key={m} style={[styles.metalBtn, silverMov === m && styles.metalBtnActive]} onPress={() => setSilverMov(m)}><Text style={[styles.metalBtnText, silverMov === m && styles.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}
+              </View>
+
+              <View style={{ height: 1, backgroundColor: Colors.border, marginVertical: 16 }} />
+
+              {/* Gold */}
+              <Text style={[styles.formLabel, { color: Colors.gold, fontSize: FontSize.md }]}>GOLD RATES</Text>
+              <View style={styles.formRow}>
+                <View style={{ flex: 1 }}><Text style={styles.formLabel}>Dollar $/oz</Text><TextInput style={styles.formInput} value={goldDollar} onChangeText={setGoldDollar} keyboardType="decimal-pad" placeholder="2385" placeholderTextColor={Colors.textMuted} /></View>
+                <View style={{ flex: 1 }}><Text style={styles.formLabel}>MCX ₹/g</Text><TextInput style={styles.formInput} value={goldMcx} onChangeText={setGoldMcx} keyboardType="decimal-pad" placeholder="7380" placeholderTextColor={Colors.textMuted} /></View>
+              </View>
+              <Text style={styles.formLabel}>Physical Rate Mode</Text>
+              <View style={styles.formRow}>
+                {['manual', 'calculated'].map(m => (
+                  <TouchableOpacity key={m} style={[styles.metalBtn, goldPhysicalMode === m && styles.metalBtnActive]} onPress={() => setGoldPhysicalMode(m)}><Text style={[styles.metalBtnText, goldPhysicalMode === m && styles.metalBtnTextActive]}>{m}</Text></TouchableOpacity>
                 ))}
               </View>
+              {goldPhysicalMode === 'manual' ? (
+                <><Text style={styles.formLabel}>Physical Rate ₹/g (Manual)</Text><TextInput style={styles.formInput} value={goldPhysical} onChangeText={setGoldPhysical} keyboardType="decimal-pad" placeholder="7450" placeholderTextColor={Colors.textMuted} /></>
+              ) : (
+                <><Text style={styles.formLabel}>Premium over MCX (₹)</Text><TextInput style={styles.formInput} value={goldPremium} onChangeText={setGoldPremium} keyboardType="decimal-pad" placeholder="70" placeholderTextColor={Colors.textMuted} />
+                <Text style={[styles.formLabel, { color: Colors.gold }]}>Physical = MCX ({goldMcx || '0'}) + Premium ({goldPremium || '0'}) = ₹{(parseFloat(goldMcx || '0') + parseFloat(goldPremium || '0')).toFixed(0)}</Text></>
+              )}
               <Text style={styles.formLabel}>Gold Movement</Text>
               <View style={styles.formRow}>
-                {['up', 'down', 'stable'].map(m => (
-                  <TouchableOpacity key={m} style={[styles.metalBtn, goldMov === m && styles.metalBtnActive]} onPress={() => setGoldMov(m)}>
-                    <Text style={[styles.metalBtnText, goldMov === m && styles.metalBtnTextActive]}>{m}</Text>
-                  </TouchableOpacity>
-                ))}
+                {['up', 'down', 'stable'].map(m => (<TouchableOpacity key={m} style={[styles.metalBtn, goldMov === m && styles.metalBtnActive]} onPress={() => setGoldMov(m)}><Text style={[styles.metalBtnText, goldMov === m && styles.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}
               </View>
+
               <Text style={styles.formLabel}>Market Summary</Text>
               <TextInput style={styles.formInput} value={marketSummary} onChangeText={setMarketSummary} placeholder="e.g., Silver up 1.2% today" placeholderTextColor={Colors.textMuted} />
-              <TouchableOpacity testID="update-rates-btn" style={styles.saveBtn} onPress={updateRates}>
-                <Text style={styles.saveBtnText}>UPDATE RATES</Text>
-              </TouchableOpacity>
+              <TouchableOpacity testID="update-rates-btn" style={styles.saveBtn} onPress={updateRates}><Text style={styles.saveBtnText}>UPDATE RATES</Text></TouchableOpacity>
             </View>
           )}
 

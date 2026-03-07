@@ -57,11 +57,28 @@ class ProductCreate(BaseModel):
     post_type: str = "product"
 
 class RateUpdate(BaseModel):
-    silver_rate: float
-    gold_rate: float
+    silver_dollar_rate: float = 0
+    silver_mcx_rate: float = 0
+    silver_physical_rate: float = 0
+    silver_physical_mode: str = "manual"
+    silver_physical_premium: float = 0
+    silver_physical_base: str = "mcx"
     silver_movement: str = "stable"
+    gold_dollar_rate: float = 0
+    gold_mcx_rate: float = 0
+    gold_physical_rate: float = 0
+    gold_physical_mode: str = "manual"
+    gold_physical_premium: float = 0
+    gold_physical_base: str = "mcx"
     gold_movement: str = "stable"
     market_summary: str = ""
+
+class BulkUploadRequest(BaseModel):
+    image_urls: List[str]
+    metal_type: str = "silver"
+    category: str = ""
+    batch_name: str = ""
+    visibility: str = "all"
 
 class RequestCreate(BaseModel):
     request_type: str  # call, video_call, ask_price, hold_item, ask_similar, quick_reorder
@@ -255,6 +272,45 @@ async def create_product(req: ProductCreate, user=Depends(get_admin_user)):
     await db.products.insert_one(product)
     return {k: v for k, v in product.items() if k != "_id"}
 
+@api_router.post("/products/bulk")
+async def bulk_upload(req: BulkUploadRequest, user=Depends(get_admin_user)):
+    if not req.image_urls:
+        raise HTTPException(status_code=400, detail="No image URLs provided")
+    now = datetime.now(timezone.utc).isoformat()
+    batch_id = str(uuid.uuid4())[:8]
+    batch_label = req.batch_name or f"Batch {batch_id}"
+    products = []
+    for i, url in enumerate(req.image_urls):
+        url = url.strip()
+        if not url:
+            continue
+        products.append({
+            "id": str(uuid.uuid4()),
+            "title": f"{batch_label} #{i+1}",
+            "description": "",
+            "metal_type": req.metal_type or "silver",
+            "category": req.category or "",
+            "subcategory": "",
+            "images": [url],
+            "video_url": "",
+            "approx_weight": "",
+            "stock_status": "in_stock",
+            "tags": [req.metal_type or "silver", "bulk_upload", batch_id],
+            "is_pinned": False,
+            "is_new_arrival": True,
+            "is_trending": False,
+            "visibility": req.visibility or "all",
+            "post_type": "product",
+            "batch_id": batch_id,
+            "batch_name": batch_label,
+            "views": 0,
+            "created_at": now,
+            "updated_at": now,
+        })
+    if products:
+        await db.products.insert_many(products)
+    return {"message": f"Uploaded {len(products)} images", "count": len(products), "batch_id": batch_id, "batch_name": batch_label}
+
 @api_router.put("/products/{product_id}")
 async def update_product(product_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -280,17 +336,34 @@ async def get_categories():
 async def get_latest_rates():
     rate = await db.rates.find_one({}, {"_id": 0}, sort=[("created_at", -1)])
     if not rate:
-        return {"silver_rate": 0, "gold_rate": 0, "silver_movement": "stable", "gold_movement": "stable", "market_summary": "No data"}
+        return {"silver_dollar_rate": 0, "silver_mcx_rate": 0, "silver_physical_rate": 0,
+                "gold_dollar_rate": 0, "gold_mcx_rate": 0, "gold_physical_rate": 0,
+                "silver_movement": "stable", "gold_movement": "stable", "market_summary": "No data",
+                "silver_physical_mode": "manual", "gold_physical_mode": "manual",
+                "silver_physical_premium": 0, "gold_physical_premium": 0}
+    # Calculate physical rates if in calculated mode
+    for metal in ["silver", "gold"]:
+        mode = rate.get(f"{metal}_physical_mode", "manual")
+        if mode == "calculated":
+            base_src = rate.get(f"{metal}_physical_base", "mcx")
+            base_val = rate.get(f"{metal}_{base_src}_rate", 0) if base_src in ("dollar", "mcx") else 0
+            premium = rate.get(f"{metal}_physical_premium", 0)
+            rate[f"{metal}_physical_rate"] = base_val + premium
+    # Backward compat
+    rate["silver_rate"] = rate.get("silver_physical_rate", rate.get("silver_rate", 0))
+    rate["gold_rate"] = rate.get("gold_physical_rate", rate.get("gold_rate", 0))
     return rate
 
 @api_router.post("/rates")
 async def update_rates(req: RateUpdate, user=Depends(get_admin_user)):
-    rate_data = {
-        "id": str(uuid.uuid4()),
-        **req.dict(),
-        "updated_by": user["id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
+    data = req.dict()
+    # Auto-calculate physical if in calculated mode
+    for metal in ["silver", "gold"]:
+        if data.get(f"{metal}_physical_mode") == "calculated":
+            base_src = data.get(f"{metal}_physical_base", "mcx")
+            base_val = data.get(f"{metal}_{base_src}_rate", 0) if base_src in ("dollar", "mcx") else 0
+            data[f"{metal}_physical_rate"] = base_val + data.get(f"{metal}_physical_premium", 0)
+    rate_data = {"id": str(uuid.uuid4()), **data, "updated_by": user["id"], "created_at": datetime.now(timezone.utc).isoformat()}
     await db.rates.insert_one(rate_data)
     return {k: v for k, v in rate_data.items() if k != "_id"}
 
@@ -664,8 +737,13 @@ async def seed_data():
 
     # Rates
     await db.rates.insert_one({
-        "id": str(uuid.uuid4()), "silver_rate": 96.50, "gold_rate": 7450.00,
-        "silver_movement": "up", "gold_movement": "stable",
+        "id": str(uuid.uuid4()),
+        "silver_dollar_rate": 31.25, "silver_mcx_rate": 95.80, "silver_physical_rate": 96.50,
+        "silver_physical_mode": "manual", "silver_physical_premium": 0.70, "silver_physical_base": "mcx",
+        "silver_movement": "up",
+        "gold_dollar_rate": 2385.00, "gold_mcx_rate": 7380.00, "gold_physical_rate": 7450.00,
+        "gold_physical_mode": "manual", "gold_physical_premium": 70.00, "gold_physical_base": "mcx",
+        "gold_movement": "stable",
         "market_summary": "Silver up 1.2% today. Gold holding steady near all-time highs.",
         "created_at": datetime.now(timezone.utc).isoformat()
     })

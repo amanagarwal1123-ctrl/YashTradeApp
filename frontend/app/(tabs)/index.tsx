@@ -7,7 +7,7 @@ import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
 
-interface Rate { silver_rate: number; gold_rate: number; silver_movement: string; gold_movement: string; market_summary: string; }
+interface Rate { silver_dollar_rate: number; silver_mcx_rate: number; silver_physical_rate: number; gold_dollar_rate: number; gold_mcx_rate: number; gold_physical_rate: number; silver_movement: string; gold_movement: string; market_summary: string; silver_physical_premium: number; gold_physical_premium: number; silver_rate?: number; gold_rate?: number; created_at?: string; }
 interface Story { id: string; title: string; image_url: string; category: string; }
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; }
 
@@ -105,29 +105,40 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Rate Ticker */}
+        {/* Rate Ticker - 3 rates each */}
         {rates && (
           <View testID="rate-ticker" style={styles.rateCard}>
-            <View style={styles.rateRow}>
-              <View style={styles.rateItem}>
+            {/* Silver */}
+            <View style={styles.metalSection}>
+              <View style={styles.metalHeader}>
                 <Text style={styles.rateLabel}>SILVER</Text>
-                <View style={styles.rateValueRow}>
-                  <Text style={styles.rateValue}>₹{rates.silver_rate?.toFixed(2)}</Text>
-                  <Ionicons name={movementIcon(rates.silver_movement)} size={16} color={movementColor(rates.silver_movement)} />
-                </View>
-                <Text style={styles.rateUnit}>per gram</Text>
+                <Ionicons name={movementIcon(rates.silver_movement)} size={14} color={movementColor(rates.silver_movement)} />
               </View>
-              <View style={styles.rateDivider} />
-              <View style={styles.rateItem}>
+              <View style={styles.threeRates}>
+                <View style={styles.rateCell}><Text style={styles.rateCellLabel}>Dollar</Text><Text style={styles.rateCellValue}>${rates.silver_dollar_rate?.toFixed(2)}</Text></View>
+                <View style={styles.rateCellDivider} />
+                <View style={styles.rateCell}><Text style={styles.rateCellLabel}>MCX</Text><Text style={styles.rateCellValue}>₹{rates.silver_mcx_rate?.toFixed(2)}</Text></View>
+                <View style={styles.rateCellDivider} />
+                <View style={styles.rateCell}><Text style={[styles.rateCellLabel, { color: Colors.gold }]}>Physical</Text><Text style={[styles.rateCellValue, { color: Colors.gold }]}>₹{rates.silver_physical_rate?.toFixed(2)}</Text></View>
+              </View>
+            </View>
+            <View style={styles.metalDivider} />
+            {/* Gold */}
+            <View style={styles.metalSection}>
+              <View style={styles.metalHeader}>
                 <Text style={styles.rateLabel}>GOLD</Text>
-                <View style={styles.rateValueRow}>
-                  <Text style={styles.rateValue}>₹{rates.gold_rate?.toFixed(0)}</Text>
-                  <Ionicons name={movementIcon(rates.gold_movement)} size={16} color={movementColor(rates.gold_movement)} />
-                </View>
-                <Text style={styles.rateUnit}>per gram</Text>
+                <Ionicons name={movementIcon(rates.gold_movement)} size={14} color={movementColor(rates.gold_movement)} />
+              </View>
+              <View style={styles.threeRates}>
+                <View style={styles.rateCell}><Text style={styles.rateCellLabel}>Dollar</Text><Text style={styles.rateCellValue}>${rates.gold_dollar_rate?.toFixed(0)}</Text></View>
+                <View style={styles.rateCellDivider} />
+                <View style={styles.rateCell}><Text style={styles.rateCellLabel}>MCX</Text><Text style={styles.rateCellValue}>₹{rates.gold_mcx_rate?.toFixed(0)}</Text></View>
+                <View style={styles.rateCellDivider} />
+                <View style={styles.rateCell}><Text style={[styles.rateCellLabel, { color: Colors.gold }]}>Physical</Text><Text style={[styles.rateCellValue, { color: Colors.gold }]}>₹{rates.gold_physical_rate?.toFixed(0)}</Text></View>
               </View>
             </View>
             {rates.market_summary ? <Text style={styles.marketSummary}>{rates.market_summary}</Text> : null}
+            {rates.created_at ? <Text style={styles.rateTime}>Updated: {new Date(rates.created_at).toLocaleTimeString()}</Text> : null}
           </View>
         )}
 
@@ -179,15 +190,18 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: 'row', gap: 8 },
   headerIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
   notifDot: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.error },
-  rateCard: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.borderGold },
-  rateRow: { flexDirection: 'row', alignItems: 'center' },
-  rateItem: { flex: 1, alignItems: 'center' },
-  rateLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 2, fontWeight: '600', marginBottom: 4 },
-  rateValueRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rateValue: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.text },
-  rateUnit: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  rateDivider: { width: 1, height: 40, backgroundColor: Colors.border, marginHorizontal: Spacing.md },
-  marketSummary: { fontSize: FontSize.xs, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.md, fontStyle: 'italic' },
+  rateCard: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderGold },
+  metalSection: { paddingVertical: 8 },
+  metalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8 },
+  rateLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 2, fontWeight: '600' },
+  threeRates: { flexDirection: 'row', alignItems: 'center' },
+  rateCell: { flex: 1, alignItems: 'center' },
+  rateCellLabel: { fontSize: 9, color: Colors.textMuted, letterSpacing: 1, fontWeight: '500', marginBottom: 2 },
+  rateCellValue: { fontSize: FontSize.md, fontWeight: '700', color: Colors.text },
+  rateCellDivider: { width: 1, height: 28, backgroundColor: Colors.border },
+  metalDivider: { height: 1, backgroundColor: Colors.border, marginVertical: 4 },
+  marketSummary: { fontSize: FontSize.xs, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.sm, fontStyle: 'italic' },
+  rateTime: { fontSize: 9, color: Colors.textMuted, textAlign: 'center', marginTop: 4 },
   quickActions: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: Spacing.md, marginTop: Spacing.lg, gap: 4 },
   quickAction: { width: '30%', alignItems: 'center', paddingVertical: Spacing.sm, marginBottom: Spacing.sm },
   quickIcon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
