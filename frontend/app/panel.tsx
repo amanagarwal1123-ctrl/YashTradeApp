@@ -5,7 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl } from '../src/api';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'batches' | 'customers';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers';
+type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload';
 type Role = 'admin' | 'executive' | null;
 
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
@@ -22,6 +23,7 @@ export default function PanelScreen() {
 
   // Panel
   const [tab, setTab] = useState<PanelTab>('dashboard');
+  const [productSubView, setProductSubView] = useState<ProductSubView>('menu');
   const [loading, setLoading] = useState(false);
 
   // Data
@@ -63,6 +65,16 @@ export default function PanelScreen() {
   // Request detail
   const [editingReqId, setEditingReqId] = useState('');
   const [noteText, setNoteText] = useState('');
+
+  // Add product form
+  const [newProdTitle, setNewProdTitle] = useState('');
+  const [newProdMetal, setNewProdMetal] = useState('silver');
+  const [newProdCat, setNewProdCat] = useState('');
+  const [newProdWeight, setNewProdWeight] = useState('');
+  const [newProdPurity, setNewProdPurity] = useState('');
+  const [newProdTouch, setNewProdTouch] = useState('');
+  const [newProdLabel, setNewProdLabel] = useState('');
+  const [newProdImageUrl, setNewProdImageUrl] = useState('');
 
   // === AUTH ===
   const sendOtp = async () => {
@@ -123,15 +135,22 @@ export default function PanelScreen() {
           setMarketSummary(r.market_summary || '');
           break;
         }
-        case 'products': { const r = await api.get('/products?limit=50&include_hidden=true'); setProducts(r.products || []); break; }
-        case 'batches': { const r = await api.get('/batches'); setBatches(r.batches || []); break; }
+        case 'products': {
+          const [prodRes, batchRes] = await Promise.all([
+            api.get('/products?limit=50&include_hidden=true'),
+            api.get('/batches'),
+          ]);
+          setProducts(prodRes.products || []);
+          setBatches(batchRes.batches || []);
+          break;
+        }
         case 'customers': { const r = await api.get('/customers?limit=100'); setCustomers(r.customers || []); break; }
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [statusFilter, typeFilter]);
 
-  useEffect(() => { if (role) loadTab(tab); }, [tab, role]);
+  useEffect(() => { if (role) { setProductSubView('menu'); loadTab(tab); } }, [tab, role]);
   useEffect(() => { if (role && tab === 'requests') loadTab('requests'); }, [statusFilter, typeFilter]);
 
   // === ACTIONS ===
@@ -159,9 +178,22 @@ export default function PanelScreen() {
   const createBatch = async () => {
     if (!newBatchName.trim()) return;
     try {
-      await api.post('/batches', { name: newBatchName, metal_type: newBatchMetal, category: newBatchCat });
+      const batch = await api.post('/batches', { name: newBatchName, metal_type: newBatchMetal, category: newBatchCat });
       setNewBatchName(''); setNewBatchCat(''); setShowBatchForm(false);
-      loadTab('batches');
+      setUploadBatchId(batch.id);
+      setProductSubView('batch_upload');
+      loadTab('products');
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
+  const addProduct = async () => {
+    if (!newProdTitle.trim()) { Alert.alert('Error', 'Enter product title'); return; }
+    try {
+      await api.post('/products', { title: newProdTitle, metal_type: newProdMetal, category: newProdCat, approx_weight: newProdWeight, purity: newProdPurity, selling_touch: newProdTouch, selling_label: newProdLabel, images: newProdImageUrl ? [newProdImageUrl] : [] });
+      Alert.alert('Success', 'Product added');
+      setNewProdTitle(''); setNewProdCat(''); setNewProdWeight(''); setNewProdPurity(''); setNewProdTouch(''); setNewProdLabel(''); setNewProdImageUrl('');
+      setProductSubView('list');
+      loadTab('products');
     } catch (e: any) { Alert.alert('Error', e.message); }
   };
 
@@ -242,7 +274,6 @@ export default function PanelScreen() {
     { key: 'requests', label: 'Requests', icon: 'call' },
     { key: 'rates', label: 'Rates', icon: 'trending-up' },
     { key: 'products', label: 'Products', icon: 'grid' },
-    { key: 'batches', label: 'Batches', icon: 'folder' },
     { key: 'customers', label: 'Customers', icon: 'people' },
   ];
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
@@ -439,81 +470,157 @@ export default function PanelScreen() {
             </View>
           )}
 
-          {/* ===== PRODUCTS ===== */}
+          {/* ===== PRODUCTS MANAGEMENT (unified with sub-navigation) ===== */}
           {tab === 'products' && (
             <>
-              <Text style={s.sectionTitle}>ALL PRODUCTS ({products.length})</Text>
-              {products.map(p => (
-                <View key={p.id} style={s.listItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.listTitle}>{p.title}</Text>
-                    <Text style={s.listMeta}>{p.metal_type} • {p.category} • {p.visibility}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => { api.delete(`/products/${p.id}`).then(() => loadTab('products')); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
-                </View>
-              ))}
-            </>
-          )}
-
-          {/* ===== BATCHES ===== */}
-          {tab === 'batches' && (
-            <>
-              <View style={s.formRow}>
-                <TouchableOpacity testID="panel-new-batch" style={[s.saveBtn, { flex: 1 }]} onPress={() => setShowBatchForm(!showBatchForm)}>
-                  <Text style={s.saveBtnText}>{showBatchForm ? 'CANCEL' : 'NEW BATCH'}</Text>
+              {/* Sub-navigation back bar */}
+              {productSubView !== 'menu' && (
+                <TouchableOpacity testID="products-back" style={s.subBackBar} onPress={() => setProductSubView('menu')}>
+                  <Ionicons name="arrow-back" size={18} color={Colors.gold} />
+                  <Text style={s.subBackText}>Back to Product Management</Text>
                 </TouchableOpacity>
-              </View>
-              {showBatchForm && (
+              )}
+
+              {/* MENU — main product management home */}
+              {productSubView === 'menu' && (
+                <>
+                  <Text style={s.sectionTitle}>PRODUCT MANAGEMENT</Text>
+                  <View style={s.menuGrid}>
+                    <TouchableOpacity testID="pm-add" style={s.menuCard} onPress={() => setProductSubView('add')}>
+                      <View style={[s.menuCardIcon, { backgroundColor: Colors.success + '15' }]}><Ionicons name="add-circle" size={28} color={Colors.success} /></View>
+                      <Text style={s.menuCardTitle}>Add Product</Text>
+                      <Text style={s.menuCardHint}>Add single product with details</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity testID="pm-bulk" style={s.menuCard} onPress={() => { setProductSubView('batches'); loadTab('products'); }}>
+                      <View style={[s.menuCardIcon, { backgroundColor: Colors.gold + '15' }]}><Ionicons name="cloud-upload" size={28} color={Colors.gold} /></View>
+                      <Text style={s.menuCardTitle}>Bulk Upload</Text>
+                      <Text style={s.menuCardHint}>Upload 100s of images at once</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity testID="pm-list" style={s.menuCard} onPress={() => { setProductSubView('list'); loadTab('products'); }}>
+                      <View style={[s.menuCardIcon, { backgroundColor: Colors.info + '15' }]}><Ionicons name="grid" size={28} color={Colors.info} /></View>
+                      <Text style={s.menuCardTitle}>View All Products</Text>
+                      <Text style={s.menuCardHint}>{products.length} products in catalog</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity testID="pm-batches" style={s.menuCard} onPress={() => { setProductSubView('batches'); loadTab('products'); }}>
+                      <View style={[s.menuCardIcon, { backgroundColor: '#A855F715' }]}><Ionicons name="folder" size={28} color="#A855F7" /></View>
+                      <Text style={s.menuCardTitle}>Manage Batches</Text>
+                      <Text style={s.menuCardHint}>{batches.length} batches • Hide/Show/Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* ADD SINGLE PRODUCT */}
+              {productSubView === 'add' && (
                 <View style={s.formCard}>
-                  <TextInput style={s.formInput} placeholder="Batch Name *" placeholderTextColor={Colors.textMuted} value={newBatchName} onChangeText={setNewBatchName} />
-                  <View style={s.formRow}>{['silver', 'gold', 'diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, newBatchMetal === m && s.metalBtnActive]} onPress={() => setNewBatchMetal(m)}><Text style={[s.metalBtnText, newBatchMetal === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-                  <TextInput style={s.formInput} placeholder="Category (optional)" placeholderTextColor={Colors.textMuted} value={newBatchCat} onChangeText={setNewBatchCat} />
-                  <TouchableOpacity style={s.saveBtn} onPress={createBatch}><Text style={s.saveBtnText}>CREATE</Text></TouchableOpacity>
+                  <Text style={s.formTitle}>Add New Product</Text>
+                  <TextInput style={s.formInput} placeholder="Product Title *" placeholderTextColor={Colors.textMuted} value={newProdTitle} onChangeText={setNewProdTitle} />
+                  <Text style={s.formLabel}>Metal Type</Text>
+                  <View style={s.formRow}>{['silver', 'gold', 'diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, newProdMetal === m && s.metalBtnActive]} onPress={() => setNewProdMetal(m)}><Text style={[s.metalBtnText, newProdMetal === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
+                  <TextInput style={s.formInput} placeholder="Category (e.g. payal, chain)" placeholderTextColor={Colors.textMuted} value={newProdCat} onChangeText={setNewProdCat} />
+                  <TextInput style={s.formInput} placeholder="Approx Weight (e.g. 45-55 grams)" placeholderTextColor={Colors.textMuted} value={newProdWeight} onChangeText={setNewProdWeight} />
+                  <TextInput style={s.formInput} placeholder="Purity (e.g. 92.5)" placeholderTextColor={Colors.textMuted} value={newProdPurity} onChangeText={setNewProdPurity} />
+                  <TextInput style={s.formInput} placeholder="Selling Touch (e.g. Premium, Daily Wear)" placeholderTextColor={Colors.textMuted} value={newProdTouch} onChangeText={setNewProdTouch} />
+                  <TextInput style={s.formInput} placeholder="Selling Label (e.g. Best Seller, New Arrival)" placeholderTextColor={Colors.textMuted} value={newProdLabel} onChangeText={setNewProdLabel} />
+                  <TextInput style={s.formInput} placeholder="Image URL (optional)" placeholderTextColor={Colors.textMuted} value={newProdImageUrl} onChangeText={setNewProdImageUrl} />
+                  <TouchableOpacity style={s.saveBtn} onPress={addProduct}><Text style={s.saveBtnText}>SAVE PRODUCT</Text></TouchableOpacity>
                 </View>
               )}
 
-              {/* Upload section */}
-              {uploadBatchId !== '' && (
-                <View style={[s.formCard, { borderColor: Colors.borderGold }]}>
-                  <View style={s.formRow}>
-                    <Text style={[s.formTitle, { flex: 1 }]}>Upload to: {batches.find(b => b.id === uploadBatchId)?.name}</Text>
-                    <TouchableOpacity onPress={() => { setUploadBatchId(''); setSelectedFiles([]); }}><Ionicons name="close" size={20} color={Colors.textMuted} /></TouchableOpacity>
-                  </View>
-                  <TouchableOpacity style={s.pickBtn} onPress={pickFiles}>
-                    <Ionicons name="cloud-upload" size={24} color={Colors.gold} />
-                    <Text style={{ color: Colors.text, marginTop: 4 }}>Select images</Text>
+              {/* VIEW ALL PRODUCTS */}
+              {productSubView === 'list' && (
+                <>
+                  <Text style={s.sectionTitle}>ALL PRODUCTS ({products.length})</Text>
+                  {products.map(p => (
+                    <View key={p.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{p.title}</Text>
+                        <Text style={s.listMeta}>{p.metal_type} • {p.category} • {p.visibility}{p.purity ? ` • Purity: ${p.purity}` : ''}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => { api.delete(`/products/${p.id}`).then(() => loadTab('products')); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  {products.length === 0 && <Text style={s.emptyText}>No products yet</Text>}
+                </>
+              )}
+
+              {/* BATCHES + BULK UPLOAD */}
+              {(productSubView === 'batches' || productSubView === 'batch_upload') && (
+                <>
+                  {/* Create new batch */}
+                  <TouchableOpacity style={[s.saveBtn, { marginBottom: Spacing.md }]} onPress={() => setShowBatchForm(!showBatchForm)}>
+                    <Text style={s.saveBtnText}>{showBatchForm ? 'CANCEL' : 'CREATE NEW BATCH'}</Text>
                   </TouchableOpacity>
-                  {selectedFiles.length > 0 && <Text style={{ color: Colors.gold, marginTop: 8 }}>{selectedFiles.length} files selected</Text>}
-                  {uploading && <View style={s.progressBar}><View style={[s.progressFill, { width: `${(uploadProgress.done / Math.max(uploadProgress.total, 1)) * 100}%` }]} /></View>}
-                  {selectedFiles.length > 0 && !uploading && (
-                    <TouchableOpacity style={s.saveBtn} onPress={startUpload}><Text style={s.saveBtnText}>UPLOAD {selectedFiles.length} IMAGES</Text></TouchableOpacity>
+                  {showBatchForm && (
+                    <View style={s.formCard}>
+                      <Text style={s.formTitle}>New Batch / Folder</Text>
+                      <Text style={[s.formLabel, { marginTop: 0 }]}>Give your batch a name like "New Payal Lot" or "Silver Articles Feb"</Text>
+                      <TextInput style={s.formInput} placeholder="Batch Name *" placeholderTextColor={Colors.textMuted} value={newBatchName} onChangeText={setNewBatchName} />
+                      <Text style={s.formLabel}>Metal Type</Text>
+                      <View style={s.formRow}>{['silver', 'gold', 'diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, newBatchMetal === m && s.metalBtnActive]} onPress={() => setNewBatchMetal(m)}><Text style={[s.metalBtnText, newBatchMetal === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
+                      <TextInput style={s.formInput} placeholder="Category (optional)" placeholderTextColor={Colors.textMuted} value={newBatchCat} onChangeText={setNewBatchCat} />
+                      <TouchableOpacity style={s.saveBtn} onPress={createBatch}><Text style={s.saveBtnText}>CREATE & START UPLOADING</Text></TouchableOpacity>
+                    </View>
                   )}
-                </View>
-              )}
 
-              <Text style={s.sectionTitle}>ALL BATCHES ({batches.length})</Text>
-              {batches.map(b => (
-                <View key={b.id} style={s.batchCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.listTitle}>{b.name}</Text>
-                    <Text style={s.listMeta}>{b.metal_type} {b.category ? `• ${b.category}` : ''} • {b.image_count} images</Text>
-                  </View>
-                  <View style={[s.badge, { backgroundColor: b.status === 'visible' ? Colors.success + '20' : Colors.warning + '20' }]}>
-                    <Text style={[s.badgeText, { color: b.status === 'visible' ? Colors.success : Colors.warning }]}>{b.status}</Text>
-                  </View>
-                  <View style={s.batchActions}>
-                    <TouchableOpacity style={[s.miniBtn, { backgroundColor: Colors.gold + '20' }]} onPress={() => { setUploadBatchId(b.id); setSelectedFiles([]); }}>
-                      <Ionicons name="cloud-upload" size={14} color={Colors.gold} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.miniBtn, { backgroundColor: b.status === 'visible' ? Colors.warning + '20' : Colors.success + '20' }]} onPress={() => toggleBatchVisibility(b.id)}>
-                      <Ionicons name={b.status === 'visible' ? 'eye-off' : 'eye'} size={14} color={b.status === 'visible' ? Colors.warning : Colors.success} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.miniBtn, { backgroundColor: Colors.error + '20' }]} onPress={() => deleteBatch(b.id, b.name)}>
-                      <Ionicons name="trash" size={14} color={Colors.error} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+                  {/* Active upload section */}
+                  {uploadBatchId !== '' && (
+                    <View style={[s.formCard, { borderColor: Colors.borderGold }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={s.formTitle}>Upload Images</Text>
+                        <TouchableOpacity onPress={() => { setUploadBatchId(''); setSelectedFiles([]); }}><Ionicons name="close" size={20} color={Colors.textMuted} /></TouchableOpacity>
+                      </View>
+                      <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, marginBottom: Spacing.md }}>Uploading to: {batches.find(b => b.id === uploadBatchId)?.name}</Text>
+                      <TouchableOpacity style={s.pickBtn} onPress={pickFiles}>
+                        <Ionicons name="cloud-upload" size={32} color={Colors.gold} />
+                        <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '600' }}>Tap to select images from device</Text>
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>JPG, PNG, WebP — Max 20MB each — Select as many as you want</Text>
+                      </TouchableOpacity>
+                      {selectedFiles.length > 0 && (
+                        <View style={{ marginTop: Spacing.md }}>
+                          <Text style={{ color: Colors.gold, fontWeight: '600' }}>{selectedFiles.length} files selected</Text>
+                          <TouchableOpacity style={{ marginTop: 4 }} onPress={pickFiles}><Text style={{ color: Colors.info, fontSize: FontSize.sm }}>+ Add more files</Text></TouchableOpacity>
+                        </View>
+                      )}
+                      {uploading && (
+                        <View style={{ marginTop: Spacing.md }}>
+                          <View style={s.progressBar}><View style={[s.progressFill, { width: `${(uploadProgress.done / Math.max(uploadProgress.total, 1)) * 100}%` }]} /></View>
+                          <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', marginTop: 4 }}>{uploadProgress.done} / {uploadProgress.total} files uploaded</Text>
+                        </View>
+                      )}
+                      {selectedFiles.length > 0 && !uploading && (
+                        <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} onPress={startUpload}><Text style={s.saveBtnText}>UPLOAD {selectedFiles.length} IMAGES</Text></TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Batch list */}
+                  <Text style={s.sectionTitle}>ALL BATCHES ({batches.length})</Text>
+                  {batches.length === 0 && <Text style={s.emptyText}>No batches yet. Create one above to start uploading.</Text>}
+                  {batches.map(b => (
+                    <View key={b.id} style={s.batchCard}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{b.name}</Text>
+                        <Text style={s.listMeta}>{b.metal_type} {b.category ? `• ${b.category}` : ''} • {b.image_count} images • {new Date(b.created_at).toLocaleDateString()}</Text>
+                      </View>
+                      <View style={[s.badge, { backgroundColor: b.status === 'visible' ? Colors.success + '20' : Colors.warning + '20' }]}>
+                        <Text style={[s.badgeText, { color: b.status === 'visible' ? Colors.success : Colors.warning }]}>{b.status}</Text>
+                      </View>
+                      <View style={s.batchActions}>
+                        <TouchableOpacity style={[s.miniBtn, { backgroundColor: Colors.gold + '20' }]} onPress={() => { setUploadBatchId(b.id); setSelectedFiles([]); }}>
+                          <Ionicons name="cloud-upload" size={14} color={Colors.gold} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[s.miniBtn, { backgroundColor: b.status === 'visible' ? Colors.warning + '20' : Colors.success + '20' }]} onPress={() => toggleBatchVisibility(b.id)}>
+                          <Ionicons name={b.status === 'visible' ? 'eye-off' : 'eye'} size={14} color={b.status === 'visible' ? Colors.warning : Colors.success} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[s.miniBtn, { backgroundColor: Colors.error + '20' }]} onPress={() => deleteBatch(b.id, b.name)}>
+                          <Ionicons name="trash" size={14} color={Colors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
             </>
           )}
 
@@ -622,7 +729,16 @@ const s = StyleSheet.create({
   batchCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: 14, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: Colors.cardBorder, flexWrap: 'wrap', gap: 8 },
   batchActions: { flexDirection: 'row', gap: 6 },
   miniBtn: { width: 34, height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  pickBtn: { alignItems: 'center', paddingVertical: Spacing.lg, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: Colors.gold + '40' },
+  pickBtn: { alignItems: 'center', paddingVertical: Spacing.xl, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: Colors.gold + '40', backgroundColor: Colors.gold + '05' },
   progressBar: { height: 6, borderRadius: 3, backgroundColor: Colors.surface, overflow: 'hidden', marginTop: 8 },
   progressFill: { height: '100%', backgroundColor: Colors.gold, borderRadius: 3 },
+  // Sub-nav back bar
+  subBackBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, marginBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  subBackText: { fontSize: FontSize.sm, color: Colors.gold, fontWeight: '600' },
+  // Menu grid
+  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  menuCard: { width: '47%', backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.cardBorder },
+  menuCardIcon: { width: 52, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm },
+  menuCardTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.text, marginBottom: 4 },
+  menuCardHint: { fontSize: FontSize.xs, color: Colors.textMuted, lineHeight: 16 },
 });
