@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
+import { useLang } from '../src/context/LanguageContext';
 
 interface Message { id: string; role: 'user' | 'assistant'; content: string; }
 
@@ -19,6 +20,7 @@ const QUICK_PROMPTS = [
 
 export default function AIAssistantScreen() {
   const router = useRouter();
+  const { t, language } = useLang();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,7 +36,7 @@ export default function AIAssistantScreen() {
 
     setLoading(true);
     try {
-      const res = await api.post('/ai/chat', { message: msg, session_id: sessionId });
+      const res = await api.post('/ai/chat', { message: msg, session_id: sessionId, language });
       if (res.session_id) setSessionId(res.session_id);
       const aiMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: res.response };
       setMessages(prev => [...prev, aiMsg]);
@@ -69,8 +71,8 @@ export default function AIAssistantScreen() {
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="sparkles" size={48} color={Colors.gold} />
-            <Text style={styles.emptyTitle}>Yash Trade AI</Text>
-            <Text style={styles.emptySubtitle}>Ask me about selling tips, silver knowledge, trends, and customer education content.</Text>
+            <Text style={styles.emptyTitle}>{t('ai_title')}</Text>
+            <Text style={styles.emptySubtitle}>{t('ai_subtitle')}</Text>
             <View style={styles.promptsGrid}>
               {QUICK_PROMPTS.map(p => (
                 <TouchableOpacity key={p} testID={`prompt-${p.slice(0, 10)}`} style={styles.promptCard} onPress={() => sendMessage(p)}>

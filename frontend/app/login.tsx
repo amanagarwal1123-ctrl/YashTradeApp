@@ -31,7 +31,6 @@ export default function LoginScreen() {
             <Ionicons name="diamond" size={48} color={Colors.gold} />
           </View>
           <Text style={styles.brand}>YASH TRADE</Text>
-          <Text style={styles.subtitle}>JEWELLERS</Text>
           <Text style={styles.tagline}>Premium Silver • Gold • Diamond</Text>
         </View>
 
@@ -57,7 +56,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <Text style={styles.hint}>Demo: Use any 10-digit number, OTP is 1234</Text>
-          <Text style={styles.hint}>Admin: Use 9999999999</Text>
+          <Text style={styles.hint}>Admin: 9999999999 | Executive: 7777777777</Text>
         </View>
 
         <View style={styles.footer}>

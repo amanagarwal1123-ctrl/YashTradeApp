@@ -6,9 +6,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
+import { useLang } from '../../src/context/LanguageContext';
+import { LANGUAGE_OPTIONS } from '../../src/i18n';
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
+  const { t, language, setLang } = useLang();
   const router = useRouter();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +91,21 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menuSection}>
-          <Text style={styles.menuSectionTitle}>TOOLS</Text>
+          <Text style={styles.menuSectionTitle}>{t('settings')}</Text>
+          <View style={styles.langRow}>
+            <Text style={styles.menuLabel}>{t('language')}</Text>
+            <View style={styles.langOptions}>
+              {LANGUAGE_OPTIONS.map(lo => (
+                <TouchableOpacity key={lo.key} testID={`lang-${lo.key}`} style={[styles.langBtn, language === lo.key && styles.langBtnActive]} onPress={() => setLang(lo.key)}>
+                  <Text style={[styles.langBtnText, language === lo.key && styles.langBtnTextActive]}>{lo.native}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.menuSection}>
+          <Text style={styles.menuSectionTitle}>{t('tools')}</Text>
           <MenuItem testID="calc-menu-btn" icon="calculator" label="Silver Calculator" onPress={() => router.push('/(tabs)/calculator')} />
           <MenuItem testID="ai-menu-btn" icon="sparkles" label="AI Assistant" onPress={() => router.push('/ai-assistant')} />
           <MenuItem testID="knowledge-menu-btn" icon="book" label="Silver Knowledge" onPress={() => router.push('/knowledge')} />
@@ -100,10 +117,11 @@ export default function ProfileScreen() {
           <MenuItem testID="video-menu-btn" icon="videocam" label="Request Video Call" onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call' } })} />
         </View>
 
-        {user?.role === 'admin' && (
+        {(user?.role === 'admin' || user?.role === 'executive') && (
           <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>ADMIN</Text>
-            <MenuItem testID="admin-menu-btn" icon="settings" label="Admin Dashboard" onPress={() => router.push('/admin')} />
+            <Text style={styles.menuSectionTitle}>{user.role === 'admin' ? t('admin') : 'EXECUTIVE'}</Text>
+            {user.role === 'admin' && <MenuItem testID="admin-menu-btn" icon="settings" label={t('admin_dashboard')} onPress={() => router.push('/admin')} />}
+            <MenuItem testID="exec-menu-btn" icon="headset" label={t('executive_panel')} onPress={() => router.push('/executive')} />
           </View>
         )}
 
@@ -168,6 +186,12 @@ const styles = StyleSheet.create({
   menuValue: { fontSize: FontSize.sm, color: Colors.textSecondary },
   logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: Spacing.lg, marginTop: Spacing.xl, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.error + '40' },
   logoutText: { fontSize: FontSize.md, color: Colors.error, fontWeight: '600' },
+  langRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+  langOptions: { flexDirection: 'row', gap: 6 },
+  langBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+  langBtnActive: { backgroundColor: Colors.gold + '20', borderColor: Colors.gold },
+  langBtnText: { fontSize: FontSize.sm, color: Colors.textMuted },
+  langBtnTextActive: { color: Colors.gold, fontWeight: '600' },
   recentSection: { marginTop: Spacing.xl, paddingHorizontal: Spacing.lg },
   requestItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
   requestLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },

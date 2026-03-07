@@ -5,13 +5,15 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
+import { useLang } from '../../src/context/LanguageContext';
 
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; }
-const CATEGORIES = ['All', 'payal', 'chain', 'articles', 'necklace', 'ring', 'bangles', 'bracelet', 'gifting', 'coins', 'kadaa', 'pendant', 'kids', 'toe_rings'];
+const CATEGORIES = ['All', 'payal', 'chain', 'articles', 'necklace', 'ring', 'bangles', 'bracelet', 'gifting', 'coins', 'kadaa', 'pendant', 'kids', 'toe_rings', 'earrings', 'mens', 'nose_ring', 'waist_belt'];
 const METALS = ['All', 'silver', 'gold', 'diamond'];
 
 export default function FeedScreen() {
   const router = useRouter();
+  const { t } = useLang();
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -21,27 +23,34 @@ export default function FeedScreen() {
   const [category, setCategory] = useState('');
   const [metal, setMetal] = useState('');
   const [search, setSearch] = useState('');
+  const [hasMore, setHasMore] = useState(true);
 
   const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false) => {
+    if (loadingMore && p > 1) return;
     try {
       if (p === 1) setLoading(true); else setLoadingMore(true);
-      const params = new URLSearchParams({ page: String(p), limit: '20' });
+      const params = new URLSearchParams({ page: String(p), limit: '12' });
       if (category) params.set('category', category);
       if (metal) params.set('metal_type', metal);
       if (search) params.set('search', search);
       const res = await api.get(`/products?${params}`);
       const newProducts = res.products || [];
-      setProducts(prev => refresh || p === 1 ? newProducts : [...prev, ...newProducts]);
+      if (refresh || p === 1) {
+        setProducts(newProducts);
+      } else {
+        setProducts(prev => [...prev, ...newProducts]);
+      }
       setTotalPages(res.pages || 1);
       setPage(p);
+      setHasMore(p < (res.pages || 1));
     } catch (e) { console.error(e); }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false); }
-  }, [category, metal, search]);
+  }, [category, metal, search, loadingMore]);
 
   useEffect(() => { fetchProducts(1, true); }, [category, metal]);
 
-  const onRefresh = () => { setRefreshing(true); fetchProducts(1, true); };
-  const loadMore = () => { if (!loadingMore && page < totalPages) fetchProducts(page + 1); };
+  const onRefresh = () => { setRefreshing(true); setHasMore(true); fetchProducts(1, true); };
+  const loadMore = () => { if (!loadingMore && hasMore && page < totalPages) fetchProducts(page + 1); };
   const doSearch = () => fetchProducts(1, true);
 
   const renderItem = ({ item }: { item: Product }) => (
@@ -103,9 +112,9 @@ export default function FeedScreen() {
           contentContainerStyle={styles.listContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
           onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={Colors.gold} style={{ padding: 16 }} /> : null}
-          ListEmptyComponent={<Text style={styles.emptyText}>No products found</Text>}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={Colors.gold} style={{ padding: 20 }} /> : hasMore ? null : products.length > 0 ? <Text style={styles.endText}>You've seen all products</Text> : null}
+          ListEmptyComponent={<Text style={styles.emptyText}>{t('no_products')}</Text>}
         />
       )}
     </SafeAreaView>
@@ -140,4 +149,5 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.text, marginBottom: 2 },
   cardMeta: { fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'capitalize' },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
+  endText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', paddingVertical: 20 },
 });

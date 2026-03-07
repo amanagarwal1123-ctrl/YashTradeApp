@@ -89,6 +89,7 @@ class RedeemRequest(BaseModel):
 class AIChatRequest(BaseModel):
     message: str
     session_id: str = ""
+    language: str = "en"
 
 class KnowledgeCreate(BaseModel):
     title: str
@@ -140,6 +141,11 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 async def get_admin_user(user=Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+async def get_executive_or_admin(user=Depends(get_current_user)):
+    if user.get("role") not in ("admin", "executive"):
+        raise HTTPException(status_code=403, detail="Executive or admin access required")
     return user
 
 # ===================== AUTH ENDPOINTS =====================
@@ -317,15 +323,17 @@ async def my_requests(user=Depends(get_current_user)):
     return {"requests": reqs}
 
 @api_router.get("/requests")
-async def list_requests(status: str = Query(""), user=Depends(get_admin_user)):
+async def list_requests(status: str = Query(""), request_type: str = Query(""), user=Depends(get_executive_or_admin)):
     query = {}
     if status:
         query["status"] = status
+    if request_type:
+        query["request_type"] = request_type
     reqs = await db.requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return {"requests": reqs}
 
 @api_router.patch("/requests/{request_id}")
-async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends(get_admin_user)):
+async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends(get_executive_or_admin)):
     updates = {"status": req.status}
     if req.assigned_to:
         updates["assigned_to"] = req.assigned_to
@@ -400,6 +408,11 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         session_id = req.session_id or f"jeweller-{user['id']}"
+        lang_instruction = ""
+        if req.language == "hi":
+            lang_instruction = "\n\nIMPORTANT: Respond in HINDI (हिंदी) language. Use Devanagari script."
+        elif req.language == "pa":
+            lang_instruction = "\n\nIMPORTANT: Respond in PUNJABI (ਪੰਜਾਬੀ) language. Use Gurmukhi script."
         system_msg = (
             "You are the AI business assistant for Yash Trade Jewellers, a leading wholesale and retail jewellery business "
             "specializing in silver, gold, and diamond. You help jewellers with:\n"
@@ -410,6 +423,7 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
             "- Content for retailers: WhatsApp messages, product pitches, care instructions they can share\n\n"
             "Keep responses SHORT, practical, and business-oriented. Use bullet points. "
             "Speak as a knowledgeable trade insider. Help jewellers sell more and educate their customers."
+            f"{lang_instruction}"
         )
         # Load chat history
         history = await db.ai_chat_history.find(
@@ -700,6 +714,94 @@ async def seed_data():
     await db.users.create_index([("phone", 1)], unique=True)
 
     return {"message": "Seed data created successfully", "products": len(products)}
+
+@api_router.post("/seed/expand")
+async def seed_expand():
+    """Add executive user and expand products to 50+"""
+    # Executive user
+    exec_exists = await db.users.find_one({"phone": "7777777777"})
+    if not exec_exists:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()), "phone": "7777777777", "name": "Priya Executive",
+            "city": "Delhi", "customer_code": "EXEC01", "customer_type": "executive",
+            "role": "executive", "category_interests": [], "is_eligible_rewards": False,
+            "assigned_salesperson": "", "status": "active", "reward_points": 0,
+            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_login": datetime.now(timezone.utc).isoformat()
+        })
+
+    count = await db.products.count_documents({})
+    if count >= 50:
+        return {"message": "Already expanded", "products": count}
+
+    imgs = [
+        "https://images.unsplash.com/photo-1679973296611-82470327c513?w=600",
+        "https://images.unsplash.com/photo-1589128784765-a69d61ed9c39?w=600",
+        "https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=600",
+        "https://images.unsplash.com/photo-1606623546924-a4f3ae5ea3e8?w=600",
+        "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600",
+        "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?w=600",
+        "https://images.unsplash.com/photo-1515562141589-67f0d97dc11b?w=600",
+        "https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600",
+        "https://images.unsplash.com/photo-1693213085231-fc580d8916de?w=600",
+    ]
+    extra = [
+        ("Heavy Silver Payal - Rajasthani","silver","payal","60-80g","bridal"),
+        ("Light Daily Wear Payal","silver","payal","15-25g","daily_wear"),
+        ("Oxidized Silver Payal","silver","payal","30-40g","oxidized"),
+        ("Baby Silver Payal","silver","payal","8-12g","kids"),
+        ("Italian Silver Chain 22inch","silver","chain","30-50g","italian"),
+        ("Rope Silver Chain Heavy","silver","chain","60-100g","mens"),
+        ("Box Chain Silver","silver","chain","20-35g","daily_wear"),
+        ("Figaro Gold Chain","gold","chain","15-25g","italian"),
+        ("Silver Pooja Bell","silver","articles","50-80g","pooja"),
+        ("Silver Photo Frame","silver","articles","100-150g","gifting"),
+        ("Silver Flower Vase","silver","articles","200-300g","premium"),
+        ("Silver Wine Glass Set","silver","articles","150-200g","premium"),
+        ("Kundan Gold Necklace","gold","necklace","40-55g","bridal"),
+        ("Gold Choker Set","gold","necklace","30-40g","festive"),
+        ("Polki Diamond Set","diamond","necklace","25-35g","bridal"),
+        ("Gold Jhumka Earrings","gold","earrings","10-15g","festive"),
+        ("Diamond Studs","diamond","earrings","3-5g","daily_wear"),
+        ("Silver Nose Ring Set","silver","nose_ring","2-4g","traditional"),
+        ("Gold Bangles Set of 4","gold","bangles","40-60g","festive"),
+        ("Silver Kada Heavy Mens","silver","kadaa","80-120g","mens"),
+        ("Silver Coin 50g Ganesh","silver","coins","50g","gifting"),
+        ("Silver Coin 100g Lakshmi","silver","coins","100g","investment"),
+        ("Gold Coin 10g","gold","coins","10g","investment"),
+        ("Silver Bracelet Curb Link","silver","bracelet","30-50g","mens"),
+        ("Silver Bangle Oxidized","silver","bangles","20-30g","oxidized"),
+        ("Diamond Tennis Bracelet","diamond","bracelet","8-12g","premium"),
+        ("Silver Anklet Ghungroo","silver","payal","25-35g","traditional"),
+        ("Gold Mangalsutra","gold","necklace","15-25g","bridal"),
+        ("Silver Spoon Set Baby","silver","gifting","40-60g","baby"),
+        ("Silver Rakhi Special","silver","gifting","5-10g","festive"),
+        ("Gold Pendant Peacock","gold","pendant","5-8g","daily_wear"),
+        ("Silver Cufflinks Mens","silver","mens","10-15g","corporate"),
+        ("Diamond Nose Pin","diamond","nose_ring","1-2g","daily_wear"),
+        ("Silver Waist Belt","silver","waist_belt","100-150g","bridal"),
+        ("Kids Gold Bracelet","gold","kids","5-8g","kids"),
+        ("Silver Ring Oxidized","silver","ring","5-8g","daily_wear"),
+        ("Gold Engagement Ring","gold","ring","4-6g","bridal"),
+        ("Silver Glass Set","silver","articles","200-250g","gifting"),
+        ("Navratna Gold Ring","gold","ring","6-8g","traditional"),
+        ("Silver Temple Jewellery Set","silver","necklace","80-120g","temple"),
+    ]
+    new_products = []
+    for i, (title, metal, cat, wt, tag) in enumerate(extra):
+        new_products.append({
+            "id": str(uuid.uuid4()), "title": title, "description": f"Premium quality {metal} {cat}. {title}.",
+            "metal_type": metal, "category": cat, "subcategory": tag, "images": [imgs[i % len(imgs)]],
+            "video_url": "", "approx_weight": wt, "stock_status": "in_stock",
+            "tags": [tag, metal, cat], "is_pinned": False, "is_new_arrival": i < 15,
+            "is_trending": i % 5 == 0, "visibility": "all", "post_type": "product",
+            "views": 0, "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+    if new_products:
+        await db.products.insert_many(new_products)
+    total = await db.products.count_documents({})
+    return {"message": f"Expanded to {total} products", "products": total}
 
 # ===================== APP SETUP =====================
 
