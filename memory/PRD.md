@@ -1,140 +1,160 @@
-# Aman Agarwal Jewellers - Private Business App PRD
+# Yash Trade App - Product Requirements Document
 
-## Product Overview
-A production-grade private mobile app for Aman Agarwal's jewellery business, serving 40,000+ verified jeweller customers. The app combines daily utility (rates, calculator), engagement (endless feed, AI assistant), and business tools (rewards, request management) in a premium dark-themed experience.
+## Original Problem Statement
+Private mobile app for Yash Trade jewelry business, serving ~40,000 wholesale and retail jewelers. The app functions as a daily-use business utility combining:
+- Endless jewelry media viewer (10,000+ images)
+- Daily gold/silver rate updates (6-point system)
+- Customer engagement tools (requests, rewards, AI assistant)
+- Operational management (admin panel, executive dashboard)
 
 ## Tech Stack
-- **Frontend**: React Native (Expo SDK 54) with Expo Router
-- **Backend**: FastAPI (Python) with Motor (async MongoDB driver)
-- **Database**: MongoDB
-- **AI**: Claude Sonnet 4.5 via emergentintegrations (Emergent LLM Key)
-- **Auth**: JWT-based with phone OTP (mock for MVP)
+- **Backend:** FastAPI (Python) + MongoDB (via Motor async)
+- **Frontend:** Expo (React Native) with Expo Router, running as web app
+- **Storage:** Emergent Object Storage for production image uploads
+- **AI:** Claude Sonnet 4.5 via Emergent LLM Key
+- **Auth:** JWT with mocked phone OTP (mock code: 1234)
 
-## MVP Features Built
+## User Roles
+1. **Admin** (phone: 9999999999) - Full control
+2. **Executive** (phone: 7777777777) - Request management
+3. **Customer** (phone: 8888888888) - Browse, request, rewards
 
-### 1. Authentication
-- Phone + OTP login flow (mock OTP: 1234)
-- JWT token-based auth with 30-day expiry
-- Auto-redirect based on auth state
-- Admin role: 9999999999 | Demo customer: 8888888888
+## Core Architecture
+```
+/app/backend/server.py  - Monolithic FastAPI (all routes + models + storage)
+/app/frontend/app/      - Expo Router file-based routing
+  ├── (tabs)/            - Main tabs (Home, Feed, Calculator, Profile)
+  ├── admin.tsx          - Admin panel with tabs
+  ├── admin-batches.tsx  - Batch management + file upload
+  ├── admin-batch-detail.tsx - Batch image grid + management
+  ├── image-viewer.tsx   - Full-screen image viewer
+  └── ...
+/app/frontend/src/api.ts - API layer with file upload support
+```
 
-### 2. Home Screen
-- Daily silver & gold rate ticker with movement indicators
-- Market summary text
-- 6 quick action buttons (Calculator, Call, Video Call, Rewards, AI, Knowledge)
-- Stories/Highlights horizontal scroll
-- Product feed preview with "See All"
-- Pull-to-refresh
+## What's Been Implemented
 
-### 3. Endless Product Feed
-- Infinite scroll product grid (2-column)
-- Metal type filter (All, Silver, Gold, Diamond)
-- Category filter chips (15 categories)
-- Search functionality
-- Product cards with metal badges, NEW/TRENDING labels
-- Pagination (20 per page)
+### Phase 0 (Previous Sessions)
+- [x] JWT Auth with 3 roles (admin/executive/customer)
+- [x] 6-point rate system (Dollar/MCX/Physical for Gold & Silver)
+- [x] Endless feed with pagination
+- [x] URL-based bulk upload
+- [x] Silver calculator
+- [x] AI assistant (Claude Sonnet 4.5)
+- [x] Multi-language (English/Hindi/Punjabi)
+- [x] Executive dashboard
+- [x] Stories/highlights
+- [x] Rewards system (basic)
+- [x] Request system (call/video call/ask price)
+- [x] Knowledge articles
 
-### 4. Silver Jewellery Calculator
-- Single item mode: Weight × Rate + Making - Discount + GST
-- Multi-item bill mode: Add/remove rows, per-item totals
-- Configurable GST% (default 3%)
-- Real-time calculation
-- Clear all function
+### Phase 1 (2026-03-07) - Production Media Upload + Batch Management
+- [x] **Emergent Object Storage Integration** - init, put_object, get_object
+- [x] **Image Processing** - Pillow-based compression + thumbnail generation
+  - Thumbnails: 400px max, 60% JPEG quality (for feed)
+  - Originals: 1600px max, 85% JPEG quality (for viewer)
+- [x] **Real File Upload** - Admin can upload actual image files from device
+  - Multi-file selection
+  - Chunked upload (3 files per batch request)
+  - Upload progress tracking
+  - File size validation (max 20MB per file)
+- [x] **Batch/Folder Management (CRUD)**
+  - Create batch with name, metal type, category
+  - List/search batches
+  - Edit batch metadata (name, metal, category)
+  - Delete batch (soft-delete/archive)
+  - Toggle visibility (hide/show from customer feed)
+  - Batch reassigns metal/category to all child products
+- [x] **Batch Image Management**
+  - Upload images to specific batches
+  - View all images in a batch (paginated grid)
+  - Multi-select images
+  - Bulk delete selected images
+  - Image count tracking per batch
+- [x] **File Serving** - Backend serves images from storage with 24hr cache
+- [x] **Products Visibility Filtering** - Hidden/deleted products excluded from public feed
+- [x] **Enhanced Request Management** - Notes history, customer info retrieval
 
-### 5. Request Call / Video Call
-- 6 request types: Call, Video Call, Ask Price, Ask Similar, Hold Item, Quick Reorder
-- Category of interest selection (9 options)
-- Preferred time slot
-- Notes field
-- Admin queue with status management
+### Phase 2 (2026-03-07) - Feed Viewer Experience
+- [x] **Full-Screen Image Viewer** - Opens on tap from feed
+  - Navigation arrows (prev/next)
+  - Image counter (1/N)
+  - Close button
+  - Ask Price + Video Call action buttons
+  - Smooth transitions
+- [x] **Feed Improvements**
+  - Uses getImageUrl() utility for both URL and storage-backed images
+  - Increased page size (20 items)
+  - FlatList performance optimizations (windowSize, removeClippedSubviews)
+  - Latest uploads first (sorted by created_at DESC)
+- [x] **Home Screen** - Updated to use getImageUrl for product cards
+- [x] **Product Detail** - Updated to use storage images when available
 
-### 6. Reward Points System
-- Welcome bonus (100 pts on first login)
-- Wallet view with earned/redeemed summary
-- Points value in INR (1 pt = ₹1)
-- Transaction history
-- Admin-configurable rules (per-1000, welcome, video bonus)
+## Key API Endpoints
 
-### 7. AI Business Assistant
-- Claude Sonnet 4.5 integration
-- 6 quick prompt suggestions for jewellers
-- Chat interface with message history
-- Selling tips, silver knowledge, trend suggestions, content generation
-- Session-based conversations
+### Auth
+- POST /api/auth/send-otp
+- POST /api/auth/verify-otp
+- GET /api/auth/me
 
-### 8. Silver Knowledge / Education
-- 5 seeded articles (silver care, cleaning, benefits, storage, gifting)
-- Category filters (All, Silver Care, Benefits, Gifting)
-- Expandable article cards
-- Designed for retailers to show their own customers
+### Products
+- GET /api/products (pagination, filters, excludes hidden/deleted)
+- POST /api/products (admin)
+- POST /api/products/bulk (admin - URL-based)
 
-### 9. Customer Profile
-- User info display (name, phone, code, type)
-- Reward wallet snapshot
-- Menu navigation to all tools
-- Recent request history with status
-- Logout
+### Batches (NEW)
+- POST /api/batches (admin - create)
+- GET /api/batches (admin - list)
+- GET /api/batches/{id} (admin - detail)
+- PUT /api/batches/{id} (admin - update)
+- DELETE /api/batches/{id} (admin - archive)
+- PATCH /api/batches/{id}/visibility (admin - toggle)
+- POST /api/batches/{id}/upload (admin - file upload)
+- GET /api/batches/{id}/images (admin - paginated images)
+- POST /api/batches/{id}/images/delete (admin - delete selected)
 
-### 10. Admin Dashboard
-- **Dashboard**: Total customers, products, requests, pending count, reward points
-- **Products**: Add new products (title, description, metal, category, weight, image URL), list, delete
-- **Rates**: Update silver/gold rates, movement indicators, market summary
-- **Requests**: View all requests, assign, mark done, no-response
-- **Customers**: List all customers with type, city, code, points
+### Files
+- GET /api/files/{path} (serves images from storage, cached 24hr)
 
-## Product Detail Screen
-- Full-size product images
-- Metal type, category, stock status badges
-- Description and weight details
-- Tags display
-- CTAs: Ask Price, Video Call, Ask Similar, Hold Item, Reorder
+### Rates
+- GET /api/rates/latest
+- POST /api/rates (admin)
+- GET /api/rates/history
 
-## Database Collections
-- `users` - Customers and admins
-- `products` - Product catalog (15 seeded items)
-- `rates` - Daily rate entries
-- `requests` - Call/video call requests
-- `reward_transactions` - Points history
-- `reward_config` - Points rules
-- `knowledge` - Education articles
-- `stories` - Highlights/stories
-- `wishlists` - User wishlists
-- `analytics` - Event tracking
-- `ai_chat_history` - AI conversation history
+### Requests
+- POST /api/requests (user)
+- GET /api/requests (exec/admin, with filters)
+- PATCH /api/requests/{id} (exec/admin, notes history)
+- GET /api/requests/{id}/history (customer detail + past requests)
 
-## Design System
-- Theme: Dark Premium (bg: #050505, surface: #121212, card: #1A1A1A)
-- Primary: Gold (#D4AF37)
-- Secondary: Silver (#E0E0E0)
-- Text: White (#FFFFFF) with secondary (#A1A1AA) and muted (#52525B)
-- Functional: Success (#10B981), Error (#EF4444), Warning (#F59E0B), Info (#3B82F6)
-- 8pt spacing grid, 44px minimum touch targets
+## DB Collections
+- **users** - phone, name, city, role, reward_points
+- **products** - title, images[], storage_path, thumbnail_path, batch_id, visibility, is_deleted
+- **batches** - name, metal_type, category, status, image_count, upload_type
+- **rates** - 6 rate values, movement, physical mode/premium
+- **requests** - request_type, status, notes_history[]
+- **reward_transactions** - points, type, reason
+- **knowledge** - articles/tips
+- **stories** - highlights
 
-## API Endpoints (30+ endpoints)
-- Auth: send-otp, verify-otp, me, profile update
-- Products: list, get, create, update, delete, categories
-- Rates: latest, update, history
-- Requests: create, my-requests, list (admin), update (admin)
-- Rewards: wallet, history, redeem, credit (admin), config (admin)
-- AI: chat, suggestions
-- Knowledge: list, get, create
-- Stories: list, create
-- Wishlist: toggle, list
-- Analytics: track event, dashboard (admin)
-- Customers: list, get, update (admin)
+## Prioritized Backlog
 
-## Phase 2 Features (Roadmap)
-- Real SMS OTP integration (Twilio)
-- Push notifications
-- Parcel/order tracking
-- Advanced reward campaigns
-- Personalized feed recommendations
-- City-wise analytics
-- Retailer education videos
-- App install campaign tracking
-- Customer segmentation campaigns
-- Multi-image upload from device
-- Video content support
+### P1 - Upcoming
+- [ ] Executive Panel upgrade (WhatsApp/Call buttons, advanced filters, customer detail modal)
+- [ ] Rate History charts (mini charts, intraday history, previous update comparison)
+- [ ] Push notification architecture
+- [ ] Rewards/Loyalty system enhancement (catalog, redemption flow, campaigns)
 
-## Business Enhancement Suggestion
-**Referral Program**: Implement a "Refer a Jeweller" feature where existing customers earn bonus points (e.g., 500 pts) for each verified jeweller they invite. This leverages the existing 40,000-customer network for organic growth while the reward system incentivizes participation. Track referral chains for attribution analytics.
+### P2 - Next
+- [ ] Silver Knowledge section build-out (admin + display)
+- [ ] Calculator improvements (multi-item, copy/share, save history)
+- [ ] Language improvements (full localization of all sections)
+- [ ] Analytics improvements (views, engagement, scroll depth)
+- [ ] Stories/Highlights admin management
+
+### P3 - Future
+- [ ] Real OTP integration (Twilio/SMS)
+- [ ] Parcel/Order status tracking
+- [ ] Personalized AI feed recommendations
+- [ ] City-wise notification campaigns
+- [ ] Backend modularization (APIRouter)
