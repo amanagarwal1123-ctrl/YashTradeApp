@@ -92,7 +92,7 @@ export default function PanelScreen() {
     try {
       const res = await api.post('/auth/verify-otp', { phone, otp });
       const u = res.user;
-      if (u.role !== 'admin' && u.role !== 'executive') {
+      if (u.role !== 'admin' && u.role !== 'executive' && u.role !== 'billing_executive') {
         setAuthError('Access denied. This panel is for admin and executive users only.');
         setToken(null);
         return;
@@ -384,9 +384,34 @@ export default function PanelScreen() {
                     <View style={s.infoRow}><Ionicons name="call" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.user_phone}</Text></View>
                     {r.user_city ? <View style={s.infoRow}><Ionicons name="location" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.user_city}</Text></View> : null}
                     {r.category ? <View style={s.infoRow}><Ionicons name="grid" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.category}</Text></View> : null}
+                    {r.preferred_time ? <View style={s.infoRow}><Ionicons name="time" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.preferred_time}</Text></View> : null}
                     {r.notes ? <View style={s.infoRow}><Ionicons name="document-text" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.notes}</Text></View> : null}
                     {r.admin_notes ? <View style={[s.infoRow, { backgroundColor: Colors.gold + '08', padding: 6, borderRadius: 6 }]}><Ionicons name="chatbox" size={14} color={Colors.gold} /><Text style={[s.infoText, { color: Colors.gold }]}>{r.admin_notes}</Text></View> : null}
                   </View>
+
+                  {/* Linked Products */}
+                  {r.linked_products?.length > 0 && (
+                    <View style={{ paddingHorizontal: 0, marginTop: 8, gap: 6 }}>
+                      <Text style={{ fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1 }}>SELECTED PRODUCTS</Text>
+                      {r.linked_products.map((lp: any) => (
+                        <View key={lp.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 8, padding: 6 }}>
+                          <Image source={{ uri: getImageUrl(lp, true) }} style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: Colors.card }} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: FontSize.sm, color: Colors.text, fontWeight: '500' }} numberOfLines={1}>{lp.title}</Text>
+                            <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'capitalize' }}>{lp.metal_type} {lp.category ? `• ${lp.category}` : ''}{lp.purity ? ` • ${lp.purity}` : ''}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {r.cart_items?.length > 0 && (
+                    <View style={{ marginTop: 8, gap: 4 }}>
+                      <Text style={{ fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1 }}>CART ITEMS ({r.cart_count})</Text>
+                      {r.cart_items.map((ci: any, idx: number) => (
+                        <Text key={idx} style={{ fontSize: FontSize.sm, color: Colors.text }}>{ci.title || ci.product_id} — {ci.metal_type} • Qty: {ci.quantity}</Text>
+                      ))}
+                    </View>
+                  )}
 
                   {/* Quick contact */}
                   {r.user_phone && (

@@ -17,6 +17,7 @@ export default function RootLayout() {
           <Stack.Screen name="ai-assistant" options={{ presentation: 'modal' }} />
           <Stack.Screen name="rewards" options={{ presentation: 'modal' }} />
           <Stack.Screen name="request-call" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="request-success" options={{ presentation: 'modal', animation: 'fade' }} />
           <Stack.Screen name="knowledge" options={{ presentation: 'modal' }} />
           <Stack.Screen name="image-viewer" options={{ presentation: 'modal', animation: 'fade' }} />
           <Stack.Screen name="my-requests" options={{ presentation: 'modal' }} />

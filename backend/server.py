@@ -79,7 +79,7 @@ def process_image(data: bytes, max_size: int = 1600, quality: int = 85) -> bytes
     img.save(buf, format='JPEG', quality=quality, optimize=True)
     return buf.getvalue()
 
-def create_thumbnail(data: bytes, size: int = 400, quality: int = 60) -> bytes:
+def create_thumbnail(data: bytes, size: int = 800, quality: int = 80) -> bytes:
     img = PILImage.open(io.BytesIO(data))
     if img.mode in ('RGBA', 'P', 'LA'):
         img = img.convert('RGB')
@@ -147,6 +147,7 @@ class RequestCreate(BaseModel):
     preferred_time: str = ""
     notes: str = ""
     product_id: str = ""
+    product_ids: List[str] = []
 
 class RewardConfigUpdate(BaseModel):
     points_per_1000: int = 10
@@ -244,7 +245,7 @@ async def get_admin_user(user=Depends(get_current_user)):
     return user
 
 async def get_executive_or_admin(user=Depends(get_current_user)):
-    if user.get("role") not in ("admin", "executive"):
+    if user.get("role") not in ("admin", "executive", "billing_executive"):
         raise HTTPException(status_code=403, detail="Executive or admin access required")
     return user
 
@@ -677,9 +678,26 @@ async def rate_history(days: int = Query(7, ge=1, le=90)):
 
 @api_router.post("/requests")
 async def create_request(req: RequestCreate, user=Depends(get_current_user)):
+    all_product_ids = req.product_ids or []
+    if req.product_id and req.product_id not in all_product_ids:
+        all_product_ids.insert(0, req.product_id)
+    # Fetch product details for linked products
+    linked_products = []
+    if all_product_ids:
+        prods = await db.products.find({"id": {"$in": all_product_ids}}, {"_id": 0, "id": 1, "title": 1, "metal_type": 1, "category": 1, "images": 1, "thumbnail_path": 1, "storage_path": 1, "approx_weight": 1, "purity": 1}).to_list(50)
+        prod_map = {p["id"]: p for p in prods}
+        for pid in all_product_ids:
+            if pid in prod_map:
+                linked_products.append(prod_map[pid])
     request_data = {
         "id": str(uuid.uuid4()),
-        **req.dict(),
+        "request_type": req.request_type,
+        "category": req.category,
+        "preferred_time": req.preferred_time,
+        "notes": req.notes,
+        "product_id": req.product_id,
+        "product_ids": all_product_ids,
+        "linked_products": linked_products,
         "user_id": user["id"],
         "user_phone": user.get("phone", ""),
         "user_name": user.get("name", ""),
@@ -1085,31 +1103,21 @@ async def update_customer(customer_id: str, req: CustomerUpdate, user=Depends(ge
 
 async def _internal_seed():
     """Internal seed called at startup - no auth needed"""
-    existing = await db.products.count_documents({})
-    if existing > 0:
-        return
-    # ... delegate to the route handler logic by calling the core
-    admin = await db.users.find_one({"phone": "9999999999"})
-    if not admin:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()), "phone": "9999999999", "name": "Yash Trade Admin",
-            "city": "Delhi", "customer_code": "ADMIN01", "customer_type": "admin",
-            "role": "admin", "category_interests": [], "is_eligible_rewards": False,
-            "assigned_salesperson": "", "status": "active", "reward_points": 0,
-            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat()
-        })
-    # Executive user (fix #10)
-    exec_exists = await db.users.find_one({"phone": "7777777777"})
-    if not exec_exists:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()), "phone": "7777777777", "name": "Priya Executive",
-            "city": "Delhi", "customer_code": "EXEC01", "customer_type": "executive",
-            "role": "executive", "category_interests": [], "is_eligible_rewards": False,
-            "assigned_salesperson": "", "status": "active", "reward_points": 0,
-            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat()
-        })
+    # Always ensure system users exist
+    for phone, name, code, ctype, role in [
+        ("9999999999", "Yash Trade Admin", "ADMIN01", "admin", "admin"),
+        ("7777777777", "Priya Executive", "EXEC01", "executive", "executive"),
+        ("6666666666", "Billing Executive", "BILL01", "billing_executive", "billing_executive"),
+    ]:
+        if not await db.users.find_one({"phone": phone}):
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()), "phone": phone, "name": name,
+                "city": "Delhi", "customer_code": code, "customer_type": ctype,
+                "role": role, "category_interests": [], "is_eligible_rewards": False,
+                "assigned_salesperson": "", "status": "active", "reward_points": 0,
+                "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+                "last_login": datetime.now(timezone.utc).isoformat()
+            })
     # Demo customer
     await db.users.update_one({"phone": "8888888888"}, {"$setOnInsert": {
         "id": str(uuid.uuid4()), "phone": "8888888888", "name": "Rajesh Kumar",
@@ -1119,6 +1127,9 @@ async def _internal_seed():
         "reward_points": 250, "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
         "last_login": datetime.now(timezone.utc).isoformat()
     }}, upsert=True)
+    existing = await db.products.count_documents({})
+    if existing > 0:
+        return
     # Indexes
     await db.products.create_index([("created_at", -1)])
     await db.products.create_index([("batch_id", 1)])
