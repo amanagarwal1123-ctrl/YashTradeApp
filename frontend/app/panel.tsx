@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl } from '../src/api';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload';
 type Role = 'admin' | 'executive' | null;
 
@@ -76,6 +76,18 @@ export default function PanelScreen() {
   const [newProdLabel, setNewProdLabel] = useState('');
   const [newProdImageUrl, setNewProdImageUrl] = useState('');
 
+  // Billing / Reward wallet
+  const [custSearch, setCustSearch] = useState('');
+  const [custResults, setCustResults] = useState<any[]>([]);
+  const [selectedCust, setSelectedCust] = useState<any>(null);
+  const [custTxns, setCustTxns] = useState<any[]>([]);
+  const [custTotalEarned, setCustTotalEarned] = useState(0);
+  const [custTotalDeducted, setCustTotalDeducted] = useState(0);
+  const [rewardPoints, setRewardPoints] = useState('');
+  const [rewardReason, setRewardReason] = useState('');
+  const [rewardAction, setRewardAction] = useState<'credit' | 'debit'>('credit');
+  const REASON_TYPES = ['Purchase reward', 'Special reward', 'Adjustment', 'Redemption', 'Correction'];
+
   // === AUTH ===
   const sendOtp = async () => {
     if (phone.length < 10) { setAuthError('Enter valid 10-digit number'); return; }
@@ -100,6 +112,7 @@ export default function PanelScreen() {
       setToken(res.token);
       setUser(u);
       setRole(u.role);
+      setTab(u.role === 'billing_executive' ? 'rewards' : u.role === 'executive' ? 'requests' : 'dashboard');
       setAuthStep('done');
     } catch (e: any) { setAuthError(e.message); }
     finally { setAuthLoading(false); }
@@ -229,6 +242,38 @@ export default function PanelScreen() {
   const openWhatsApp = (phoneNum: string) => { Linking.openURL(`https://wa.me/91${phoneNum}`); };
   const openCall = (phoneNum: string) => { Linking.openURL(`tel:+91${phoneNum}`); };
 
+  // Billing functions
+  const searchCustomers = async (q: string) => {
+    setCustSearch(q);
+    if (q.length < 2) { setCustResults([]); return; }
+    try {
+      const res = await api.get(`/customers/search?q=${encodeURIComponent(q)}`);
+      setCustResults(res.customers || []);
+    } catch {}
+  };
+
+  const openCustomerWallet = async (cust: any) => {
+    setSelectedCust(cust);
+    try {
+      const res = await api.get(`/rewards/customer/${cust.id}`);
+      setCustTxns(res.transactions || []);
+      setCustTotalEarned(res.total_earned || 0);
+      setCustTotalDeducted(res.total_deducted || 0);
+      setSelectedCust(res.customer || cust);
+    } catch {}
+  };
+
+  const submitRewardAction = async () => {
+    if (!selectedCust || !rewardPoints || parseInt(rewardPoints) <= 0) { Alert.alert('Error', 'Enter valid points'); return; }
+    try {
+      const endpoint = rewardAction === 'credit' ? '/rewards/credit' : '/rewards/deduct';
+      const res = await api.post(endpoint, { user_id: selectedCust.id, points: parseInt(rewardPoints), reason: rewardReason || rewardAction });
+      Alert.alert('Success', `${rewardAction === 'credit' ? 'Credited' : 'Deducted'} ${rewardPoints} points. New balance: ${res.new_balance}`);
+      setRewardPoints(''); setRewardReason('');
+      openCustomerWallet(selectedCust);
+    } catch (e: any) { Alert.alert('Error', e.message); }
+  };
+
   const statusColor = (s: string) => {
     switch (s) { case 'pending': return Colors.warning; case 'in_progress': return Colors.info; case 'contacted': return '#A855F7'; case 'resolved': return Colors.success; case 'no_response': return Colors.error; default: return Colors.textMuted; }
   };
@@ -279,7 +324,10 @@ export default function PanelScreen() {
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'requests', label: 'Requests', icon: 'call' },
   ];
-  const tabs = role === 'admin' ? ADMIN_TABS : EXEC_TABS;
+  const BILLING_TABS: { key: PanelTab; label: string; icon: string }[] = [
+    { key: 'rewards', label: 'Reward Wallet', icon: 'wallet' },
+  ];
+  const tabs = role === 'admin' ? ADMIN_TABS : role === 'billing_executive' ? BILLING_TABS : EXEC_TABS;
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -644,6 +692,99 @@ export default function PanelScreen() {
                       </View>
                     </View>
                   ))}
+                </>
+              )}
+            </>
+          )}
+
+          {/* ===== REWARD WALLET (Billing Executive) ===== */}
+          {tab === 'rewards' && (
+            <>
+              {/* Customer Search */}
+              {!selectedCust ? (
+                <>
+                  <Text style={s.sectionTitle}>SEARCH CUSTOMER</Text>
+                  <TextInput testID="billing-search" style={s.formInput} placeholder="Search by name, phone, city, code..." placeholderTextColor={Colors.textMuted} value={custSearch} onChangeText={searchCustomers} />
+                  {custResults.map(c => (
+                    <TouchableOpacity key={c.id} style={s.listItem} onPress={() => openCustomerWallet(c)}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{c.name || c.phone}</Text>
+                        <Text style={s.listMeta}>{c.phone} • {c.city || 'No city'} • {c.customer_code} • {c.reward_points || 0} pts</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                  ))}
+                  {custSearch.length >= 2 && custResults.length === 0 && <Text style={s.emptyText}>No customers found</Text>}
+                </>
+              ) : (
+                <>
+                  {/* Back to search */}
+                  <TouchableOpacity style={s.subBackBar} onPress={() => { setSelectedCust(null); setCustTxns([]); setCustSearch(''); setCustResults([]); }}>
+                    <Ionicons name="arrow-back" size={18} color={Colors.gold} />
+                    <Text style={s.subBackText}>Back to Customer Search</Text>
+                  </TouchableOpacity>
+
+                  {/* Customer wallet card */}
+                  <View style={[s.formCard, { borderColor: Colors.borderGold }]}>
+                    <Text style={{ fontSize: FontSize.lg, fontWeight: '700', color: Colors.text }}>{selectedCust.name || selectedCust.phone}</Text>
+                    <Text style={{ fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 }}>{selectedCust.phone} • {selectedCust.city} • {selectedCust.customer_code}</Text>
+                    <View style={{ flexDirection: 'row', gap: 16, marginTop: Spacing.md }}>
+                      <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.gold + '10', padding: Spacing.md, borderRadius: 12 }}>
+                        <Text style={{ fontSize: FontSize.xxl, fontWeight: '700', color: Colors.gold }}>{selectedCust.reward_points || 0}</Text>
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>Current Balance</Text>
+                      </View>
+                      <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.success + '10', padding: Spacing.md, borderRadius: 12 }}>
+                        <Text style={{ fontSize: FontSize.lg, fontWeight: '700', color: Colors.success }}>{custTotalEarned}</Text>
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>Total Earned</Text>
+                      </View>
+                      <View style={{ flex: 1, alignItems: 'center', backgroundColor: Colors.error + '10', padding: Spacing.md, borderRadius: 12 }}>
+                        <Text style={{ fontSize: FontSize.lg, fontWeight: '700', color: Colors.error }}>{custTotalDeducted}</Text>
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>Total Used</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Add/Deduct Points */}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Manage Points</Text>
+                    <View style={s.formRow}>
+                      <TouchableOpacity style={[s.metalBtn, rewardAction === 'credit' && { backgroundColor: Colors.success + '20', borderColor: Colors.success }]} onPress={() => setRewardAction('credit')}>
+                        <Text style={[s.metalBtnText, rewardAction === 'credit' && { color: Colors.success }]}>Add Points</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.metalBtn, rewardAction === 'debit' && { backgroundColor: Colors.error + '20', borderColor: Colors.error }]} onPress={() => setRewardAction('debit')}>
+                        <Text style={[s.metalBtnText, rewardAction === 'debit' && { color: Colors.error }]}>Deduct Points</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TextInput style={s.formInput} placeholder="Points *" placeholderTextColor={Colors.textMuted} value={rewardPoints} onChangeText={setRewardPoints} keyboardType="number-pad" />
+                    <Text style={s.formLabel}>Reason</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.sm }}>
+                      {REASON_TYPES.map(r => (
+                        <TouchableOpacity key={r} style={[s.chip, rewardReason === r && s.chipActive]} onPress={() => setRewardReason(r)}>
+                          <Text style={[s.chipText, rewardReason === r && s.chipTextActive]}>{r}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TextInput style={s.formInput} placeholder="Custom remark (optional)" placeholderTextColor={Colors.textMuted} value={rewardReason} onChangeText={setRewardReason} />
+                    <TouchableOpacity style={[s.saveBtn, rewardAction === 'debit' && { backgroundColor: Colors.error }]} onPress={submitRewardAction}>
+                      <Text style={s.saveBtnText}>{rewardAction === 'credit' ? 'ADD POINTS' : 'DEDUCT POINTS'}</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Transaction History */}
+                  <Text style={s.sectionTitle}>REWARD HISTORY ({custTxns.length})</Text>
+                  {custTxns.map(t => (
+                    <View key={t.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name={t.type === 'credit' ? 'add-circle' : 'remove-circle'} size={16} color={t.type === 'credit' ? Colors.success : Colors.error} />
+                          <Text style={[s.listTitle, { color: t.type === 'credit' ? Colors.success : Colors.error }]}>{t.type === 'credit' ? '+' : '-'}{t.points} pts</Text>
+                        </View>
+                        <Text style={s.listMeta}>{t.reason}{t.performed_by ? ` • by ${t.performed_by}` : ''}</Text>
+                        <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted }}>{new Date(t.created_at).toLocaleString()}</Text>
+                      </View>
+                    </View>
+                  ))}
+                  {custTxns.length === 0 && <Text style={s.emptyText}>No reward history yet</Text>}
                 </>
               )}
             </>

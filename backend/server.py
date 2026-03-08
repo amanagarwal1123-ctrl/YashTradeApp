@@ -245,8 +245,13 @@ async def get_admin_user(user=Depends(get_current_user)):
     return user
 
 async def get_executive_or_admin(user=Depends(get_current_user)):
-    if user.get("role") not in ("admin", "executive", "billing_executive"):
+    if user.get("role") not in ("admin", "executive"):
         raise HTTPException(status_code=403, detail="Executive or admin access required")
+    return user
+
+async def get_billing_or_admin(user=Depends(get_current_user)):
+    if user.get("role") not in ("admin", "billing_executive"):
+        raise HTTPException(status_code=403, detail="Billing or admin access required")
     return user
 
 # ===================== AUTH ENDPOINTS =====================
@@ -822,15 +827,69 @@ async def update_reward_config(req: RewardConfigUpdate, user=Depends(get_admin_u
     return req.dict()
 
 @api_router.post("/rewards/credit")
-async def credit_points(req: RewardCreditRequest, user=Depends(get_admin_user)):
+async def credit_points(req: RewardCreditRequest, user=Depends(get_billing_or_admin)):
+    target = await db.users.find_one({"id": req.user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Customer not found")
     await db.users.update_one({"id": req.user_id}, {"$inc": {"reward_points": req.points}})
     txn = {
         "id": str(uuid.uuid4()), "user_id": req.user_id, "points": req.points,
-        "type": "credit", "reason": req.reason or "Admin credit",
+        "type": "credit", "reason": req.reason or "Manual credit",
+        "performed_by": user.get("name", user.get("phone", "")),
+        "performed_by_id": user["id"],
+        "performed_by_role": user.get("role", ""),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.reward_transactions.insert_one(txn)
-    return {"message": f"Credited {req.points} points"}
+    fresh = await db.users.find_one({"id": req.user_id}, {"_id": 0, "reward_points": 1})
+    return {"message": f"Credited {req.points} points", "new_balance": fresh.get("reward_points", 0)}
+
+@api_router.post("/rewards/deduct")
+async def deduct_points(req: RewardCreditRequest, user=Depends(get_billing_or_admin)):
+    target = await db.users.find_one({"id": req.user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if target.get("reward_points", 0) < req.points:
+        raise HTTPException(status_code=400, detail="Insufficient points")
+    await db.users.update_one({"id": req.user_id}, {"$inc": {"reward_points": -req.points}})
+    txn = {
+        "id": str(uuid.uuid4()), "user_id": req.user_id, "points": req.points,
+        "type": "debit", "reason": req.reason or "Manual deduction",
+        "performed_by": user.get("name", user.get("phone", "")),
+        "performed_by_id": user["id"],
+        "performed_by_role": user.get("role", ""),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.reward_transactions.insert_one(txn)
+    fresh = await db.users.find_one({"id": req.user_id}, {"_id": 0, "reward_points": 1})
+    return {"message": f"Deducted {req.points} points", "new_balance": fresh.get("reward_points", 0)}
+
+@api_router.get("/rewards/customer/{customer_id}")
+async def customer_reward_history(customer_id: str, user=Depends(get_billing_or_admin)):
+    customer = await db.users.find_one({"id": customer_id}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    txns = await db.reward_transactions.find({"user_id": customer_id}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    total_earned = sum(t["points"] for t in txns if t.get("type") == "credit")
+    total_deducted = sum(t["points"] for t in txns if t.get("type") == "debit")
+    return {
+        "customer": {"id": customer["id"], "name": customer.get("name", ""), "phone": customer.get("phone", ""), "city": customer.get("city", ""), "customer_code": customer.get("customer_code", ""), "reward_points": customer.get("reward_points", 0)},
+        "total_earned": total_earned, "total_deducted": total_deducted,
+        "transactions": txns
+    }
+
+@api_router.get("/customers/search")
+async def search_customers(q: str = Query(""), user=Depends(get_billing_or_admin)):
+    if not q or len(q) < 2:
+        return {"customers": []}
+    query = {"role": "customer", "$or": [
+        {"phone": {"$regex": q, "$options": "i"}},
+        {"name": {"$regex": q, "$options": "i"}},
+        {"customer_code": {"$regex": q, "$options": "i"}},
+        {"city": {"$regex": q, "$options": "i"}},
+    ]}
+    customers = await db.users.find(query, {"_id": 0}).limit(20).to_list(20)
+    return {"customers": customers}
 
 @api_router.get("/rewards/history")
 async def reward_history(user=Depends(get_current_user)):
