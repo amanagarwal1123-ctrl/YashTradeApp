@@ -1,10 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Image, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
-import { useKeepAwake } from 'expo-keep-awake';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
@@ -14,9 +13,6 @@ type Role = 'admin' | 'executive' | null;
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
 
 export default function PanelScreen() {
-  // Keep screen awake during any upload
-  const [keepAwake, setKeepAwake] = useState(false);
-  useKeepAwake('upload-active', { isEnabled: keepAwake });
   // Auth
   const [role, setRole] = useState<Role>(null);
   const [user, setUser] = useState<any>(null);
@@ -260,7 +256,6 @@ export default function PanelScreen() {
   const startPdfImport = async (resumeUploadId?: string) => {
     if (!uploadBatchId || !pdfFile) return;
     setPdfImporting(true); setPdfResult(null); setPdfPhase(''); setPdfProgress(0); setPdfStage('idle');
-    setKeepAwake(true);
     try {
       const result = await api.importPdfChunked(uploadBatchId, pdfFile, (stage, detail, progress) => {
         setPdfStage(stage);
@@ -277,7 +272,7 @@ export default function PanelScreen() {
       setPdfResult({ error: e.message, resumeUploadId: resumeId });
       setPdfPhase(''); setPdfStage('error');
     }
-    finally { setPdfImporting(false); setKeepAwake(false); }
+    finally { setPdfImporting(false); }
   };
 
   const cancelPdfImport = () => {
@@ -290,14 +285,13 @@ export default function PanelScreen() {
   const startUpload = async () => {
     if (!uploadBatchId || !selectedFiles.length) return;
     setUploading(true); setUploadProgress({ done: 0, total: selectedFiles.length });
-    setKeepAwake(true);
     try {
       await api.uploadFiles(`/batches/${uploadBatchId}/upload`, selectedFiles, (d, t) => setUploadProgress({ done: d, total: t }));
       setSelectedFiles([]); setUploadBatchId('');
       Alert.alert('Success', 'Images uploaded');
       loadTab('batches');
     } catch (e: any) { Alert.alert('Error', e.message); }
-    finally { setUploading(false); setKeepAwake(false); }
+    finally { setUploading(false); }
   };
 
   const cancelImageUpload = () => {
