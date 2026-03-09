@@ -1,118 +1,93 @@
 <analysis>
-<original_problem_statement>
-The user, Aman Agarwal, wants to build a production-grade, private mobile app for his jewelry business, Yash Trade, for his network of ~40,000 wholesale and retail jewelers. The primary goal is to create a daily-use business utility that increases customer retention and repeat business.
 
-**PRODUCT REQUIREMENTS:**
+**original_problem_statement**: The user wants to enhance his Yash Trade jewelry business app with a wide array of new features and fixes. The initial goal was to build a private mobile app for his network of jewelers to increase retention.
 
-*   **Core App Experience:**
-    *   An Instagram-style feed of jewelry photos/videos.
-    *   A daily rates module for Gold and Silver.
-    *   A robust rewards/loyalty system.
-    *   Request Call and Request Video Call functionality.
-    *   A Silver Jewellery Calculator.
-    *   An AI-powered assistant.
-    *   A customer portal for account details, order status, and rewards.
-    *   Stories/highlights for daily updates.
-
-*   **Architecture & User Roles:**
-    *   A customer-facing mobile app (Expo React Native) for jewelers.
-    *   A separate, web-based internal panel for all backend staff.
-    *   **Admin:** Full control via the web panel.
-    *   **Executive:** A limited-access panel for managing customer requests (calls, inquiries, cart submissions).
-    *   **Billing Executive:** A highly restricted panel for manually managing customer reward points.
-    *   **Jeweller (User):** Private access to the mobile app via OTP-verified phone numbers.
-
-*   **Key Features & User Requests:**
-    *   **Production-Grade Uploads:** Support for direct, bulk file uploads (10,000+ images) with batch management, progress bars, and scalable object storage.
-    *   **Business Cart Workflow:** An Add to Cart feature that is a selection/shortlist tool. The submitted cart goes to the executive team for manual billing, not an e-commerce checkout.
-    *   **Advanced Request Flow:** When making a request (e.g., video call), users can select multiple products from the catalog, add notes, and see the specific product information in the executive panel.
-    *   **Manual Rewards System:** A dedicated Billing Executive role to manually add/deduct reward points for customers with a full audit trail.
-    *   **Improved UI/UX:** Clickable stories, high-definition images in the feed, proper nested back-navigation, and clear success confirmations after user actions.
-</original_problem_statement>
+This session focused on three major waves of user requests:
+1.  **Nine New Features:** Implementation of About Us, endless home feed, live rate scraping, a new Rate List page, a Schemes page, a Brands section, a Showroom Photos section, an Upcoming Exhibition page, and full app-wide language support (Hindi, English, Punjabi).
+2.  **Nine UI/UX Refinements:** A complete overhaul of the previously implemented features based on specific user feedback. This included changing the Silver Rate List to be item-wise, correcting addresses, making About section content interactive, swapping button positions on the product page, adding success confirmations, and displaying more product details on feed cards.
+3.  **Production-Grade PDF Import:** A critical and multi-stage feature request to allow the admin to upload large PDF catalogs (up to 300MB), have the system extract each page as a product image, and add them to the bulk upload workflow. This involved backend processing with PyMuPDF, a complete Admin Panel UI refactor for a better user experience, and fixing server-side upload limits.
 
 **User's preferred language**: English
 
 **what currently exists?**
-The project has been split into two distinct frontends:
-1.  **A customer-facing mobile app** built with Expo (React Native), intended for deployment on app stores. This app has been cleaned of all admin/executive logic.
-2.  **A separate, web-based internal panel** built with React, which serves all internal roles (Admin, Executive, Billing Executive) via a single, role-aware interface.
-
-**Implemented Features:**
-*   **Mobile App (Customer):**
-    *   JWT authentication (mock OTP).
-    *   Endless feed, full-screen image viewer, clickable highlights.
-    *   Advanced 6-point rate system (Gold/Silver).
-    *   Silver Calculator with a searchable item-selector dropdown.
-    *   A sophisticated request flow allowing multi-product selection from the catalog, category-based interests, and a notes field.
-    *   A full-page success screen is shown after a request is submitted.
-    *   A business-oriented Add to Cart feature that submits a product selection to the internal team.
-    *   Multi-language support (English, Hindi, Punjabi).
-*   **Web Panel (Internal Staff):**
-    *   Role-based UI that changes based on who logs in (Admin, Executive, or Billing Executive).
-    *   **Admin View:** Full access to dashboards, user management, and a comprehensive Product Management section with clear actions for adding single products, bulk uploading, and managing batches. Features proper internal navigation.
-    *   **Executive View:** A queue for managing incoming customer requests (calls, inquiries, cart submissions). Crucially, the panel now displays the specific product image(s) and details associated with each request.
-    *   **Billing Executive View:** A dedicated and restricted Reward Wallet UI. This user can only search for customers and manually add or deduct reward points with reasons, creating an audit trail. They have no access to customer support queues.
-*   **Backend (FastAPI):**
-    *   A monolithic  that supports all features.
-    *   Integration with Emergent's object storage for production-grade file uploads.
-    *   Robust role-based access control (RBAC) at the API level.
-    *   Endpoints for cart management, batch uploads, and a rewards system with an audit trail.
+The application now has a significantly expanded feature set on both the customer-facing mobile app and the internal web panel.
+-   **Mobile App:** Features nine new sections (About, Rate List, Schemes, etc.), a live-updating rates ticker powered by a web scraper (Yahoo Finance), and an endless home feed. The UI/UX has been refined with more interactive elements, better user feedback (toasts, success messages), and more data-rich product cards. A language selector is available on the login screen.
+-   **Web Panel:** The admin panel has been extended to manage content for all nine new features. Most critically, it now includes a dedicated, standalone Import PDF workflow designed to handle large catalog files.
+-   **Backend:** The  monolith now includes dozens of new endpoints, data models, and business logic to support all new features. It contains a web scraping task that runs in the background and a PDF processing engine using PyMuPDF. The NGINX configuration has been modified to allow large file uploads up to 350MB.
 
 **Last working item**:
-- Last item agent was working: The agent fixed a critical flaw in role permissions. Previously, the newly created Billing Executive role could incorrectly see the general support request queue. The agent implemented a complete separation of concerns:
-    1.  **Backend:** Restricted the  endpoint to admins/executives only. Updated rewards endpoints to be accessible by the Billing Executive and to log an audit trail.
-    2.  **Frontend (Web Panel):** Reworked the  to render a completely different UI based on the user's role. A Billing Executive now sees only a dedicated Reward Wallet management interface, while a standard Executive sees the support request queue.
+- Last item agent was working: The agent was fixing the PDF import feature, which was failing for large files and providing poor user feedback. The fix involved multiple steps:
+    1.  Identified that the default 1MB NGINX upload limit was the root cause of the Failed to fetch error.
+    2.  Modified  to increase  to  and raised timeouts.
+    3.  Improved the backend PDF import endpoint to return specific error messages.
+    4.  Overhauled the frontend UI in  to increase the displayed limit to 300MB, show upload/processing status, and display detailed error messages returned from the backend.
 - Status: USER VERIFICATION PENDING
-- Agent Testing Done: Y
-- Which testing method agent to use? both
+- Agent Testing Done: Y (Tested backend API with a 10-page PDF via a script, but not a full 300MB file via the UI.)
+- Which testing method agent to use? The user must perform manual testing with a real, large PDF file (e.g., >100MB). If issues persist, the next agent should use 'both' (frontend and backend testing agents) to debug the entire flow.
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-- Issue 1: **User Verification for Billing Executive Role Separation (P0)**
-     - Attempted fixes: The agent has implemented a comprehensive fix on both the backend and frontend to ensure the 'Billing Executive' role is strictly limited to reward management.
-     - Next debug checklist: The user needs to log in with the three different internal roles (Admin: , Executive: , Billing Executive: ) to confirm the UI and permissions are correct for each.
-     - Why fix this issue and what will be achieved with the fix? This is a critical business logic and security requirement to ensure internal staff only have access to the tools necessary for their specific job function.
+  - Issue 1:  **User Verification for Large PDF Import (P0)**
+     - Attempted fixes: The agent increased the NGINX  to 350MB and improved UI/backend error handling. The agent did not implement a true chunked upload, instead opting to raise the server's single-file limit.
+     - Next debug checklist: The user needs to test uploading a PDF file larger than 100MB (up to 300MB) through the Import PDF Catalogue UI in the admin panel. The agent should verify:
+         1. Does the upload succeed without a Failed to fetch or timeout error on a slow connection?
+         2. Are the progress indicators and status messages accurate?
+         3. Are all pages from the PDF correctly extracted and visible in the selected batch?
+     - Why fix this issue and what will be achieved with the fix? This is a critical business requirement for bulk product entry from existing catalogues. Fixing it will unblock a major admin workflow.
      - Status:  USER VERIFICATION PENDING
-     - Is recurring issue? N
+     - Is recurring issue? Y
      - Should Test frontend/backend/both after fix? Both.
      - Blocked on other issue: None.
 
 **In progress Task List**:
-None. The last task is complete pending user verification.
+None.
 
 **Upcoming and Future Tasks**
-*   **Upcoming Tasks (Batch B from user request):**
-    *   **P0: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. This involves reviewing thumbnail generation and image rendering strategies ( from Msg 244).
-    *   **P1: Implement Global Success Confirmations:** Add clear success confirmations (e.g., toasts) after major actions like save, upload, and update across the app to improve user feedback ( from Msg 244).
-    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button in the customer mobile app behaves predictably (e.g., Product Detail -> Feed) and does not incorrectly log the user out ( from Msg 244).
-*   **Future Tasks:**
+
+*   **Upcoming Tasks (Carried over from previous session):**
+    *   **P1: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. This involves reviewing thumbnail generation and image rendering strategies.
+    *   **P1: Implement Global Success Confirmations:** Add clear success confirmations (e.g., toasts) after major actions like save, upload, and update *across the entire app* to improve user feedback. (Some were added, but not globally).
+    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button in the customer mobile app behaves predictably (e.g., Product Detail -> Feed) and does not incorrectly log the user out.
+
+*   **Future Tasks (From PRD):**
     *   **Rate System History:** Add rate history, intraday update logs, and mini-charts.
-    *   **Push Notifications:** Implement architecture for notifications on rate updates, new arrivals, etc.
+    *   **Push Notifications:** Implement architecture for notifications.
     *   **Analytics:** Build out the analytics dashboard for admins.
     *   **Real OTP Integration:** Replace the mocked OTP system with a real SMS provider.
     *   **Expand Calculator:** Add a Gold calculator.
 
 **Completed work in this session**
-- **Architectural Overhaul:**
-  - Decoupled the internal admin/executive tools from the customer-facing mobile app into a separate web panel ().
-- **Production-Grade Media Upload:**
-  - Integrated object storage for direct, multi-file uploads.
-  - Built a comprehensive Product Management UI in the admin panel with clear actions for adding products, bulk uploading, and managing batches.
-- **Advanced Business Workflows:**
-  - Implemented an Add to Cart feature for submitting product selections to the executive team.
-  - Created a new Billing Executive role with a dedicated, secure UI for manual reward point management, including an audit trail.
-  - Enhanced the Executive panel to show specific product images and details linked to customer requests.
-- **Major UI/UX Improvements:**
-  - Fixed critical navigation bugs (admin panel nested back-navigation,  crash).
-  - Implemented a searchable dropdown selector in the Silver Calculator.
-  - Created a multi-product selection UI for the customer request flow.
-  - Added a full-page success screen after request submission.
-  - Added new product metadata fields (, , ) to the backend and UI.
-- **Bug Fixes:**
-  - Resolved over a dozen bugs, including security vulnerabilities (points exploit, unauthenticated endpoints), UI inconsistencies, and data encoding issues.
+- **Feature Implementation (9 New Features):**
+  - Added About Us, Brands, Schemes, Showroom Photos, Exhibition, and Rate List screens to the mobile app with full backend and admin panel management.
+  - Implemented a live-rate scraping system from Yahoo Finance that updates every 60 seconds.
+  - Created a language selector (English, Hindi, Punjabi) on the login screen.
+- **UI/UX Refinements (9 Fixes):**
+  - Re-architected the Silver Rate List to be item-wise instead of quantity-based.
+  - Corrected office addresses in the About Us section.
+  - Made About Us content interactive and expandable.
+  - Swapped Ask Price and Add to Cart buttons on the product page and added a confirmation toast.
+  - Added a Thank You message after cart submission.
+  - Added compact product details (Weight, Purity, etc.) to product cards in the feed.
+- **PDF Catalog Import System:**
+  - Created a backend PDF processing endpoint using PyMuPDF to extract pages as images.
+  - Completely refactored the Admin Panel UI to provide a clear, standalone Import PDF Catalogue workflow.
+  - Debugged and fixed large file upload failures by increasing the NGINX server's  to 350MB.
+  - Implemented improved progress indicators and error handling for the PDF import process.
 
 **Earlier issues found/mentioned but not fixed**
-None. The agent has been thorough in addressing user-provided issue lists.
+The following tasks were on the agenda at the start of the session but were superseded by the user's new, high-priority requests and remain unaddressed:
+   - **Issue 1: Improve Feed Image Quality:** The user noted that feed images can be blurry.
+     - Debug checklist: Review image upload/compression logic in  and the  component rendering in  and . Check if lower-resolution thumbnails are being used where high-definition images are needed.
+     - Why to solve this: High-quality visuals are essential for a jewelry business.
+     - Should Test frontend/backend/both after fix: Both.
+   - **Issue 2: Implement Global Success Confirmations:** The user wanted clearer feedback after actions.
+     - Debug checklist: Identify key user actions (e.g., saving profile, updating settings) that lack feedback. Integrate the  toast component in relevant places.
+     - Why to solve this: Improves user confidence and application usability.
+     - Should Test frontend/backend/both after fix: Frontend.
+   - **Issue 3: Fix Customer App Back-Navigation:** The user reported unpredictable back button behavior.
+     - Debug checklist: Analyze the navigation stack in Expo Router. Trace the user flow from Home -> Feed -> Product Detail and back. Check for any  calls that might be breaking the history stack.
+     - Why to solve this: A broken back button is a frustrating and critical usability flaw.
+     - Should Test frontend/backend/both after fix: Frontend.
 
 **Known issue recurrence from previous fork**
 N/A
@@ -124,93 +99,100 @@ N/A
 -   **Backend:** FastAPI, MongoDB (Pymongo), Pydantic.
 -   **Frontend (Mobile):** Expo (React Native), Expo Router, React Context API.
 -   **Frontend (Web Panel):** React, CSS.
--   **Authentication:** JWT with granular, role-based access control (RBAC) for , , , and .
--   **Storage:** Emergent-managed object storage for media files.
--   **Internationalization:**  for English, Hindi, Punjabi.
+-   **PDF Processing:**  for extracting pages from PDF files.
+-   **Web Scraping:**  and  for fetching live commodity prices from Yahoo Finance.
+-   **Server Configuration:** Modified NGINX config () to handle large file uploads.
 
 **key DB schema**
 -   **users:** 
 -   **products:** 
--   **requests:** 
--   **rewards_history:** 
--   **cart / cart_items:** (Implicitly managed via API logic, potentially stored in a  collection)
--   **batches:** 
+-   **about_content:**  (New)
+-   **rate_slabs:**  (Schema Changed)
+-   **schemes:**  (New)
+-   **brands:**  (New)
+-   **showrooms:**  (New)
+-   **exhibitions:**  (New)
+-   **live_rates:**  (New)
 
 **changes in tech stack**
-- The frontend has been split from a single Expo app into two separate applications: one Expo app for customers and one standard React app for the internal web panel.
+-   **PyMuPDF (usage: pymupdf [-h]
+               {show,clean,join,extract,embed-info,embed-add,embed-del,embed-upd,embed-extract,embed-copy,gettext,internal}
+               ...
+
+------------------------- Basic PyMuPDF Functions -------------------------
+
+options:
+  -h, --help            show this help message and exit
+
+Subcommands:
+  {show,clean,join,extract,embed-info,embed-add,embed-del,embed-upd,embed-extract,embed-copy,gettext,internal}
+                        Enter 'command -h' for subcommand specific help)** was added to the backend for PDF processing.
+-   **Beautiful Soup ()** was added for web scraping.
 
 **All files of reference**
--   : The single source of truth for all API logic, database models, and permissions. Has grown significantly.
--   : The new, complex, role-aware component that serves as the entire internal web application for Admins, Executives, and Billing Executives.
--   : The rewritten customer request screen with multi-product selection.
--   : The new full-page confirmation screen.
--   : The screen for the customer's selection cart.
--   : Updated with the searchable item dropdown.
+-   : Heavily modified with numerous new models, endpoints, and logic for PDF processing and web scraping.
+-   : Massively expanded and refactored to include management UIs for all new features and the standalone PDF import flow.
+-   New Mobile App Screens: , , , , , .
+-   Modified Core UI Files: , , , , , .
+-   Modified Server Config: .
 
 **Areas that need refactoring**:
--   **:** This is a critical monolith that should be broken down into multiple routers (e.g., , , ) for better maintainability.
--   **:** This file now contains the UI for three different roles. It should be refactored into smaller, role-specific components and views to reduce its complexity.
+-   ****: This file is now critically oversized and difficult to maintain. It urgently needs to be broken down into separate Python modules/routers (e.g., , , ).
+-   ****: This single file contains the logic and views for multiple admin roles and dozens of features. It must be refactored into a component-based architecture with separate files for each major admin section (e.g., , ).
 
 **key api endpoints**
--   : POST (Create new request with products), GET (List for executives).
--   : GET, POST, DELETE (Manage user's selection cart).
--   : POST (Submits the cart as a request to executives).
--   , : POST (Used by Billing Executive to manage points).
--   : GET (View a customer's reward history).
--   : GET, POST, PATCH, DELETE (Full CRUD for upload batches).
--   : POST (Handles direct file uploads to object storage).
+-   : (POST) The new endpoint for processing uploaded PDF catalogs.
+-   : (GET) Returns the latest scraped commodity prices.
+-   , , , , , : Full CRUD endpoints for managing the new content sections.
 
 **Critical Info for New Agent**
--   **Two Frontends:** Remember there is a customer mobile app () and a separate internal web panel (). Do not mix them up.
--   **Four Roles:** The logic is heavily dependent on four distinct roles:
-    1.   (Customer): Uses the mobile app.
-    2.   (Owner): Full access in the web panel.
-    3.   (Support): Manages customer requests in the web panel.
-    4.   (Accounts): Manages ONLY reward points in the web panel.
--   **Billing Executive is RESTRICTED:** The most recent and critical change was isolating the Billing Executive. They CANNOT see support tickets. Their UI is a dedicated rewards wallet manager.
--   **Cart is a Shortlist:** The cart is not for e-commerce. It's a tool for customers to select items and submit them to the executive team for a manual follow-up and billing.
+-   **PDF Import is the Priority:** The last user interaction was about the PDF import failing. Verifying this fix is your first priority. Be aware that the chunked upload was implemented by raising the NGINX server limit, not by true frontend chunking. This might still be a point of failure.
+-   **Monoliths are at Breaking Point:** Both  and  are extremely large and complex. Any further feature additions will be difficult and risky without refactoring. Propose this refactoring to the user.
+-   **User is Very Specific:** The user provides detailed, exact requirements and notices when they are not met. Pay close attention to their instructions and test every point from their perspective in the UI.
+-   **Admin Panel Access:** Always provide the direct URL to the admin panel in your summaries for the user. The URL is the main preview URL with  appended.
 
 **documents created in this job**
--    (Updated)
--   
--   
+-    (updated with new features and access links)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User (Msg 318):** Finished verifying the Billing Executive role separation with screenshots, confirming it works as intended. (DONE)
-2.  **Agent (Msg 317):** Took screenshots to prove the Billing Executive UI is correct and separate. (DONE)
-3.  **Agent (Msg 315):** Ran  tests to prove the Billing Executive is correctly blocked from the support API. (DONE)
-4.  **User (Msg 291):** Agreed with the agent's plan to fix the role separation issue. (DONE)
-5.  **Agent (Msg 290):** Proposed a clear plan to fix the role permissions on both backend and frontend. (PENDING USER APPROVAL)
-6.  **User (Msg 288):** **Critical Correction:** Pointed out that the Billing Executive should NOT see the support queue; their role is for rewards ONLY. (IN PROGRESS)
-7.  **Agent (Msg 286):** Concluded that all Batch A features were implemented and verified. (Mistakenly mixed roles). (DONE)
-8.  **Agent (Msg 284-285):** Took a screenshot showing the Executive Panel now correctly displays the product image linked to a customer request. (DONE)
-9.  **User (Msg 247):** Approved the agent's Batch A plan and provided key clarifications on the Billing Executive demo login and UI requirements for success screens/multi-select. (DONE)
-10. **Agent (Msg 246):** Proposed a batched plan (A & B) to tackle the user's large feature request and asked clarifying questions. (PENDING USER APPROVAL)
+-   **User (Msg 273):** Reports that PDF import is still not working reliably. It fails with a vague Failed to fetch error, the 100MB limit is too low (requests 300MB), and it needs to be a stable, practical workflow with better error handling and progress status. (IN PROGRESS)
+-   **Agent (Msg 272):** Finishes after implementing the v2 UI fix for PDF import, believing the task is complete. (Incorrectly Resolved)
+-   **User (Msg 238):** Reports that the PDF import UI is unusable and buried within another workflow. Demands a separate, clearly visible Import PDF option. (IN PROGRESS)
+-   **Agent (Msg 237):** Finishes after implementing the v1 backend for PDF import, but the UI is poor. (Incorrectly Resolved)
+-   **User (Msg 197):** First requests the PDF import feature, detailing that PDF pages should be extracted as product images. (NOT STARTED)
+-   **Agent (Msg 196):** Finishes after implementing the second wave of 9 UI/UX refinements. (DONE)
+-   **User (Msg 132):** Provides the list of 9 specific UI/UX refinements and corrections for the features implemented earlier. (NOT STARTED)
+-   **Agent (Msg 131):** Finishes after implementing the first wave of 9 new features and adding access links to the summary as requested. (DONE)
+-   **User (Msg 126):** Asks the agent to include access links for the admin panel in all future summaries. (DONE)
+-   **User (Msg 5):** Provided the initial massive list of 9 new features to implement, overriding all previous plans. (DONE)
 
 **Project Health Check:**
--   **Working:** Core architecture (app/panel separation), all major features including file upload, batch management, cart workflow, and role-based access are implemented and functional based on agent testing.
--   **Broken:** Nothing is reported as broken, but the user has outstanding UX improvement requests (image quality, back navigation).
+-   **Working:** The core app and the 18+ features/refinements implemented in this session are functionally working based on agent testing. Live rates are fetching correctly. The admin panel has management UIs for all new content.
+-   **Broken / Needs Verification:** The reliability of the large PDF import (up to 300MB) is unconfirmed and needs immediate user verification.
 -   **Mocked:** Phone OTP authentication is still mocked.
 
 **3rd Party Integrations**
--   **Claude Sonnet 4.5** — uses Emergent LLM Key (via  library).
+-   **Claude Sonnet 4.5** — uses Emergent LLM Key.
 -   **Emergent Object Storage** — used for all media file uploads.
+-   **Yahoo Finance** — used via web scraping for live rates (no formal API/key).
 
 **Testing status**
--   Testing agent used after significant changes: NO (not in the most recent steps, but the agent performed extensive manual  tests and screenshot verification).
+-   Testing agent used after significant changes: YES
 -   Troubleshoot agent used after agent stuck in loop: NO
--   Test files created: []
+-   Test files created: None new in this session, but backend tests were run.
 -   Known regressions: []
 
 **Credentials to test flow:**
--   **Admin (Web Panel):** Phone: , OTP: 
--   **Executive (Web Panel):** Phone: , OTP: 
--   **Billing Executive (Web Panel):** Phone: , OTP: 
+-   **Admin Panel URL:** 
+-   **Admin:** Phone: , OTP: 
+-   **Executive:** Phone: , OTP: 
+-   **Billing Executive:** Phone: , OTP: 
 -   **Customer (Mobile App):** Phone: , OTP: 
 
 **What agent forgot to execute**
-The agent was asked to implement a batch of features. The following items were deferred and are now the highest priority upcoming tasks:
--   Improving the image quality/clarity in the main feed (Point 4, Msg 244).
--   Adding global success confirmations (toasts) for user actions (Point 5, Msg 244).
--   Fixing the general back-navigation in the customer mobile app to prevent it from logging the user out (Point 6, Msg 244).
+The agent completely overlooked the three pending tasks from the initial handoff summary due to the user's large, new requests. These are:
+1.  Improving feed image quality/clarity.
+2.  Implementing global success confirmations (toasts).
+3.  Fixing the back-navigation behavior in the customer mobile app.
+
 </analysis>

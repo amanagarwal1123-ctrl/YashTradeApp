@@ -8,7 +8,7 @@ import os
 import time
 
 # Backend URL from environment
-BACKEND_URL = "https://jeweler-network-dev.preview.emergentagent.com/api"
+BACKEND_URL = "https://gem-bulk-import.preview.emergentagent.com/api"
 
 # Test credentials from review request
 ADMIN_PHONE = "9999999999"

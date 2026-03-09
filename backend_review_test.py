@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid
 
 # Configuration
-BASE_URL = "https://jeweler-network-dev.preview.emergentagent.com/api"
+BASE_URL = "https://gem-bulk-import.preview.emergentagent.com/api"
 CUSTOMER_PHONE = "8888888888"
 ADMIN_PHONE = "9999999999" 
 OTP = "1234"
