@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Image, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { api, setToken, getImageUrl } from '../src/api';
+import { api, setToken, getImageUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
+import { useKeepAwake } from 'expo-keep-awake';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
@@ -13,6 +14,9 @@ type Role = 'admin' | 'executive' | null;
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
 
 export default function PanelScreen() {
+  // Keep screen awake during any upload
+  const [keepAwake, setKeepAwake] = useState(false);
+  useKeepAwake('upload-active', { isEnabled: keepAwake });
   // Auth
   const [role, setRole] = useState<Role>(null);
   const [user, setUser] = useState<any>(null);
@@ -253,33 +257,54 @@ export default function PanelScreen() {
     }
   };
 
-  const startPdfImport = async () => {
+  const startPdfImport = async (resumeUploadId?: string) => {
     if (!uploadBatchId || !pdfFile) return;
     setPdfImporting(true); setPdfResult(null); setPdfPhase(''); setPdfProgress(0); setPdfStage('idle');
+    setKeepAwake(true);
     try {
       const result = await api.importPdfChunked(uploadBatchId, pdfFile, (stage, detail, progress) => {
         setPdfStage(stage);
         setPdfPhase(detail);
         if (progress !== undefined) setPdfProgress(progress);
-      });
+      }, resumeUploadId || null);
       setPdfResult(result);
       setPdfFile(null); setPdfPhase(''); setPdfStage('done');
+      clearLastUploadId();
       Alert.alert('PDF Import Complete', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
       loadTab('products');
-    } catch (e: any) { setPdfResult({ error: e.message }); setPdfPhase(''); setPdfStage('error'); }
-    finally { setPdfImporting(false); }
+    } catch (e: any) {
+      const resumeId = getLastUploadId();
+      setPdfResult({ error: e.message, resumeUploadId: resumeId });
+      setPdfPhase(''); setPdfStage('error');
+    }
+    finally { setPdfImporting(false); setKeepAwake(false); }
+  };
+
+  const cancelPdfImport = () => {
+    Alert.alert('Cancel Import?', 'Upload will stop. You can resume later from where it stopped.', [
+      { text: 'Keep Uploading', style: 'cancel' },
+      { text: 'Cancel Upload', style: 'destructive', onPress: () => { cancelUpload(); } },
+    ]);
   };
 
   const startUpload = async () => {
     if (!uploadBatchId || !selectedFiles.length) return;
     setUploading(true); setUploadProgress({ done: 0, total: selectedFiles.length });
+    setKeepAwake(true);
     try {
       await api.uploadFiles(`/batches/${uploadBatchId}/upload`, selectedFiles, (d, t) => setUploadProgress({ done: d, total: t }));
       setSelectedFiles([]); setUploadBatchId('');
       Alert.alert('Success', 'Images uploaded');
       loadTab('batches');
     } catch (e: any) { Alert.alert('Error', e.message); }
-    finally { setUploading(false); }
+    finally { setUploading(false); setKeepAwake(false); }
+  };
+
+  const cancelImageUpload = () => {
+    Alert.alert('Cancel Upload?', 'Image upload will stop.', [
+      { text: 'Keep Uploading', style: 'cancel' },
+      { text: 'Cancel', style: 'destructive', onPress: () => { cancelUpload(); } },
+    ]);
   };
 
   const openWhatsApp = (phoneNum: string) => { Linking.openURL(`https://wa.me/91${phoneNum}`); };
@@ -751,6 +776,10 @@ export default function PanelScreen() {
                             {pdfStage === 'uploading' ? 'Uploading PDF...' : pdfStage === 'processing' ? 'Processing Pages...' : pdfStage === 'validating' ? 'Validating...' : 'Working...'}
                           </Text>
                           <Text style={{ color: '#E91E63', fontWeight: '700', fontSize: FontSize.lg }}>{pdfProgress}%</Text>
+                          {/* CANCEL BUTTON */}
+                          <TouchableOpacity data-testid="pdf-cancel-btn" onPress={cancelPdfImport} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.error + '20', alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name="close" size={20} color={Colors.error} />
+                          </TouchableOpacity>
                         </View>
 
                         {/* Progress bar */}
@@ -762,10 +791,10 @@ export default function PanelScreen() {
 
                         <View style={{ marginTop: Spacing.md, backgroundColor: '#ffffff10', borderRadius: 8, padding: Spacing.sm }}>
                           <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>
-                            {pdfStage === 'uploading' ? 'File is being uploaded in 5MB chunks with auto-retry.' : ''}
+                            {pdfStage === 'uploading' ? 'File is being uploaded in 5MB chunks with auto-retry (5 attempts each).' : ''}
                             {pdfStage === 'processing' ? 'Server is extracting pages and creating product images.' : ''}
                           </Text>
-                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 }}>Do not close this page. Large PDFs may take several minutes.</Text>
+                          <Text style={{ color: '#4CAF50', fontSize: FontSize.xs, marginTop: 2 }}>Screen will stay awake during upload. If interrupted, you can resume.</Text>
                         </View>
                       </View>
                     )}
@@ -800,9 +829,16 @@ export default function PanelScreen() {
                           <Text style={{ color: Colors.error, fontWeight: '700', fontSize: FontSize.md }}>Import Failed</Text>
                         </View>
                         <Text style={{ color: Colors.error, fontSize: FontSize.sm }} data-testid="pdf-error-detail">{pdfResult.error}</Text>
-                        <TouchableOpacity onPress={() => { setPdfResult(null); setPdfStage('idle'); setPdfProgress(0); }} style={{ marginTop: Spacing.md, backgroundColor: Colors.error + '20', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, alignSelf: 'flex-start' }}>
-                          <Text style={{ color: Colors.error, fontWeight: '600', fontSize: FontSize.sm }}>Dismiss & Try Again</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: Spacing.md }}>
+                          <TouchableOpacity onPress={() => { setPdfResult(null); setPdfStage('idle'); setPdfProgress(0); }} style={{ backgroundColor: Colors.error + '20', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 }}>
+                            <Text style={{ color: Colors.error, fontWeight: '600', fontSize: FontSize.sm }}>Dismiss</Text>
+                          </TouchableOpacity>
+                          {pdfFile && pdfResult.resumeUploadId && (
+                            <TouchableOpacity data-testid="pdf-resume-btn" onPress={() => { startPdfImport(pdfResult.resumeUploadId); }} style={{ backgroundColor: '#E91E63' + '20', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 }}>
+                              <Text style={{ color: '#E91E63', fontWeight: '600', fontSize: FontSize.sm }}>Resume Upload</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       </View>
                     )}
 
@@ -860,8 +896,16 @@ export default function PanelScreen() {
                       )}
                       {uploading && (
                         <View style={{ marginTop: Spacing.md }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <ActivityIndicator color={Colors.gold} size="small" />
+                            <Text style={{ color: Colors.text, fontWeight: '600', flex: 1 }}>Uploading...</Text>
+                            <TouchableOpacity data-testid="image-upload-cancel-btn" onPress={cancelImageUpload} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: Colors.error + '20', alignItems: 'center', justifyContent: 'center' }}>
+                              <Ionicons name="close" size={16} color={Colors.error} />
+                            </TouchableOpacity>
+                          </View>
                           <View style={s.progressBar}><View style={[s.progressFill, { width: `${(uploadProgress.done / Math.max(uploadProgress.total, 1)) * 100}%` }]} /></View>
                           <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, textAlign: 'center', marginTop: 4 }}>{uploadProgress.done} / {uploadProgress.total} files uploaded</Text>
+                          <Text style={{ color: '#4CAF50', fontSize: FontSize.xs, textAlign: 'center', marginTop: 2 }}>Screen stays awake during upload</Text>
                         </View>
                       )}
                       {selectedFiles.length > 0 && !uploading && (

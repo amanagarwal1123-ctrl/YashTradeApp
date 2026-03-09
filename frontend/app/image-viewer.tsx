@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIndicator, FlatList, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../src/theme';
@@ -98,9 +98,26 @@ export default function ImageViewerScreen() {
         <Text style={styles.counterText}>{currentIndex + 1} / {images.length}</Text>
       </View>
 
-      {/* Main Image */}
-      <View style={styles.imageContainer}>
-        <Image source={{ uri: fullUri }} style={styles.fullImage} resizeMode="contain" />
+      {/* Main Image — Zoomable */}
+      <ScrollView
+        maximumZoomScale={5}
+        minimumZoomScale={1}
+        bouncesZoom={true}
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ width: SCREEN_W, height: SCREEN_H * 0.65, alignItems: 'center', justifyContent: 'center' }}
+        centerContent={true}
+        pinchGestureEnabled={true}
+        style={styles.imageContainer}
+        data-testid="viewer-zoom-scroll"
+      >
+        <Image source={{ uri: fullUri }} style={styles.fullImage} resizeMode="contain" data-testid="viewer-main-image" />
+      </ScrollView>
+
+      {/* Zoom hint */}
+      <View style={styles.zoomHint} pointerEvents="none">
+        <Ionicons name="search" size={12} color="rgba(255,255,255,0.7)" />
+        <Text style={styles.zoomHintText}>Pinch to zoom</Text>
       </View>
 
       {/* Navigation Arrows */}
@@ -151,4 +168,6 @@ const styles = StyleSheet.create({
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.gold, paddingVertical: 12, borderRadius: 10 },
   actionBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },
   emptyText: { fontSize: FontSize.md, color: '#fff' },
+  zoomHint: { position: 'absolute', top: SCREEN_H * 0.65 - 30, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  zoomHintText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600' },
 });

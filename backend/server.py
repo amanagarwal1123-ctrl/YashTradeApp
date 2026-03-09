@@ -837,7 +837,6 @@ async def pdf_upload_status(upload_id: str, user=Depends(get_admin_user)):
     job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
     if not job:
         raise HTTPException(status_code=404, detail="Upload session not found.")
-    # Don't return full results array during processing (too large for polling)
     status = {
         "upload_id": job["upload_id"],
         "batch_id": job["batch_id"],
@@ -853,7 +852,16 @@ async def pdf_upload_status(upload_id: str, user=Depends(get_admin_user)):
         "skipped": job["skipped"],
         "error": job["error"],
     }
-    # Only include results when done
+    # For uploading state, include which chunk indices exist on disk (for resume)
+    if job["upload_status"] == "uploading":
+        upload_dir = PDF_UPLOAD_DIR / upload_id
+        if upload_dir.exists():
+            status["received_chunk_indices"] = sorted([
+                int(f.name.split("_")[1]) for f in upload_dir.glob("chunk_*") if f.name.split("_")[1].isdigit()
+            ])
+        else:
+            status["received_chunk_indices"] = []
+    # Only include full results when done
     if job["upload_status"] in ("done", "error"):
         status["results"] = job.get("results", [])
     return status

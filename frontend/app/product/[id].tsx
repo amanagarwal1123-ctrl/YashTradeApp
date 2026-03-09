@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,12 +7,15 @@ import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
 import { getImageUrl } from '../../src/api';
 
+const { width: SCREEN_W } = Dimensions.get('window');
+
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentImage, setCurrentImage] = useState(0);
+  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -28,7 +31,6 @@ export default function ProductDetail() {
 
   const images = product.images || [];
   const hasStorageImage = !!product.storage_path;
-  // Fix #3: Gallery selection respects currentImage for URL-based, storage for uploaded
   const displayImageUri = hasStorageImage
     ? getImageUrl(product, false)
     : images[currentImage] || getImageUrl(product, false);
@@ -48,10 +50,35 @@ export default function ProductDetail() {
           </TouchableOpacity>
         </View>
 
-        {/* Image */}
+        {/* Zoomable Image */}
         <View style={styles.imageContainer}>
           {displayImageUri ? (
-            <Image source={{ uri: displayImageUri }} style={styles.mainImage} />
+            <View style={{ width: '100%', aspectRatio: 1 }}>
+              <ScrollView
+                data-testid="product-image-zoom-scroll"
+                maximumZoomScale={4}
+                minimumZoomScale={1}
+                bouncesZoom={true}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ width: '100%', aspectRatio: 1 }}
+                scrollEnabled={true}
+                pinchGestureEnabled={true}
+                onScrollEndDrag={(e) => {
+                  const z = (e.nativeEvent as any).zoomScale;
+                  setZoomed(z !== undefined ? z > 1.05 : false);
+                }}
+                style={{ width: '100%', aspectRatio: 1 }}
+              >
+                <Image source={{ uri: displayImageUri }} style={styles.mainImage} resizeMode="contain" data-testid="product-main-image" />
+              </ScrollView>
+              {!zoomed && (
+                <View style={styles.zoomHint} pointerEvents="none">
+                  <Ionicons name="search" size={14} color="rgba(255,255,255,0.8)" />
+                  <Text style={styles.zoomHintText}>Pinch to zoom</Text>
+                </View>
+              )}
+            </View>
           ) : (
             <View style={[styles.mainImage, { backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
               <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
@@ -151,6 +178,8 @@ const styles = StyleSheet.create({
   backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
   imageContainer: { marginTop: Spacing.md },
   mainImage: { width: '100%', aspectRatio: 1, backgroundColor: Colors.surface },
+  zoomHint: { position: 'absolute', bottom: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
+  zoomHintText: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600' },
   thumbRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   thumb: { width: 56, height: 56, borderRadius: 8, marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
   thumbActive: { borderColor: Colors.gold },
