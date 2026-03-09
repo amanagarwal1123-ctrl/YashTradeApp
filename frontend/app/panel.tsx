@@ -885,32 +885,34 @@ export default function PanelScreen() {
               {/* Rate List Editor */}
               {contentSubView === 'ratelist' && (
                 <>
-                  <Text style={s.sectionTitle}>RATE LIST SLABS ({contentData.length})</Text>
+                  <Text style={s.sectionTitle}>SILVER RATE LIST - ITEM WISE ({contentData.length})</Text>
                   {contentData.map(slab => (
                     <View key={slab.id} style={s.listItem}>
                       <View style={{ flex: 1 }}>
-                        <Text style={s.listTitle}>{slab.slab_name}</Text>
-                        <Text style={s.listMeta}>{slab.metal_type} • {slab.min_qty}-{slab.max_qty} • ₹{slab.rate} {slab.unit}</Text>
+                        <Text style={s.listTitle}>{slab.item_name || slab.slab_name || 'Item'}</Text>
+                        <Text style={s.listMeta}>{slab.metal_type} • {slab.category}{slab.subcategory ? ` / ${slab.subcategory}` : ''} • Purity: {slab.purity || '-'} • Wastage: {slab.wastage || '-'} • Labour: {slab.labour_kg || '-'}</Text>
                       </View>
                       <TouchableOpacity onPress={async () => { await api.delete(`/rate-list/${slab.id}`); setContentData(prev => prev.filter(x => x.id !== slab.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
                     </View>
                   ))}
                   <View style={s.formCard}>
-                    <Text style={s.formTitle}>Add Rate Slab</Text>
+                    <Text style={s.formTitle}>Add Rate List Entry</Text>
                     <Text style={s.formLabel}>Metal</Text>
                     <View style={s.formRow}>{['silver','gold','diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, contentForm.metal_type === m && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, metal_type: m}))}><Text style={[s.metalBtnText, contentForm.metal_type === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-                    <TextInput style={s.formInput} placeholder="Slab Name (e.g. Below 5 KG)" placeholderTextColor={Colors.textMuted} value={contentForm.slab_name || ''} onChangeText={v => setContentForm(p => ({...p, slab_name: v}))} />
+                    <TextInput style={s.formInput} placeholder="Item Name (e.g. Silver Payal)" placeholderTextColor={Colors.textMuted} value={contentForm.item_name || ''} onChangeText={v => setContentForm(p => ({...p, item_name: v}))} />
                     <View style={s.formRow}>
-                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Min Qty" placeholderTextColor={Colors.textMuted} value={contentForm.min_qty || ''} onChangeText={v => setContentForm(p => ({...p, min_qty: v}))} />
-                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Max Qty" placeholderTextColor={Colors.textMuted} value={contentForm.max_qty || ''} onChangeText={v => setContentForm(p => ({...p, max_qty: v}))} />
+                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Category" placeholderTextColor={Colors.textMuted} value={contentForm.category || ''} onChangeText={v => setContentForm(p => ({...p, category: v}))} />
+                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Subcategory" placeholderTextColor={Colors.textMuted} value={contentForm.subcategory || ''} onChangeText={v => setContentForm(p => ({...p, subcategory: v}))} />
                     </View>
-                    <TextInput style={s.formInput} placeholder="Rate (₹)" placeholderTextColor={Colors.textMuted} value={contentForm.rate || ''} onChangeText={v => setContentForm(p => ({...p, rate: v}))} keyboardType="decimal-pad" />
+                    <TextInput style={s.formInput} placeholder="Purity (e.g. 92.5%)" placeholderTextColor={Colors.textMuted} value={contentForm.purity || ''} onChangeText={v => setContentForm(p => ({...p, purity: v}))} />
+                    <TextInput style={s.formInput} placeholder="Wastage (e.g. 3%)" placeholderTextColor={Colors.textMuted} value={contentForm.wastage || ''} onChangeText={v => setContentForm(p => ({...p, wastage: v}))} />
+                    <TextInput style={s.formInput} placeholder="Labour in KG (e.g. ₹850/kg)" placeholderTextColor={Colors.textMuted} value={contentForm.labour_kg || ''} onChangeText={v => setContentForm(p => ({...p, labour_kg: v}))} />
                     <TouchableOpacity style={s.saveBtn} onPress={async () => {
                       try {
-                        const res = await api.post('/rate-list', { metal_type: contentForm.metal_type || 'silver', slab_name: contentForm.slab_name || '', min_qty: contentForm.min_qty || '', max_qty: contentForm.max_qty || '', rate: parseFloat(contentForm.rate || '0'), unit: 'per gram', order: contentData.length + 1 });
+                        const res = await api.post('/rate-list', { metal_type: contentForm.metal_type || 'silver', item_name: contentForm.item_name || '', category: contentForm.category || '', subcategory: contentForm.subcategory || '', purity: contentForm.purity || '', wastage: contentForm.wastage || '', labour_kg: contentForm.labour_kg || '', order: contentData.length + 1 });
                         setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
                       } catch (e: any) { Alert.alert('Error', e.message); }
-                    }}><Text style={s.saveBtnText}>ADD SLAB</Text></TouchableOpacity>
+                    }}><Text style={s.saveBtnText}>ADD ENTRY</Text></TouchableOpacity>
                   </View>
                 </>
               )}

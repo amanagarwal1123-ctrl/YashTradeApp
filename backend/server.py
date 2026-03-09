@@ -231,11 +231,12 @@ class AboutContentUpdate(BaseModel):
 
 class RateSlabCreate(BaseModel):
     metal_type: str
-    slab_name: str
-    min_qty: str = ""
-    max_qty: str = ""
-    rate: float = 0
-    unit: str = "per gram"
+    item_name: str = ""
+    category: str = ""
+    subcategory: str = ""
+    purity: str = ""
+    wastage: str = ""
+    labour_kg: str = ""
     order: int = 0
 
 class SchemeCreate(BaseModel):
@@ -1764,18 +1765,24 @@ async def seed_new_features():
 
     # Rate slabs
     slabs_exist = await db.rate_slabs.count_documents({})
+    # Drop old quantity-slab data and reseed with item-wise structure
+    old_style = await db.rate_slabs.find_one({"slab_name": {"$exists": True}})
+    if old_style:
+        await db.rate_slabs.delete_many({})
+        slabs_exist = 0
     if slabs_exist == 0:
         slabs = [
-            {"metal_type": "silver", "slab_name": "Below 5 KG", "min_qty": "0", "max_qty": "5 KG", "rate": 96.50, "unit": "per gram", "order": 1},
-            {"metal_type": "silver", "slab_name": "5 KG - 10 KG", "min_qty": "5 KG", "max_qty": "10 KG", "rate": 96.00, "unit": "per gram", "order": 2},
-            {"metal_type": "silver", "slab_name": "Above 10 KG", "min_qty": "10 KG", "max_qty": "20 KG", "rate": 95.50, "unit": "per gram", "order": 3},
-            {"metal_type": "silver", "slab_name": "Above 20 KG", "min_qty": "20 KG", "max_qty": "Unlimited", "rate": 95.00, "unit": "per gram", "order": 4},
-            {"metal_type": "gold", "slab_name": "Below 100 grams", "min_qty": "0", "max_qty": "100g", "rate": 7450, "unit": "per gram", "order": 1},
-            {"metal_type": "gold", "slab_name": "100g - 500g", "min_qty": "100g", "max_qty": "500g", "rate": 7420, "unit": "per gram", "order": 2},
-            {"metal_type": "gold", "slab_name": "Above 500g", "min_qty": "500g", "max_qty": "Unlimited", "rate": 7400, "unit": "per gram", "order": 3},
-            {"metal_type": "diamond", "slab_name": "Below 1 Carat", "min_qty": "0", "max_qty": "1 ct", "rate": 45000, "unit": "per carat", "order": 1},
-            {"metal_type": "diamond", "slab_name": "1-3 Carat", "min_qty": "1 ct", "max_qty": "3 ct", "rate": 42000, "unit": "per carat", "order": 2},
-            {"metal_type": "diamond", "slab_name": "Above 3 Carat", "min_qty": "3 ct", "max_qty": "Unlimited", "rate": 40000, "unit": "per carat", "order": 3},
+            {"metal_type": "silver", "item_name": "Silver Payal (Anklet)", "category": "Payal", "subcategory": "Bridal", "purity": "92.5%", "wastage": "3%", "labour_kg": "₹850/kg", "order": 1},
+            {"metal_type": "silver", "item_name": "Silver Chain", "category": "Chain", "subcategory": "Italian", "purity": "92.5%", "wastage": "2.5%", "labour_kg": "₹750/kg", "order": 2},
+            {"metal_type": "silver", "item_name": "Silver Kada (Bangle)", "category": "Kada", "subcategory": "Heavy", "purity": "92.5%", "wastage": "2%", "labour_kg": "₹600/kg", "order": 3},
+            {"metal_type": "silver", "item_name": "Silver Articles (Pooja)", "category": "Articles", "subcategory": "Pooja Set", "purity": "92.5%", "wastage": "3%", "labour_kg": "₹900/kg", "order": 4},
+            {"metal_type": "silver", "item_name": "Silver Coin", "category": "Coins", "subcategory": "Gifting", "purity": "99.9%", "wastage": "0%", "labour_kg": "₹200/kg", "order": 5},
+            {"metal_type": "silver", "item_name": "Silver Toe Ring", "category": "Toe Ring", "subcategory": "Traditional", "purity": "92.5%", "wastage": "2%", "labour_kg": "₹1200/kg", "order": 6},
+            {"metal_type": "gold", "item_name": "Gold Necklace Set", "category": "Necklace", "subcategory": "Bridal", "purity": "22K (91.6%)", "wastage": "5%", "labour_kg": "₹3500/10g", "order": 1},
+            {"metal_type": "gold", "item_name": "Gold Bangles", "category": "Bangles", "subcategory": "Meenakari", "purity": "22K (91.6%)", "wastage": "4%", "labour_kg": "₹2800/10g", "order": 2},
+            {"metal_type": "gold", "item_name": "Gold Earrings", "category": "Earrings", "subcategory": "Jhumka", "purity": "18K (75%)", "wastage": "6%", "labour_kg": "₹4000/10g", "order": 3},
+            {"metal_type": "diamond", "item_name": "Diamond Solitaire Ring", "category": "Ring", "subcategory": "Solitaire", "purity": "VS1-VS2", "wastage": "N/A", "labour_kg": "Per piece", "order": 1},
+            {"metal_type": "diamond", "item_name": "Diamond Tennis Bracelet", "category": "Bracelet", "subcategory": "Tennis", "purity": "SI1-SI2", "wastage": "N/A", "labour_kg": "Per piece", "order": 2},
         ]
         for sl in slabs:
             sl["id"] = str(uuid.uuid4())

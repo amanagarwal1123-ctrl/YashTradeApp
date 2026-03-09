@@ -7,7 +7,7 @@ import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api, getImageUrl } from '../../src/api';
 import { useLang } from '../../src/context/LanguageContext';
 
-interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; }
+interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
 const CATEGORIES = ['All', 'payal', 'chain', 'articles', 'necklace', 'ring', 'bangles', 'bracelet', 'gifting', 'coins', 'kadaa', 'pendant', 'kids', 'toe_rings', 'earrings', 'mens', 'nose_ring', 'waist_belt'];
 const METALS = ['All', 'silver', 'gold', 'diamond'];
 
@@ -74,7 +74,12 @@ export default function FeedScreen() {
         </View>
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
-          <Text style={styles.cardMeta}>{item.category?.replace(/_/g, ' ')}{item.approx_weight ? ` • ${item.approx_weight}` : ''}</Text>
+          <Text style={styles.cardMeta}>{item.category?.replace(/_/g, ' ')}{item.approx_weight ? ` \u2022 ${item.approx_weight}` : ''}</Text>
+          {/* Compact product metadata */}
+          <View style={styles.cardDetails}>
+            {item.purity ? <Text style={styles.cardDetail}>Purity: {item.purity}</Text> : null}
+            {item.selling_touch ? <Text style={styles.cardDetail}>Touch: {item.selling_touch}</Text> : null}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -164,6 +169,8 @@ const styles = StyleSheet.create({
   cardBody: { padding: 10 },
   cardTitle: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.text, marginBottom: 2 },
   cardMeta: { fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'capitalize' },
+  cardDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 },
+  cardDetail: { fontSize: 8, color: Colors.gold, fontWeight: '500', backgroundColor: Colors.gold + '10', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
   endText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', paddingVertical: 20 },
 });

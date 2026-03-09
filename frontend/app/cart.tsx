@@ -36,9 +36,8 @@ export default function CartScreen() {
       { text: 'Submit', onPress: async () => {
         setSubmitting(true);
         try {
-          const res = await api.post('/cart/submit', { notes: '' });
-          Alert.alert('Submitted', `Your selection of ${res.items_count} items has been sent. Our team will contact you shortly.`);
-          setItems([]);
+          await api.post('/cart/submit', { notes: '' });
+          router.replace('/request-success');
         } catch (e: any) { Alert.alert('Error', e.message); }
         finally { setSubmitting(false); }
       }}

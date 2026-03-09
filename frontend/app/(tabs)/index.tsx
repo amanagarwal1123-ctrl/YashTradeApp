@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -239,9 +239,16 @@ export default function HomeScreen() {
                 </View>
                 <Text style={styles.productTitle} numberOfLines={2}>{p.title}</Text>
                 <Text style={styles.productMeta}>{p.category?.replace(/_/g, ' ')}{p.approx_weight ? ` • ${p.approx_weight}` : ''}</Text>
+                {(p.purity || p.selling_touch) && (
+                  <View style={styles.compactMeta}>
+                    {p.purity ? <Text style={styles.compactTag}>Purity: {p.purity}</Text> : null}
+                    {p.selling_touch ? <Text style={styles.compactTag}>Touch: {p.selling_touch}</Text> : null}
+                    {p.selling_label ? <Text style={styles.compactTag}>{p.selling_label}</Text> : null}
+                  </View>
+                )}
                 <View style={styles.productActions}>
-                  <TouchableOpacity style={styles.askPriceBtn} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: p.id } })}><Text style={styles.askPriceText}>{t.askPrice}</Text></TouchableOpacity>
-                  <TouchableOpacity style={styles.iconBtn} onPress={() => addToCart(p.id)}><Ionicons name="cart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
+                  <TouchableOpacity style={styles.askPriceBtn} onPress={() => { addToCart(p.id); Alert.alert('Product added to the cart', 'Item has been added to your selection.'); }}><Text style={styles.askPriceText}>Add to Cart</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: p.id } })}><Ionicons name="pricetag-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
                   <TouchableOpacity style={styles.iconBtn} onPress={async () => { try { await api.post(`/wishlist/toggle?product_id=${p.id}`); } catch {} }}><Ionicons name="heart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
                 </View>
               </View>
@@ -302,7 +309,9 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 1 },
   productTitle: { fontSize: FontSize.base, fontWeight: '600', color: Colors.text, marginBottom: 4 },
-  productMeta: { fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.sm, textTransform: 'capitalize' },
+  productMeta: { fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: 4, textTransform: 'capitalize' },
+  compactMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: Spacing.sm },
+  compactTag: { fontSize: 9, color: Colors.gold, fontWeight: '500', backgroundColor: Colors.gold + '10', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
   productActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   askPriceBtn: { backgroundColor: Colors.gold, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   askPriceText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },

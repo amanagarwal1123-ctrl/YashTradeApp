@@ -114,10 +114,10 @@ export default function ProductDetail() {
         {/* CTAs */}
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="add-to-cart-btn" style={styles.ctaPrimary} onPress={async () => {
-            try { await api.post('/cart/add', { product_id: id }); Alert.alert('Added', 'Item added to your selection'); } catch {}
+            try { await api.post('/cart/add', { product_id: id }); Alert.alert('Product added to the cart', 'Item has been added to your selection cart.'); } catch {}
           }}>
             <Ionicons name="cart" size={18} color="#000" />
-            <Text style={styles.ctaPrimaryText}>Add to Selection</Text>
+            <Text style={styles.ctaPrimaryText}>Add to Cart</Text>
           </TouchableOpacity>
           <TouchableOpacity testID="ask-price-btn" style={styles.ctaSecondary} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: id } })}>
             <Ionicons name="pricetag" size={18} color={Colors.gold} />
