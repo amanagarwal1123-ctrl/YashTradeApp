@@ -689,7 +689,7 @@ async def upload_to_batch(
 PDF_UPLOAD_DIR = Path(tempfile.gettempdir()) / "pdf_uploads"
 PDF_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PDF_MAX_SIZE = 1000 * 1024 * 1024  # 1000MB = 1GB
-PDF_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
+PDF_CHUNK_SIZE = 25 * 1024 * 1024  # 25MB per chunk — fewer roundtrips for mobile
 
 class PdfUploadInit(BaseModel):
     batch_id: str

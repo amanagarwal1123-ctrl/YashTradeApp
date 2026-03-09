@@ -755,7 +755,7 @@ export default function PanelScreen() {
                           <Ionicons name="document-text" size={28} color="#E91E63" />
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: Colors.text, fontWeight: '700', fontSize: FontSize.md }} data-testid="pdf-filename">{pdfFile.name}</Text>
-                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }} data-testid="pdf-filesize">{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB ({Math.ceil(pdfFile.size / (5 * 1024 * 1024))} chunks)</Text>
+                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }} data-testid="pdf-filesize">{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB ({Math.ceil(pdfFile.size / (25 * 1024 * 1024))} chunks)</Text>
                           </View>
                           <TouchableOpacity onPress={() => { setPdfFile(null); setPdfResult(null); setPdfStage('idle'); }} data-testid="pdf-clear-btn">
                             <Ionicons name="close-circle" size={24} color={Colors.error} />
@@ -791,7 +791,7 @@ export default function PanelScreen() {
 
                         <View style={{ marginTop: Spacing.md, backgroundColor: '#ffffff10', borderRadius: 8, padding: Spacing.sm }}>
                           <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>
-                            {pdfStage === 'uploading' ? 'File is being uploaded in 5MB chunks with auto-retry (5 attempts each).' : ''}
+                            {pdfStage === 'uploading' ? 'File is being uploaded in 25MB chunks with auto-retry (5 attempts each).' : ''}
                             {pdfStage === 'processing' ? 'Server is extracting pages and creating product images.' : ''}
                           </Text>
                           <Text style={{ color: '#4CAF50', fontSize: FontSize.xs, marginTop: 2 }}>Screen will stay awake during upload. If interrupted, you can resume.</Text>

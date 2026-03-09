@@ -82,10 +82,10 @@ export const api = {
     onProgress: (phase: 'validating' | 'uploading' | 'processing' | 'done' | 'error', detail: string, progress?: number) => void,
     existingUploadId?: string | null,
   ): Promise<any> => {
-    const MAX_SIZE = 1000 * 1024 * 1024;
-    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const MAX_SIZE = 1000 * 1024 * 1024; // 1GB
+    const CHUNK_SIZE = 25 * 1024 * 1024; // 25MB — fewer roundtrips, more reliable on mobile
     const MAX_RETRIES = 5;
-    const CHUNK_TIMEOUT_MS = 90000; // 90s per chunk
+    const CHUNK_TIMEOUT_MS = 180000; // 180s per 25MB chunk on mobile
 
     _uploadAbortController = new AbortController();
     const signal = _uploadAbortController.signal;
@@ -173,7 +173,6 @@ export const api = {
 
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, file.size);
-        const blob = file.slice(start, end);
         const pct = Math.round(((i + 1) / totalChunks) * 100);
         const sizeMB = ((end - start) / (1024 * 1024)).toFixed(1);
 
@@ -185,16 +184,20 @@ export const api = {
         while (retries < MAX_RETRIES && !chunkSuccess) {
           if (signal.aborted) throw new Error('Upload cancelled by user.');
           try {
+            // CRITICAL: Re-slice for each attempt — blob is consumed by FormData/fetch
+            const chunkBlob = file.slice(start, end);
+            if (chunkBlob.size === 0) {
+              throw new Error(`Chunk ${i} sliced to 0 bytes (file may be stale). Re-select the file.`);
+            }
+
             const chunkForm = new FormData();
-            chunkForm.append('file', blob, `chunk_${i}`);
+            chunkForm.append('file', chunkBlob, `chunk_${i}`);
             const chunkHeaders: Record<string, string> = {};
             if (authToken) chunkHeaders['Authorization'] = `Bearer ${authToken}`;
 
             // Per-chunk timeout
             const chunkAbort = new AbortController();
             const chunkTimer = setTimeout(() => chunkAbort.abort(), CHUNK_TIMEOUT_MS);
-
-            // Abort if user cancels
             const onMainAbort = () => chunkAbort.abort();
             signal.addEventListener('abort', onMainAbort, { once: true });
 
