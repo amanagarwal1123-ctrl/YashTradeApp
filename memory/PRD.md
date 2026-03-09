@@ -10,11 +10,16 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - **Storage**: Emergent Object Storage
 - **AI**: Claude Sonnet 4.5 via Emergent LLM Key
 
-## User Roles
-1. **Customer (user)** - Mobile app access
-2. **Admin** - Full panel access (Phone: 9999999999)
-3. **Executive** - Request management (Phone: 7777777777)
-4. **Billing Executive** - Reward points only (Phone: 6666666666)
+## User Roles & Access Links
+
+| Role | URL | Phone | OTP |
+|------|-----|-------|-----|
+| **Customer** | `{PREVIEW_URL}/` | `8888888888` | `1234` |
+| **Admin** | `{PREVIEW_URL}/panel` | `9999999999` | `1234` |
+| **Executive** | `{PREVIEW_URL}/panel` | `7777777777` | `1234` |
+| **Billing Executive** | `{PREVIEW_URL}/panel` | `6666666666` | `1234` |
+
+> **IMPORTANT FOR ALL AGENTS:** Always include these access links and credentials in every handoff summary and finish summary. The admin panel URL is `/panel` on the same domain as the customer app.
 
 ## Implemented Features (as of March 2026)
 
