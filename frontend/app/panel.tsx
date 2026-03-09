@@ -5,8 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl } from '../src/api';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload';
+type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'liverates';
 type Role = 'admin' | 'executive' | null;
 
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
@@ -55,6 +56,11 @@ export default function PanelScreen() {
   const [newBatchMetal, setNewBatchMetal] = useState('silver');
   const [newBatchCat, setNewBatchCat] = useState('');
   const [showBatchForm, setShowBatchForm] = useState(false);
+
+  // Content management
+  const [contentSubView, setContentSubView] = useState<ContentSubView>('menu');
+  const [contentData, setContentData] = useState<any[]>([]);
+  const [contentForm, setContentForm] = useState<Record<string, string>>({});
 
   // Upload
   const [uploadBatchId, setUploadBatchId] = useState('');
@@ -319,6 +325,7 @@ export default function PanelScreen() {
     { key: 'requests', label: 'Requests', icon: 'call' },
     { key: 'rates', label: 'Rates', icon: 'trending-up' },
     { key: 'products', label: 'Products', icon: 'grid' },
+    { key: 'content', label: 'Content', icon: 'document-text' },
     { key: 'customers', label: 'Customers', icon: 'people' },
   ];
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
@@ -806,6 +813,246 @@ export default function PanelScreen() {
                   </View>
                 </View>
               ))}
+            </>
+          )}
+
+          {/* ===== CONTENT MANAGEMENT ===== */}
+          {tab === 'content' && (
+            <>
+              {contentSubView !== 'menu' && (
+                <TouchableOpacity style={s.subBackBar} onPress={() => setContentSubView('menu')}>
+                  <Ionicons name="arrow-back" size={18} color={Colors.gold} />
+                  <Text style={s.subBackText}>Back to Content Management</Text>
+                </TouchableOpacity>
+              )}
+              {contentSubView === 'menu' && (
+                <>
+                  <Text style={s.sectionTitle}>CONTENT MANAGEMENT</Text>
+                  <View style={s.menuGrid}>
+                    {[
+                      { key: 'about', label: 'About Page', hint: 'Edit about content, benefits, locations', icon: 'information-circle', color: Colors.info },
+                      { key: 'ratelist', label: 'Rate List', hint: 'Manage quantity-based rate slabs', icon: 'list', color: '#E91E63' },
+                      { key: 'schemes', label: 'Schemes', hint: 'Upload scheme posters & details', icon: 'ribbon', color: '#FF9800' },
+                      { key: 'brands', label: 'Brands', hint: 'Manage brand logos', icon: 'star', color: '#9C27B0' },
+                      { key: 'showroom', label: 'Showroom', hint: 'Floor-wise photos & descriptions', icon: 'images', color: '#00BCD4' },
+                      { key: 'exhibitions', label: 'Exhibitions', hint: 'Upcoming & past exhibitions', icon: 'calendar', color: '#795548' },
+                      { key: 'liverates', label: 'Live Rates Config', hint: 'Premium & auto-fetch settings', icon: 'pulse', color: Colors.success },
+                    ].map(item => (
+                      <TouchableOpacity key={item.key} style={s.menuCard} onPress={async () => {
+                        setContentSubView(item.key as ContentSubView);
+                        setLoading(true);
+                        try {
+                          if (item.key === 'about') { const r = await api.get('/about'); setContentData(r.raw || []); }
+                          else if (item.key === 'ratelist') { const r = await api.get('/rate-list'); setContentData(r.slabs || []); }
+                          else if (item.key === 'schemes') { const r = await api.get('/schemes?active_only=false'); setContentData(r.schemes || []); }
+                          else if (item.key === 'brands') { const r = await api.get('/brands?active_only=false'); setContentData(r.brands || []); }
+                          else if (item.key === 'showroom') { const r = await api.get('/showroom'); setContentData(r.floors || []); }
+                          else if (item.key === 'exhibitions') { const r = await api.get('/exhibitions'); setContentData(r.all || []); }
+                          else if (item.key === 'liverates') { const r = await api.get('/live-rates/config'); setContentForm(r); }
+                        } catch {}
+                        setLoading(false);
+                      }}>
+                        <View style={[s.menuCardIcon, { backgroundColor: item.color + '15' }]}><Ionicons name={item.icon as any} size={28} color={item.color} /></View>
+                        <Text style={s.menuCardTitle}>{item.label}</Text>
+                        <Text style={s.menuCardHint}>{item.hint}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              {/* About Content Editor */}
+              {contentSubView === 'about' && (
+                <>
+                  <Text style={s.sectionTitle}>ABOUT PAGE CONTENT</Text>
+                  {contentData.map(item => (
+                    <View key={item.section} style={s.formCard}>
+                      <Text style={s.formTitle}>{item.section.replace(/_/g, ' ').toUpperCase()}</Text>
+                      <Text style={s.formLabel}>English</Text>
+                      <TextInput style={[s.formInput, { minHeight: 60 }]} value={item.content_en} onChangeText={v => setContentData(prev => prev.map(x => x.section === item.section ? { ...x, content_en: v } : x))} multiline placeholder="English content" placeholderTextColor={Colors.textMuted} />
+                      <Text style={s.formLabel}>Hindi</Text>
+                      <TextInput style={[s.formInput, { minHeight: 60 }]} value={item.content_hi} onChangeText={v => setContentData(prev => prev.map(x => x.section === item.section ? { ...x, content_hi: v } : x))} multiline placeholder="Hindi content" placeholderTextColor={Colors.textMuted} />
+                      <Text style={s.formLabel}>Punjabi</Text>
+                      <TextInput style={[s.formInput, { minHeight: 60 }]} value={item.content_pa} onChangeText={v => setContentData(prev => prev.map(x => x.section === item.section ? { ...x, content_pa: v } : x))} multiline placeholder="Punjabi content" placeholderTextColor={Colors.textMuted} />
+                      <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                        try { await api.post('/about', { section: item.section, content_en: item.content_en, content_hi: item.content_hi, content_pa: item.content_pa }); Alert.alert('Saved', `${item.section} updated`); } catch (e: any) { Alert.alert('Error', e.message); }
+                      }}><Text style={s.saveBtnText}>SAVE</Text></TouchableOpacity>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* Rate List Editor */}
+              {contentSubView === 'ratelist' && (
+                <>
+                  <Text style={s.sectionTitle}>RATE LIST SLABS ({contentData.length})</Text>
+                  {contentData.map(slab => (
+                    <View key={slab.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{slab.slab_name}</Text>
+                        <Text style={s.listMeta}>{slab.metal_type} • {slab.min_qty}-{slab.max_qty} • ₹{slab.rate} {slab.unit}</Text>
+                      </View>
+                      <TouchableOpacity onPress={async () => { await api.delete(`/rate-list/${slab.id}`); setContentData(prev => prev.filter(x => x.id !== slab.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Add Rate Slab</Text>
+                    <Text style={s.formLabel}>Metal</Text>
+                    <View style={s.formRow}>{['silver','gold','diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, contentForm.metal_type === m && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, metal_type: m}))}><Text style={[s.metalBtnText, contentForm.metal_type === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
+                    <TextInput style={s.formInput} placeholder="Slab Name (e.g. Below 5 KG)" placeholderTextColor={Colors.textMuted} value={contentForm.slab_name || ''} onChangeText={v => setContentForm(p => ({...p, slab_name: v}))} />
+                    <View style={s.formRow}>
+                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Min Qty" placeholderTextColor={Colors.textMuted} value={contentForm.min_qty || ''} onChangeText={v => setContentForm(p => ({...p, min_qty: v}))} />
+                      <TextInput style={[s.formInput, {flex:1}]} placeholder="Max Qty" placeholderTextColor={Colors.textMuted} value={contentForm.max_qty || ''} onChangeText={v => setContentForm(p => ({...p, max_qty: v}))} />
+                    </View>
+                    <TextInput style={s.formInput} placeholder="Rate (₹)" placeholderTextColor={Colors.textMuted} value={contentForm.rate || ''} onChangeText={v => setContentForm(p => ({...p, rate: v}))} keyboardType="decimal-pad" />
+                    <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                      try {
+                        const res = await api.post('/rate-list', { metal_type: contentForm.metal_type || 'silver', slab_name: contentForm.slab_name || '', min_qty: contentForm.min_qty || '', max_qty: contentForm.max_qty || '', rate: parseFloat(contentForm.rate || '0'), unit: 'per gram', order: contentData.length + 1 });
+                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
+                      } catch (e: any) { Alert.alert('Error', e.message); }
+                    }}><Text style={s.saveBtnText}>ADD SLAB</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Schemes Editor */}
+              {contentSubView === 'schemes' && (
+                <>
+                  <Text style={s.sectionTitle}>SCHEMES ({contentData.length})</Text>
+                  {contentData.map(sc => (
+                    <View key={sc.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{sc.title}</Text>
+                        <Text style={s.listMeta}>{sc.is_active ? 'Active' : 'Inactive'}{sc.poster_url ? ' • Has poster' : ''}</Text>
+                      </View>
+                      <TouchableOpacity onPress={async () => { await api.delete(`/schemes/${sc.id}`); setContentData(prev => prev.filter(x => x.id !== sc.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Add Scheme</Text>
+                    <TextInput style={s.formInput} placeholder="Scheme Title" placeholderTextColor={Colors.textMuted} value={contentForm.title || ''} onChangeText={v => setContentForm(p => ({...p, title: v}))} />
+                    <TextInput style={s.formInput} placeholder="Description" placeholderTextColor={Colors.textMuted} value={contentForm.description || ''} onChangeText={v => setContentForm(p => ({...p, description: v}))} multiline />
+                    <TextInput style={s.formInput} placeholder="Poster Image URL" placeholderTextColor={Colors.textMuted} value={contentForm.poster_url || ''} onChangeText={v => setContentForm(p => ({...p, poster_url: v}))} />
+                    <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                      try {
+                        const res = await api.post('/schemes', { title: contentForm.title || '', description: contentForm.description || '', poster_url: contentForm.poster_url || '', is_active: true, order: contentData.length });
+                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
+                      } catch (e: any) { Alert.alert('Error', e.message); }
+                    }}><Text style={s.saveBtnText}>ADD SCHEME</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Brands Editor */}
+              {contentSubView === 'brands' && (
+                <>
+                  <Text style={s.sectionTitle}>BRANDS ({contentData.length})</Text>
+                  {contentData.map(br => (
+                    <View key={br.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}><Text style={s.listTitle}>{br.name}</Text><Text style={s.listMeta}>{br.is_active ? 'Active' : 'Inactive'}</Text></View>
+                      <TouchableOpacity onPress={async () => { await api.delete(`/brands/${br.id}`); setContentData(prev => prev.filter(x => x.id !== br.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Add Brand</Text>
+                    <TextInput style={s.formInput} placeholder="Brand Name" placeholderTextColor={Colors.textMuted} value={contentForm.name || ''} onChangeText={v => setContentForm(p => ({...p, name: v}))} />
+                    <TextInput style={s.formInput} placeholder="Logo URL" placeholderTextColor={Colors.textMuted} value={contentForm.logo_url || ''} onChangeText={v => setContentForm(p => ({...p, logo_url: v}))} />
+                    <TextInput style={s.formInput} placeholder="Description" placeholderTextColor={Colors.textMuted} value={contentForm.desc || ''} onChangeText={v => setContentForm(p => ({...p, desc: v}))} />
+                    <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                      try {
+                        const res = await api.post('/brands', { name: contentForm.name || '', logo_url: contentForm.logo_url || '', description: contentForm.desc || '', is_active: true, order: contentData.length });
+                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
+                      } catch (e: any) { Alert.alert('Error', e.message); }
+                    }}><Text style={s.saveBtnText}>ADD BRAND</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Showroom Editor */}
+              {contentSubView === 'showroom' && (
+                <>
+                  <Text style={s.sectionTitle}>SHOWROOM FLOORS ({contentData.length})</Text>
+                  {contentData.map(fl => (
+                    <View key={fl.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}><Text style={s.listTitle}>{fl.floor_name}</Text><Text style={s.listMeta}>{fl.products_available || 'No products listed'}</Text></View>
+                      <TouchableOpacity onPress={async () => { await api.delete(`/showroom/${fl.id}`); setContentData(prev => prev.filter(x => x.id !== fl.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Add Floor</Text>
+                    <TextInput style={s.formInput} placeholder="Floor Name (e.g. Second Floor)" placeholderTextColor={Colors.textMuted} value={contentForm.floor_name || ''} onChangeText={v => setContentForm(p => ({...p, floor_name: v}))} />
+                    <TextInput style={s.formInput} placeholder="Description" placeholderTextColor={Colors.textMuted} value={contentForm.description || ''} onChangeText={v => setContentForm(p => ({...p, description: v}))} multiline />
+                    <TextInput style={s.formInput} placeholder="Products Available (e.g. Gold Wholesale)" placeholderTextColor={Colors.textMuted} value={contentForm.products_available || ''} onChangeText={v => setContentForm(p => ({...p, products_available: v}))} />
+                    <TextInput style={s.formInput} placeholder="Photo URLs (comma separated)" placeholderTextColor={Colors.textMuted} value={contentForm.photos || ''} onChangeText={v => setContentForm(p => ({...p, photos: v}))} />
+                    <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                      try {
+                        const photos = (contentForm.photos || '').split(',').map((u: string) => u.trim()).filter(Boolean);
+                        const res = await api.post('/showroom', { floor_name: contentForm.floor_name || '', description: contentForm.description || '', products_available: contentForm.products_available || '', photos, order: contentData.length });
+                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
+                      } catch (e: any) { Alert.alert('Error', e.message); }
+                    }}><Text style={s.saveBtnText}>ADD FLOOR</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Exhibitions Editor */}
+              {contentSubView === 'exhibitions' && (
+                <>
+                  <Text style={s.sectionTitle}>EXHIBITIONS ({contentData.length})</Text>
+                  {contentData.map(ex => (
+                    <View key={ex.id} style={s.listItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{ex.title}</Text>
+                        <Text style={s.listMeta}>{ex.is_upcoming ? 'Upcoming' : 'Past'} • {ex.date || 'No date'}{ex.location ? ` • ${ex.location}` : ''}</Text>
+                      </View>
+                      <TouchableOpacity onPress={async () => { await api.delete(`/exhibitions/${ex.id}`); setContentData(prev => prev.filter(x => x.id !== ex.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={s.formCard}>
+                    <Text style={s.formTitle}>Add Exhibition</Text>
+                    <TextInput style={s.formInput} placeholder="Exhibition Title" placeholderTextColor={Colors.textMuted} value={contentForm.title || ''} onChangeText={v => setContentForm(p => ({...p, title: v}))} />
+                    <TextInput style={s.formInput} placeholder="Date (e.g. March 15-17, 2026)" placeholderTextColor={Colors.textMuted} value={contentForm.date || ''} onChangeText={v => setContentForm(p => ({...p, date: v}))} />
+                    <TextInput style={s.formInput} placeholder="Location" placeholderTextColor={Colors.textMuted} value={contentForm.location || ''} onChangeText={v => setContentForm(p => ({...p, location: v}))} />
+                    <TextInput style={s.formInput} placeholder="Description" placeholderTextColor={Colors.textMuted} value={contentForm.desc || ''} onChangeText={v => setContentForm(p => ({...p, desc: v}))} multiline />
+                    <TextInput style={s.formInput} placeholder="Poster URL" placeholderTextColor={Colors.textMuted} value={contentForm.poster_url || ''} onChangeText={v => setContentForm(p => ({...p, poster_url: v}))} />
+                    <View style={s.formRow}>
+                      <TouchableOpacity style={[s.metalBtn, contentForm.is_upcoming !== 'false' && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, is_upcoming: 'true'}))}><Text style={[s.metalBtnText, contentForm.is_upcoming !== 'false' && s.metalBtnTextActive]}>Upcoming</Text></TouchableOpacity>
+                      <TouchableOpacity style={[s.metalBtn, contentForm.is_upcoming === 'false' && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, is_upcoming: 'false'}))}><Text style={[s.metalBtnText, contentForm.is_upcoming === 'false' && s.metalBtnTextActive]}>Past</Text></TouchableOpacity>
+                    </View>
+                    <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                      try {
+                        const res = await api.post('/exhibitions', { title: contentForm.title || '', date: contentForm.date || '', location: contentForm.location || '', description: contentForm.desc || '', poster_url: contentForm.poster_url || '', is_upcoming: contentForm.is_upcoming !== 'false', is_active: true });
+                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
+                      } catch (e: any) { Alert.alert('Error', e.message); }
+                    }}><Text style={s.saveBtnText}>ADD EXHIBITION</Text></TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {/* Live Rates Config */}
+              {contentSubView === 'liverates' && (
+                <View style={s.formCard}>
+                  <Text style={s.formTitle}>Live Rate Configuration</Text>
+                  <Text style={[s.formLabel, { marginTop: 0 }]}>Physical Rate = Live Market Rate + Fixed Premium</Text>
+                  <Text style={s.formLabel}>Silver Premium (₹/gram)</Text>
+                  <TextInput style={s.formInput} value={String(contentForm.silver_premium || 0)} onChangeText={v => setContentForm(p => ({...p, silver_premium: v}))} keyboardType="decimal-pad" placeholder="0.70" placeholderTextColor={Colors.textMuted} />
+                  <Text style={s.formLabel}>Gold Premium (₹/gram)</Text>
+                  <TextInput style={s.formInput} value={String(contentForm.gold_premium || 0)} onChangeText={v => setContentForm(p => ({...p, gold_premium: v}))} keyboardType="decimal-pad" placeholder="70" placeholderTextColor={Colors.textMuted} />
+                  <Text style={s.formLabel}>Auto-Fetch Enabled</Text>
+                  <View style={s.formRow}>
+                    <TouchableOpacity style={[s.metalBtn, contentForm.auto_fetch_enabled !== false && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, auto_fetch_enabled: true as any}))}><Text style={[s.metalBtnText, contentForm.auto_fetch_enabled !== false && s.metalBtnTextActive]}>Yes</Text></TouchableOpacity>
+                    <TouchableOpacity style={[s.metalBtn, contentForm.auto_fetch_enabled === false && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, auto_fetch_enabled: false as any}))}><Text style={[s.metalBtnText, contentForm.auto_fetch_enabled === false && s.metalBtnTextActive]}>No</Text></TouchableOpacity>
+                  </View>
+                  <Text style={s.formLabel}>Fetch Interval (seconds)</Text>
+                  <TextInput style={s.formInput} value={String(contentForm.fetch_interval_seconds || 60)} onChangeText={v => setContentForm(p => ({...p, fetch_interval_seconds: v}))} keyboardType="number-pad" placeholder="60" placeholderTextColor={Colors.textMuted} />
+                  <TouchableOpacity style={s.saveBtn} onPress={async () => {
+                    try {
+                      await api.post('/live-rates/config', { silver_premium: parseFloat(String(contentForm.silver_premium)) || 0, gold_premium: parseFloat(String(contentForm.gold_premium)) || 0, auto_fetch_enabled: contentForm.auto_fetch_enabled !== false, fetch_interval_seconds: parseInt(String(contentForm.fetch_interval_seconds)) || 60 });
+                      Alert.alert('Saved', 'Live rate config updated');
+                    } catch (e: any) { Alert.alert('Error', e.message); }
+                  }}><Text style={s.saveBtnText}>SAVE CONFIG</Text></TouchableOpacity>
+                </View>
+              )}
             </>
           )}
 

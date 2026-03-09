@@ -330,6 +330,126 @@ backend:
         - agent: "testing"
         - comment: "✅ PASSED: Redeem validation working correctly. POST /api/rewards/redeem with points=0 and points=-1 both return 422 Unprocessable Entity as expected. Input validation properly implemented."
 
+  - task: "About Content API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/about?lang=en (should return 6 sections) and GET /api/about?lang=hi (should return Hindi content)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: About content API working correctly. GET /api/about?lang=en returns 6 sections with proper structure (sections array + raw array with content_en/content_hi). GET /api/about?lang=hi also works. Multi-language content system functional."
+
+  - task: "Live Rates API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/live-rates (should return silver_dollar, gold_dollar, silver_mcx, gold_mcx, silver_physical, gold_physical with real values > 0)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Live rates API working perfectly. GET /api/live-rates returns all 6 expected rate fields with valid real values > 0: Silver Dollar $83.58, MCX ₹247.23, Physical ₹249.73; Gold Dollar $5097.20, MCX ₹15078.00, Physical ₹15178.00. Real-time rate updates functional."
+
+  - task: "Rate List API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/rate-list (should return 10 slabs for silver, gold, diamond) and GET /api/rate-list?metal_type=silver (should filter by metal type)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Rate list API working correctly. GET /api/rate-list returns 10 slabs with multiple metal types (silver, gold, diamond). GET /api/rate-list?metal_type=silver filtering works correctly, returning 4 silver slabs. Rate slab management functional."
+
+  - task: "Schemes API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/schemes (should return schemes array) and POST /api/schemes (admin auth - should create a scheme)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Schemes API working perfectly. GET /api/schemes returns schemes array. POST /api/schemes with admin auth successfully creates schemes with proper validation (title, description, multilingual support). Admin-only access enforced correctly. CRUD operations functional."
+
+  - task: "Brands API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/brands (should return brands array) and POST /api/brands (admin auth - should create a brand)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Brands API working correctly. GET /api/brands returns brands array. POST /api/brands with admin auth successfully creates brands with required fields (name, logo_url, description, order). Admin-only access properly enforced. Brand management functional."
+
+  - task: "Showroom API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/showroom (should return floors array) and POST /api/showroom (admin auth - should create a floor)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Showroom API working correctly. GET /api/showroom returns floors array. POST /api/showroom with admin auth successfully creates showroom floors with multilingual support (floor_name, description in English/Hindi/Punjabi). Photos array support functional. Admin-only access enforced."
+
+  - task: "Exhibitions API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW endpoint testing. Need to test GET /api/exhibitions (should return {upcoming: [], past: []}) and POST /api/exhibitions (admin auth - should create an exhibition)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Exhibitions API working perfectly. GET /api/exhibitions returns proper structure with upcoming and past arrays. POST /api/exhibitions with admin auth successfully creates exhibitions with full multilingual support, photos, dates, locations. Admin-only access properly enforced."
+
+  - task: "Live Rate Config API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "NEW admin endpoint testing. Need to test GET /api/live-rates/config (admin auth - should return premium config) and POST /api/live-rates/config (admin auth - should update config)"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: Live rate config API working correctly. GET /api/live-rates/config with admin auth returns premium config (silver_premium, gold_premium, auto_fetch_enabled). POST /api/live-rates/config successfully updates configuration values. Admin-only access properly enforced."
+
 frontend:
   - task: "Login Flow Testing"
     implemented: true
@@ -446,7 +566,7 @@ test_plan:
   current_focus: []
   stuck_tasks: []
   test_all: true
-  test_priority: "web_panel_architecture_completed"
+  test_priority: "new_endpoints_testing_completed"
 
 agent_communication:
     - agent: "testing"
@@ -457,3 +577,5 @@ agent_communication:
     - message: "🎯 COMPREHENSIVE FRONTEND UI TESTING COMPLETED! Tested all key user flows including admin (9999999999) and user (8888888888) login, home screen with rate ticker and quick actions, admin panel with batch management, feed screen with product grid and filters, image viewer with full-screen display and actions. All major functionality working correctly on mobile viewport (iPhone 14). Role-based access control properly implemented."
     - agent: "testing"
     - message: "🏢 WEB PANEL ARCHITECTURE TESTING COMPLETED! Successfully verified customer mobile app + admin/executive web panel split. All 9 test scenarios PASSED: Role authentication (admin/executive/customer), panel login rejection for customers, admin analytics dashboard access, executive request management, admin rate/batch management, protected seed endpoints, customer functionality preservation, and redeem validation. Backend APIs fully support web panel architecture with proper role-based access control."
+    - agent: "testing"
+    - message: "🆕 NEW API ENDPOINTS TESTING COMPLETED! Successfully tested all 8 new endpoint categories per review request: About Content (multilingual), Live Rates (real-time), Rate List (filtering), Schemes (CRUD), Brands (CRUD), Showroom (multilingual), Exhibitions (CRUD), Live Rate Config (admin). All 9 test suites PASSED (100% success rate). Authentication flow tested with customer (8888888888) and admin (9999999999) using OTP 1234. Existing endpoints regression testing also PASSED. All new API endpoints are production-ready! 🎉"

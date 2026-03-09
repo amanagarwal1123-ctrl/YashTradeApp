@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 # Configuration
-BASE_URL = "https://gold-silver-biz.preview.emergentagent.com/api"
+BASE_URL = "https://jeweler-network-dev.preview.emergentagent.com/api"
 print(f"Testing backend API at: {BASE_URL}")
 
 class TestRunner:

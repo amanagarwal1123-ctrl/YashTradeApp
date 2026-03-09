@@ -15,6 +15,9 @@ import jwt
 import asyncio
 import requests as http_requests
 from PIL import Image as PILImage
+from bs4 import BeautifulSoup
+import re
+import json as json_module
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -219,6 +222,72 @@ class CartAddRequest(BaseModel):
 
 class CartSubmitRequest(BaseModel):
     notes: str = ""
+
+class AboutContentUpdate(BaseModel):
+    section: str
+    content_en: str = ""
+    content_hi: str = ""
+    content_pa: str = ""
+
+class RateSlabCreate(BaseModel):
+    metal_type: str
+    slab_name: str
+    min_qty: str = ""
+    max_qty: str = ""
+    rate: float = 0
+    unit: str = "per gram"
+    order: int = 0
+
+class SchemeCreate(BaseModel):
+    title: str
+    title_hi: str = ""
+    title_pa: str = ""
+    description: str = ""
+    description_hi: str = ""
+    description_pa: str = ""
+    poster_url: str = ""
+    is_active: bool = True
+    order: int = 0
+
+class BrandCreate(BaseModel):
+    name: str
+    logo_url: str = ""
+    description: str = ""
+    order: int = 0
+    is_active: bool = True
+
+class ShowroomFloorCreate(BaseModel):
+    floor_name: str
+    floor_name_hi: str = ""
+    floor_name_pa: str = ""
+    description: str = ""
+    description_hi: str = ""
+    description_pa: str = ""
+    products_available: str = ""
+    products_available_hi: str = ""
+    products_available_pa: str = ""
+    photos: List[str] = []
+    order: int = 0
+
+class ExhibitionCreate(BaseModel):
+    title: str
+    title_hi: str = ""
+    title_pa: str = ""
+    description: str = ""
+    description_hi: str = ""
+    description_pa: str = ""
+    poster_url: str = ""
+    photos: List[str] = []
+    date: str = ""
+    location: str = ""
+    is_upcoming: bool = True
+    is_active: bool = True
+
+class LiveRateConfig(BaseModel):
+    silver_premium: float = 0
+    gold_premium: float = 0
+    auto_fetch_enabled: bool = True
+    fetch_interval_seconds: int = 60
 
 # ===================== AUTH HELPERS =====================
 
@@ -1367,6 +1436,367 @@ async def seed_expand(user=Depends(get_admin_user)):
     total = await db.products.count_documents({})
     return {"message": f"Expanded to {total} products", "products": total}
 
+# ===================== ABOUT CONTENT MANAGEMENT =====================
+
+@api_router.get("/about")
+async def get_about_content(lang: str = Query("en")):
+    sections = await db.about_content.find({}, {"_id": 0}).sort("order", 1).to_list(100)
+    result = []
+    for s in sections:
+        content = s.get(f"content_{lang}") or s.get("content_en", "")
+        result.append({"section": s.get("section", ""), "content": content, "order": s.get("order", 0)})
+    return {"sections": result, "raw": sections}
+
+@api_router.post("/about")
+async def upsert_about_content(req: AboutContentUpdate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    existing = await db.about_content.find_one({"section": req.section})
+    data = req.dict()
+    data["updated_at"] = now
+    if existing:
+        await db.about_content.update_one({"section": req.section}, {"$set": data})
+    else:
+        data["id"] = str(uuid.uuid4())
+        data["order"] = 0
+        data["created_at"] = now
+        await db.about_content.insert_one(data)
+    result = await db.about_content.find_one({"section": req.section}, {"_id": 0})
+    return result
+
+@api_router.delete("/about/{section}")
+async def delete_about_section(section: str, user=Depends(get_admin_user)):
+    await db.about_content.delete_one({"section": section})
+    return {"message": "Deleted"}
+
+# ===================== LIVE RATES SCRAPING =====================
+
+async def fetch_live_rates_from_web():
+    """Try to scrape live silver/gold rates from MoneyControl and other sources"""
+    silver_data = {"dollar": 0, "mcx": 0}
+    gold_data = {"dollar": 0, "mcx": 0}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    loop = asyncio.get_event_loop()
+
+    def _fetch_sync():
+        sd = {"dollar": 0, "mcx": 0}
+        gd = {"dollar": 0, "mcx": 0}
+        # Use Yahoo Finance for commodity prices
+        try:
+            resp = http_requests.get('https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=1d', headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                meta = data.get('chart', {}).get('result', [{}])[0].get('meta', {})
+                sd["dollar"] = meta.get("regularMarketPrice", 0)
+        except Exception as e:
+            logger.warning(f"Yahoo silver: {e}")
+
+        try:
+            resp = http_requests.get('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=1d', headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                meta = data.get('chart', {}).get('result', [{}])[0].get('meta', {})
+                gd["dollar"] = meta.get("regularMarketPrice", 0)
+        except Exception as e:
+            logger.warning(f"Yahoo gold: {e}")
+
+        # Get USD to INR rate
+        usd_inr = 83.0
+        try:
+            resp = http_requests.get('https://api.exchangerate-api.com/v4/latest/USD', headers=headers, timeout=10)
+            if resp.status_code == 200:
+                rates = resp.json().get('rates', {})
+                usd_inr = rates.get('INR', 83.0)
+        except:
+            pass
+
+        # Convert dollar/oz to INR/gram
+        if sd["dollar"] > 0:
+            sd["mcx"] = round((sd["dollar"] / 31.1035) * usd_inr, 2)
+        if gd["dollar"] > 0:
+            gd["mcx"] = round((gd["dollar"] / 31.1035) * usd_inr, 0)
+
+        return sd, gd
+
+    try:
+        silver_data, gold_data = await loop.run_in_executor(None, _fetch_sync)
+    except Exception as e:
+        logger.error(f"Live rate fetch error: {e}")
+
+    return silver_data, gold_data
+
+live_rates_cache = {"silver": {"dollar": 0, "mcx": 0}, "gold": {"dollar": 0, "mcx": 0}, "last_fetch": None}
+
+async def live_rate_background_task():
+    """Background task to fetch live rates every 60 seconds"""
+    await asyncio.sleep(5)  # Wait for app to start
+    while True:
+        try:
+            config = await db.live_rate_config.find_one({}, {"_id": 0})
+            if not config or config.get("auto_fetch_enabled", True):
+                silver, gold = await fetch_live_rates_from_web()
+
+                if silver["dollar"] > 0 or silver["mcx"] > 0 or gold["dollar"] > 0 or gold["mcx"] > 0:
+                    now = datetime.now(timezone.utc).isoformat()
+                    premium_config = config or {}
+                    silver_premium = premium_config.get("silver_premium", 0)
+                    gold_premium = premium_config.get("gold_premium", 0)
+
+                    await db.live_rates.update_one(
+                        {"type": "latest"},
+                        {"$set": {
+                            "silver_dollar": silver["dollar"],
+                            "silver_mcx": silver["mcx"],
+                            "silver_physical": round(silver["mcx"] + silver_premium, 2) if silver["mcx"] > 0 else 0,
+                            "gold_dollar": gold["dollar"],
+                            "gold_mcx": gold["mcx"],
+                            "gold_physical": round(gold["mcx"] + gold_premium, 2) if gold["mcx"] > 0 else 0,
+                            "silver_premium": silver_premium,
+                            "gold_premium": gold_premium,
+                            "fetched_at": now,
+                        }},
+                        upsert=True
+                    )
+                    logger.info(f"Live rates updated: Silver ${silver['dollar']:.2f}/MCX ₹{silver['mcx']:.2f}, Gold ${gold['dollar']:.2f}/MCX ₹{gold['mcx']:.2f}")
+        except Exception as e:
+            logger.error(f"Live rate task error: {e}")
+
+        interval = 60
+        try:
+            config = await db.live_rate_config.find_one({}, {"_id": 0})
+            if config:
+                interval = config.get("fetch_interval_seconds", 60)
+        except:
+            pass
+        await asyncio.sleep(interval)
+
+@api_router.get("/live-rates")
+async def get_live_rates():
+    cached = await db.live_rates.find_one({"type": "latest"}, {"_id": 0})
+    config = await db.live_rate_config.find_one({}, {"_id": 0})
+    premium = config or {"silver_premium": 0, "gold_premium": 0}
+    if cached:
+        cached["silver_premium"] = premium.get("silver_premium", 0)
+        cached["gold_premium"] = premium.get("gold_premium", 0)
+        if cached.get("silver_mcx", 0) > 0:
+            cached["silver_physical"] = cached["silver_mcx"] + premium.get("silver_premium", 0)
+        if cached.get("gold_mcx", 0) > 0:
+            cached["gold_physical"] = cached["gold_mcx"] + premium.get("gold_premium", 0)
+        return cached
+    return {"silver_dollar": 0, "silver_mcx": 0, "silver_physical": 0, "gold_dollar": 0, "gold_mcx": 0, "gold_physical": 0, "silver_premium": 0, "gold_premium": 0, "fetched_at": None}
+
+@api_router.get("/live-rates/config")
+async def get_live_rate_config(user=Depends(get_admin_user)):
+    config = await db.live_rate_config.find_one({}, {"_id": 0})
+    return config or {"silver_premium": 0, "gold_premium": 0, "auto_fetch_enabled": True, "fetch_interval_seconds": 60}
+
+@api_router.post("/live-rates/config")
+async def update_live_rate_config(req: LiveRateConfig, user=Depends(get_admin_user)):
+    await db.live_rate_config.update_one({}, {"$set": req.dict()}, upsert=True)
+    return req.dict()
+
+# ===================== RATE LIST MANAGEMENT =====================
+
+@api_router.get("/rate-list")
+async def get_rate_list(metal_type: str = Query("")):
+    query: Dict[str, Any] = {}
+    if metal_type:
+        query["metal_type"] = metal_type
+    slabs = await db.rate_slabs.find(query, {"_id": 0}).sort([("metal_type", 1), ("order", 1)]).to_list(200)
+    return {"slabs": slabs}
+
+@api_router.post("/rate-list")
+async def create_rate_slab(req: RateSlabCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    slab = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.rate_slabs.insert_one(slab)
+    return {k: v for k, v in slab.items() if k != "_id"}
+
+@api_router.put("/rate-list/{slab_id}")
+async def update_rate_slab(slab_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.rate_slabs.update_one({"id": slab_id}, {"$set": updates})
+    return await db.rate_slabs.find_one({"id": slab_id}, {"_id": 0})
+
+@api_router.delete("/rate-list/{slab_id}")
+async def delete_rate_slab(slab_id: str, user=Depends(get_admin_user)):
+    await db.rate_slabs.delete_one({"id": slab_id})
+    return {"message": "Deleted"}
+
+# ===================== SCHEMES MANAGEMENT =====================
+
+@api_router.get("/schemes")
+async def get_schemes(active_only: bool = Query(True)):
+    query: Dict[str, Any] = {}
+    if active_only:
+        query["is_active"] = True
+    schemes = await db.schemes.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+    return {"schemes": schemes}
+
+@api_router.post("/schemes")
+async def create_scheme(req: SchemeCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    scheme = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.schemes.insert_one(scheme)
+    return {k: v for k, v in scheme.items() if k != "_id"}
+
+@api_router.put("/schemes/{scheme_id}")
+async def update_scheme(scheme_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.schemes.update_one({"id": scheme_id}, {"$set": updates})
+    return await db.schemes.find_one({"id": scheme_id}, {"_id": 0})
+
+@api_router.delete("/schemes/{scheme_id}")
+async def delete_scheme(scheme_id: str, user=Depends(get_admin_user)):
+    await db.schemes.delete_one({"id": scheme_id})
+    return {"message": "Deleted"}
+
+# ===================== BRANDS MANAGEMENT =====================
+
+@api_router.get("/brands")
+async def get_brands(active_only: bool = Query(True)):
+    query: Dict[str, Any] = {}
+    if active_only:
+        query["is_active"] = True
+    brands = await db.brands.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+    return {"brands": brands}
+
+@api_router.post("/brands")
+async def create_brand(req: BrandCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    brand = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.brands.insert_one(brand)
+    return {k: v for k, v in brand.items() if k != "_id"}
+
+@api_router.put("/brands/{brand_id}")
+async def update_brand(brand_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.brands.update_one({"id": brand_id}, {"$set": updates})
+    return await db.brands.find_one({"id": brand_id}, {"_id": 0})
+
+@api_router.delete("/brands/{brand_id}")
+async def delete_brand(brand_id: str, user=Depends(get_admin_user)):
+    await db.brands.delete_one({"id": brand_id})
+    return {"message": "Deleted"}
+
+# ===================== SHOWROOM MANAGEMENT =====================
+
+@api_router.get("/showroom")
+async def get_showroom():
+    floors = await db.showroom_floors.find({}, {"_id": 0}).sort("order", 1).to_list(100)
+    return {"floors": floors}
+
+@api_router.post("/showroom")
+async def create_showroom_floor(req: ShowroomFloorCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    floor = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.showroom_floors.insert_one(floor)
+    return {k: v for k, v in floor.items() if k != "_id"}
+
+@api_router.put("/showroom/{floor_id}")
+async def update_showroom_floor(floor_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.showroom_floors.update_one({"id": floor_id}, {"$set": updates})
+    return await db.showroom_floors.find_one({"id": floor_id}, {"_id": 0})
+
+@api_router.delete("/showroom/{floor_id}")
+async def delete_showroom_floor(floor_id: str, user=Depends(get_admin_user)):
+    await db.showroom_floors.delete_one({"id": floor_id})
+    return {"message": "Deleted"}
+
+# ===================== EXHIBITION MANAGEMENT =====================
+
+@api_router.get("/exhibitions")
+async def get_exhibitions():
+    exhbs = await db.exhibitions.find({"is_active": True}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    upcoming = [e for e in exhbs if e.get("is_upcoming")]
+    past = [e for e in exhbs if not e.get("is_upcoming")]
+    return {"upcoming": upcoming, "past": past, "all": exhbs}
+
+@api_router.post("/exhibitions")
+async def create_exhibition(req: ExhibitionCreate, user=Depends(get_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    exhb = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.exhibitions.insert_one(exhb)
+    return {k: v for k, v in exhb.items() if k != "_id"}
+
+@api_router.put("/exhibitions/{exhb_id}")
+async def update_exhibition(exhb_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.exhibitions.update_one({"id": exhb_id}, {"$set": updates})
+    return await db.exhibitions.find_one({"id": exhb_id}, {"_id": 0})
+
+@api_router.delete("/exhibitions/{exhb_id}")
+async def delete_exhibition(exhb_id: str, user=Depends(get_admin_user)):
+    await db.exhibitions.delete_one({"id": exhb_id})
+    return {"message": "Deleted"}
+
+# ===================== SEED ABOUT/DEMO DATA =====================
+
+async def seed_new_features():
+    """Seed initial data for new features"""
+    # About content
+    about_exists = await db.about_content.count_documents({})
+    if about_exists == 0:
+        about_sections = [
+            {"section": "brand_intro", "content_en": "Yash Ornaments is one of the leading wholesale jewellery houses based in Chandni Chowk, Delhi. With decades of experience in silver, gold, and diamond jewellery, we serve over 40,000 retailers and wholesalers across India.", "content_hi": "यश ऑर्नामेंट्स चांदनी चौक, दिल्ली में स्थित अग्रणी थोक ज्वेलरी हाउस में से एक है। चांदी, सोना और हीरे के आभूषणों में दशकों के अनुभव के साथ, हम पूरे भारत में 40,000 से अधिक खुदरा विक्रेताओं और थोक विक्रेताओं की सेवा करते हैं।", "content_pa": "ਯਸ਼ ਔਰਨਾਮੈਂਟਸ ਚਾਂਦਨੀ ਚੌਕ, ਦਿੱਲੀ ਵਿੱਚ ਸਥਿਤ ਮੋਹਰੀ ਥੋਕ ਗਹਿਣਿਆਂ ਦੇ ਘਰਾਂ ਵਿੱਚੋਂ ਇੱਕ ਹੈ।", "order": 1},
+            {"section": "why_buy", "content_en": "One Stop Shop|Accuracy in Purity|Fast Billing|Online Live Video Calling|India's Biggest Online Jewellery Catalogue|Cheapest Rate Guaranteed|Compulsory Gift|Original Brand Guaranteed|Sunday Open", "content_hi": "वन स्टॉप शॉप|शुद्धता में सटीकता|तेज बिलिंग|ऑनलाइन लाइव वीडियो कॉलिंग|भारत का सबसे बड़ा ऑनलाइन ज्वेलरी कैटलॉग|सबसे सस्ती दर की गारंटी|अनिवार्य उपहार|ओरिजिनल ब्रांड की गारंटी|रविवार खुला", "content_pa": "ਵਨ ਸਟਾਪ ਸ਼ਾਪ|ਸ਼ੁੱਧਤਾ ਵਿੱਚ ਸਟੀਕਤਾ|ਤੇਜ਼ ਬਿਲਿੰਗ|ਔਨਲਾਈਨ ਲਾਈਵ ਵੀਡੀਓ ਕਾਲਿੰਗ|ਭਾਰਤ ਦਾ ਸਭ ਤੋਂ ਵੱਡਾ ਔਨਲਾਈਨ ਗਹਿਣਿਆਂ ਦਾ ਕੈਟਾਲਾਗ|ਸਭ ਤੋਂ ਸਸਤੀ ਦਰ ਦੀ ਗਾਰੰਟੀ|ਲਾਜ਼ਮੀ ਤੋਹਫ਼ਾ|ਅਸਲ ਬ੍ਰਾਂਡ ਦੀ ਗਾਰੰਟੀ|ਐਤਵਾਰ ਖੁੱਲ੍ਹਾ", "order": 2},
+            {"section": "new_shop_benefits", "content_en": "Full Range ki Guarantee|Latest Running Range ki Guarantee|0% Dead Stock|Market ki Knowledge", "content_hi": "फुल रेंज की गारंटी|लेटेस्ट रनिंग रेंज की गारंटी|0% डेड स्टॉक|मार्केट की नॉलेज", "content_pa": "ਫੁੱਲ ਰੇਂਜ ਦੀ ਗਾਰੰਟੀ|ਲੇਟੈਸਟ ਰਨਿੰਗ ਰੇਂਜ ਦੀ ਗਾਰੰਟੀ|0% ਡੈੱਡ ਸਟਾਕ|ਮਾਰਕੀਟ ਦੀ ਨਾਲੇਜ", "order": 3},
+            {"section": "b2b_benefits", "content_en": "Wide Product Variety across Silver, Gold & Diamond|Reliable Supply Chain with Pan-India Delivery|Dedicated Retailer Support Team|Fast Service & Quick Turnaround|Repeat Stock Availability Guaranteed|Strong Long-term Business Relationships|Deep Range in Every Category|Trend-Based Stock Support & Market Insights", "content_hi": "चांदी, सोना और हीरे में व्यापक उत्पाद विविधता|पैन-इंडिया डिलीवरी के साथ विश्वसनीय आपूर्ति श्रृंखला|समर्पित रिटेलर सपोर्ट टीम|तेज सेवा और त्वरित टर्नअराउंड|रिपीट स्टॉक उपलब्धता की गारंटी|मजबूत दीर्घकालिक व्यापारिक संबंध|हर श्रेणी में गहरी रेंज|ट्रेंड-आधारित स्टॉक सपोर्ट और मार्केट इनसाइट्स", "content_pa": "ਚਾਂਦੀ, ਸੋਨੇ ਅਤੇ ਹੀਰੇ ਵਿੱਚ ਵਿਆਪਕ ਉਤਪਾਦ ਵਿਭਿੰਨਤਾ|ਭਰੋਸੇਯੋਗ ਸਪਲਾਈ ਚੇਨ|ਸਮਰਪਿਤ ਰਿਟੇਲਰ ਸਪੋਰਟ ਟੀਮ|ਤੇਜ਼ ਸੇਵਾ|ਰਿਪੀਟ ਸਟਾਕ ਦੀ ਗਾਰੰਟੀ|ਮਜ਼ਬੂਤ ਕਾਰੋਬਾਰੀ ਰਿਸ਼ਤੇ|ਹਰ ਸ਼੍ਰੇਣੀ ਵਿੱਚ ਡੂੰਘੀ ਰੇਂਜ|ਟ੍ਰੈਂਡ-ਅਧਾਰਿਤ ਸਟਾਕ ਸਪੋਰਟ", "order": 4},
+            {"section": "location_chandni_chowk", "content_en": "Chandni Chowk Showroom|4168, Dariba Kalan, Chandni Chowk, Delhi - 110006|Near Jain Mandir, Old Delhi|Open: Mon-Sat 10:00 AM - 8:00 PM, Sunday 11:00 AM - 6:00 PM|Phone: +91-11-4056XXXX", "content_hi": "चांदनी चौक शोरूम|4168, दरीबा कलां, चांदनी चौक, दिल्ली - 110006|जैन मंदिर के पास, पुरानी दिल्ली|खुला: सोम-शनि सुबह 10:00 बजे - शाम 8:00 बजे, रविवार सुबह 11:00 बजे - शाम 6:00 बजे", "content_pa": "ਚਾਂਦਨੀ ਚੌਕ ਸ਼ੋਅਰੂਮ|4168, ਦਰੀਬਾ ਕਲਾਂ, ਚਾਂਦਨੀ ਚੌਕ, ਦਿੱਲੀ - 110006|ਜੈਨ ਮੰਦਿਰ ਕੋਲ, ਪੁਰਾਣੀ ਦਿੱਲੀ", "order": 5},
+            {"section": "location_karol_bagh", "content_en": "Karol Bagh Office|WZ-XX, Karol Bagh, New Delhi - 110005|Near Metro Station, Karol Bagh|Open: Mon-Sat 10:00 AM - 7:00 PM|Phone: +91-11-2573XXXX", "content_hi": "करोल बाग कार्यालय|WZ-XX, करोल बाग, नई दिल्ली - 110005|मेट्रो स्टेशन के पास, करोल बाग|खुला: सोम-शनि सुबह 10:00 बजे - शाम 7:00 बजे", "content_pa": "ਕਰੋਲ ਬਾਗ ਦਫ਼ਤਰ|WZ-XX, ਕਰੋਲ ਬਾਗ, ਨਵੀਂ ਦਿੱਲੀ - 110005|ਮੈਟਰੋ ਸਟੇਸ਼ਨ ਕੋਲ, ਕਰੋਲ ਬਾਗ", "order": 6},
+        ]
+        for s in about_sections:
+            s["id"] = str(uuid.uuid4())
+            s["created_at"] = datetime.now(timezone.utc).isoformat()
+            s["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.about_content.insert_many(about_sections)
+
+    # Rate slabs
+    slabs_exist = await db.rate_slabs.count_documents({})
+    if slabs_exist == 0:
+        slabs = [
+            {"metal_type": "silver", "slab_name": "Below 5 KG", "min_qty": "0", "max_qty": "5 KG", "rate": 96.50, "unit": "per gram", "order": 1},
+            {"metal_type": "silver", "slab_name": "5 KG - 10 KG", "min_qty": "5 KG", "max_qty": "10 KG", "rate": 96.00, "unit": "per gram", "order": 2},
+            {"metal_type": "silver", "slab_name": "Above 10 KG", "min_qty": "10 KG", "max_qty": "20 KG", "rate": 95.50, "unit": "per gram", "order": 3},
+            {"metal_type": "silver", "slab_name": "Above 20 KG", "min_qty": "20 KG", "max_qty": "Unlimited", "rate": 95.00, "unit": "per gram", "order": 4},
+            {"metal_type": "gold", "slab_name": "Below 100 grams", "min_qty": "0", "max_qty": "100g", "rate": 7450, "unit": "per gram", "order": 1},
+            {"metal_type": "gold", "slab_name": "100g - 500g", "min_qty": "100g", "max_qty": "500g", "rate": 7420, "unit": "per gram", "order": 2},
+            {"metal_type": "gold", "slab_name": "Above 500g", "min_qty": "500g", "max_qty": "Unlimited", "rate": 7400, "unit": "per gram", "order": 3},
+            {"metal_type": "diamond", "slab_name": "Below 1 Carat", "min_qty": "0", "max_qty": "1 ct", "rate": 45000, "unit": "per carat", "order": 1},
+            {"metal_type": "diamond", "slab_name": "1-3 Carat", "min_qty": "1 ct", "max_qty": "3 ct", "rate": 42000, "unit": "per carat", "order": 2},
+            {"metal_type": "diamond", "slab_name": "Above 3 Carat", "min_qty": "3 ct", "max_qty": "Unlimited", "rate": 40000, "unit": "per carat", "order": 3},
+        ]
+        for sl in slabs:
+            sl["id"] = str(uuid.uuid4())
+            sl["created_at"] = datetime.now(timezone.utc).isoformat()
+            sl["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.rate_slabs.insert_many(slabs)
+
+    # Live rate config
+    config_exists = await db.live_rate_config.count_documents({})
+    if config_exists == 0:
+        await db.live_rate_config.insert_one({"silver_premium": 0.70, "gold_premium": 70.00, "auto_fetch_enabled": True, "fetch_interval_seconds": 60})
+
+    # Create indexes for new collections
+    await db.about_content.create_index([("section", 1)], unique=True)
+    await db.rate_slabs.create_index([("metal_type", 1), ("order", 1)])
+    await db.schemes.create_index([("order", 1)])
+    await db.brands.create_index([("order", 1)])
+    await db.showroom_floors.create_index([("order", 1)])
+    await db.exhibitions.create_index([("is_upcoming", -1), ("created_at", -1)])
+    await db.live_rates.create_index([("type", 1)])
+
 # ===================== APP SETUP =====================
 
 app.include_router(api_router)
@@ -1391,6 +1821,13 @@ async def startup():
         logger.info("Object storage ready")
     except Exception as e:
         logger.warning(f"Storage init deferred: {e}")
+    try:
+        await seed_new_features()
+        logger.info("New features seeded")
+    except Exception as e:
+        logger.warning(f"New features seed: {e}")
+    # Start live rate background task
+    asyncio.create_task(live_rate_background_task())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

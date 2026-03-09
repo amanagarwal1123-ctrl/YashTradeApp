@@ -1,100 +1,118 @@
 <analysis>
 <original_problem_statement>
-The user, Aman Agarwal, wants to build a production-grade, private mobile app for his jewelry business, Yash Trade. The app is intended for his existing network of ~40,000 wholesale and retail jewelers. The primary goal is to create a daily-use business utility that increases customer retention and repeat business.
+The user, Aman Agarwal, wants to build a production-grade, private mobile app for his jewelry business, Yash Trade, for his network of ~40,000 wholesale and retail jewelers. The primary goal is to create a daily-use business utility that increases customer retention and repeat business.
 
 **PRODUCT REQUIREMENTS:**
 
 *   **Core App Experience:**
-    *   An endless, Instagram-style feed of jewelry photos and videos (silver, gold, diamond).
-    *   A prominent daily rates module for Gold and Silver.
-    *   A robust rewards/loyalty points system.
-    *   Functionality to Request Call and Request Video Call.
-    *   A Silver Jewellery Calculator for quick estimates.
-    *   An AI-powered assistant for selling tips and product knowledge.
-    *   A customer portal to view account details, order status, and rewards.
+    *   An Instagram-style feed of jewelry photos/videos.
+    *   A daily rates module for Gold and Silver.
+    *   A robust rewards/loyalty system.
+    *   Request Call and Request Video Call functionality.
+    *   A Silver Jewellery Calculator.
+    *   An AI-powered assistant.
+    *   A customer portal for account details, order status, and rewards.
     *   Stories/highlights for daily updates.
 
-*   **User Roles & Access:**
-    *   **Admin:** Full control over content, users, rates, rewards, and analytics via an admin panel.
-    *   **Executive:** A separate, limited-access panel for support/video call executives to manage customer requests.
-    *   **Jeweller (User):** Private access via OTP-verified phone numbers.
+*   **Architecture & User Roles:**
+    *   A customer-facing mobile app (Expo React Native) for jewelers.
+    *   A separate, web-based internal panel for all backend staff.
+    *   **Admin:** Full control via the web panel.
+    *   **Executive:** A limited-access panel for managing customer requests (calls, inquiries, cart submissions).
+    *   **Billing Executive:** A highly restricted panel for manually managing customer reward points.
+    *   **Jeweller (User):** Private access to the mobile app via OTP-verified phone numbers.
 
-*   **Key Technical & UX Decisions:**
-    *   **Authentication:** JWT-based with a mocked phone OTP.
-    *   **AI:** Claude Sonnet 4.5, using the Emergent LLM Key.
-    *   **Design:** A premium, dark theme with gold accents, emphasizing a professional, luxury feel.
-    *   **Internationalization:** Support for English, Hindi, and Punjabi.
-    *   **Content Strategy:** The app must support a massive library of 10,000+ images, many without detailed descriptions, functioning as a private media viewer.
+*   **Key Features & User Requests:**
+    *   **Production-Grade Uploads:** Support for direct, bulk file uploads (10,000+ images) with batch management, progress bars, and scalable object storage.
+    *   **Business Cart Workflow:** An Add to Cart feature that is a selection/shortlist tool. The submitted cart goes to the executive team for manual billing, not an e-commerce checkout.
+    *   **Advanced Request Flow:** When making a request (e.g., video call), users can select multiple products from the catalog, add notes, and see the specific product information in the executive panel.
+    *   **Manual Rewards System:** A dedicated Billing Executive role to manually add/deduct reward points for customers with a full audit trail.
+    *   **Improved UI/UX:** Clickable stories, high-definition images in the feed, proper nested back-navigation, and clear success confirmations after user actions.
 </original_problem_statement>
+
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack application has been built using FastAPI (Python) for the backend and Expo (React Native) for the frontend. The app, named YASH TRADE APP, features a premium dark theme with gold accents.
+The project has been split into two distinct frontends:
+1.  **A customer-facing mobile app** built with Expo (React Native), intended for deployment on app stores. This app has been cleaned of all admin/executive logic.
+2.  **A separate, web-based internal panel** built with React, which serves all internal roles (Admin, Executive, Billing Executive) via a single, role-aware interface.
 
-Key implemented features include:
-- **Authentication:** JWT-based system with three roles: , , and . Login is via a mocked phone OTP.
-- **Admin Panel:** Integrated within the mobile app, providing management for products, bulk photo uploads, and a sophisticated 6-point rate system.
-- **Executive Panel:** A dedicated dashboard for the  role to view and manage incoming customer requests.
-- **Home Screen:** Displays the advanced 6-point rate system (Dollar, MCX, Physical for both Gold and Silver) and an endless product feed.
-- **Endless Feed:** A true infinite-scroll feed that lazy-loads products from a large, seeded database, supporting items with minimal metadata.
-- **Utilities:** A functional Silver Jewellery Calculator.
-- **AI & Language:** A basic AI assistant that responds in the user's chosen language (English, Hindi, or Punjabi), with a language switcher in the profile settings.
+**Implemented Features:**
+*   **Mobile App (Customer):**
+    *   JWT authentication (mock OTP).
+    *   Endless feed, full-screen image viewer, clickable highlights.
+    *   Advanced 6-point rate system (Gold/Silver).
+    *   Silver Calculator with a searchable item-selector dropdown.
+    *   A sophisticated request flow allowing multi-product selection from the catalog, category-based interests, and a notes field.
+    *   A full-page success screen is shown after a request is submitted.
+    *   A business-oriented Add to Cart feature that submits a product selection to the internal team.
+    *   Multi-language support (English, Hindi, Punjabi).
+*   **Web Panel (Internal Staff):**
+    *   Role-based UI that changes based on who logs in (Admin, Executive, or Billing Executive).
+    *   **Admin View:** Full access to dashboards, user management, and a comprehensive Product Management section with clear actions for adding single products, bulk uploading, and managing batches. Features proper internal navigation.
+    *   **Executive View:** A queue for managing incoming customer requests (calls, inquiries, cart submissions). Crucially, the panel now displays the specific product image(s) and details associated with each request.
+    *   **Billing Executive View:** A dedicated and restricted Reward Wallet UI. This user can only search for customers and manually add or deduct reward points with reasons, creating an audit trail. They have no access to customer support queues.
+*   **Backend (FastAPI):**
+    *   A monolithic  that supports all features.
+    *   Integration with Emergent's object storage for production-grade file uploads.
+    *   Robust role-based access control (RBAC) at the API level.
+    *   Endpoints for cart management, batch uploads, and a rewards system with an audit trail.
 
 **Last working item**:
-- Last item agent was working: The agent implemented two major features requested by the user:
-    1.  **Bulk Photo Upload:** Created a backend endpoint and an admin panel UI to allow uploading thousands of photos with minimal metadata. This enables the app to function as a large-scale media viewer.
-    2.  **Advanced Rate System:** Reworked the backend model and frontend UI to support and display three separate rates each for Gold and Silver (Dollar, MCX, and a backend-controllable Physical rate).
+- Last item agent was working: The agent fixed a critical flaw in role permissions. Previously, the newly created Billing Executive role could incorrectly see the general support request queue. The agent implemented a complete separation of concerns:
+    1.  **Backend:** Restricted the  endpoint to admins/executives only. Updated rewards endpoints to be accessible by the Billing Executive and to log an audit trail.
+    2.  **Frontend (Web Panel):** Reworked the  to render a completely different UI based on the user's role. A Billing Executive now sees only a dedicated Reward Wallet management interface, while a standard Executive sees the support request queue.
 - Status: USER VERIFICATION PENDING
 - Agent Testing Done: Y
 - Which testing method agent to use? both
 - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-There are no outstanding bugs or issues. The last set of features are pending user review.
+- Issue 1: **User Verification for Billing Executive Role Separation (P0)**
+     - Attempted fixes: The agent has implemented a comprehensive fix on both the backend and frontend to ensure the 'Billing Executive' role is strictly limited to reward management.
+     - Next debug checklist: The user needs to log in with the three different internal roles (Admin: , Executive: , Billing Executive: ) to confirm the UI and permissions are correct for each.
+     - Why fix this issue and what will be achieved with the fix? This is a critical business logic and security requirement to ensure internal staff only have access to the tools necessary for their specific job function.
+     - Status:  USER VERIFICATION PENDING
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both.
+     - Blocked on other issue: None.
 
 **In progress Task List**:
-- Task 1: **User Verification of Bulk Upload & Advanced Rates (P0)**
-  - Where to resume: The user needs to test the newly implemented features.
-      - **Admin:** Log in as admin (/), navigate to the Admin tab. In the Rates section, update the 6 rate values. In the Products section, use the Bulk Upload tab to upload a batch of images.
-      - **User:** Log in as a regular user (/). Verify the home screen displays the new 6-rate format correctly. Check the feed to see if the bulk-uploaded products appear and if the infinite scroll works smoothly.
-  - What will be achieved with this? This will confirm that the core business logic for content management and daily rate updates meets the user's requirements.
-  - Status: USER VERIFICATION PENDING
-  - Should Test frontend/backend/both after fix? Both
-  - Blocked on something: User feedback.
+None. The last task is complete pending user verification.
 
 **Upcoming and Future Tasks**
-*   **Upcoming Tasks:**
-    *   **P1: Enhance Rewards/Loyalty System:** The current system is a basic placeholder. It needs to be built out with a reward catalog, redemption flow, configurable rules for different user types (retail/wholesale), and admin management for campaigns and approvals.
-    *   **P1: Enhance Executive Request Management:** The executive panel exists, but the workflow is basic. Implement status changes (e.g., Contacted, Resolved), the ability to add notes, and assign/reassign requests.
-    *   **P1: Implement Silver Knowledge Section:** The  screen is a placeholder. This feature, which the user has emphasized, needs to be built. This includes creating an admin interface to add/manage educational content (articles, videos, cards) and displaying it in the app.
-    *   **P2: Implement Stories/Highlights Feature:** While a backend model may exist, the frontend UI (a horizontal scrolling row on the home screen) and the admin interface to manage stories need to be created.
-    *   **P2: Implement Quick Reorder / Ask Similar CTAs:** Add buttons on product views to allow users to request similar items or reorder past purchases.
-    *   **P2: Implement Real OTP Integration:** Replace the mocked OTP system with a real SMS provider integration (e.g., Twilio).
+*   **Upcoming Tasks (Batch B from user request):**
+    *   **P0: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. This involves reviewing thumbnail generation and image rendering strategies ( from Msg 244).
+    *   **P1: Implement Global Success Confirmations:** Add clear success confirmations (e.g., toasts) after major actions like save, upload, and update across the app to improve user feedback ( from Msg 244).
+    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button in the customer mobile app behaves predictably (e.g., Product Detail -> Feed) and does not incorrectly log the user out ( from Msg 244).
 *   **Future Tasks:**
-    *   Parcel/Order Status Tracking.
-    *   Advanced Analytics Dashboards for Admins.
-    *   Personalized AI-driven Feed Recommendations.
-    *   Rate History and Trend Graphs.
+    *   **Rate System History:** Add rate history, intraday update logs, and mini-charts.
+    *   **Push Notifications:** Implement architecture for notifications on rate updates, new arrivals, etc.
+    *   **Analytics:** Build out the analytics dashboard for admins.
+    *   **Real OTP Integration:** Replace the mocked OTP system with a real SMS provider.
+    *   **Expand Calculator:** Add a Gold calculator.
 
 **Completed work in this session**
-- **Full-Stack Application Foundation:**
-  - Backend in FastAPI with MongoDB.
-  - Frontend in Expo (React Native) with Expo Router.
-- **User Authentication and Roles:**
-  - Implemented JWT authentication with , , and  roles.
-  - Created in-app dashboards for Admin () and Executive () roles.
-- **Core UI/UX:**
-  - Developed a premium dark theme with gold accents.
-  - Implemented multi-language support (English, Hindi, Punjabi) with an in-app switcher (, ).
-- **Key Features:**
-  - **Endless Feed:** Built a true, performant infinite scroll feed ().
-  - **Advanced Rates:** Implemented a 6-point rate system for Gold & Silver with admin control (, ).
-  - **Bulk Content Upload:** Created functionality for admins to bulk-upload images with minimal metadata, supporting a viewer use case (, ).
-  - **Silver Calculator:** A functional calculator utility is available ().
-  - **AI Assistant:** A basic AI chat screen that respects the user's selected language ().
+- **Architectural Overhaul:**
+  - Decoupled the internal admin/executive tools from the customer-facing mobile app into a separate web panel ().
+- **Production-Grade Media Upload:**
+  - Integrated object storage for direct, multi-file uploads.
+  - Built a comprehensive Product Management UI in the admin panel with clear actions for adding products, bulk uploading, and managing batches.
+- **Advanced Business Workflows:**
+  - Implemented an Add to Cart feature for submitting product selections to the executive team.
+  - Created a new Billing Executive role with a dedicated, secure UI for manual reward point management, including an audit trail.
+  - Enhanced the Executive panel to show specific product images and details linked to customer requests.
+- **Major UI/UX Improvements:**
+  - Fixed critical navigation bugs (admin panel nested back-navigation,  crash).
+  - Implemented a searchable dropdown selector in the Silver Calculator.
+  - Created a multi-product selection UI for the customer request flow.
+  - Added a full-page success screen after request submission.
+  - Added new product metadata fields (, , ) to the backend and UI.
+- **Bug Fixes:**
+  - Resolved over a dozen bugs, including security vulnerabilities (points exploit, unauthenticated endpoints), UI inconsistencies, and data encoding issues.
 
 **Earlier issues found/mentioned but not fixed**
-None. The agent has resolved all identified issues during the session.
+None. The agent has been thorough in addressing user-provided issue lists.
 
 **Known issue recurrence from previous fork**
 N/A
@@ -103,87 +121,96 @@ N/A
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI, MongoDB (via Pymongo).
--   **Frontend:** React Native (Expo SDK), Expo Router for file-based routing.
--   **Authentication:** JWT with role-based access control (RBAC) managed in .
--   **State Management:** React Context API for authentication and language state.
--   **Internationalization (i18n):**  and  for UI localization.
--   **UI:** Custom StyleSheet-based components following a premium design spec. No component libraries.
--   **Infinite Scroll:** Implemented using  with  for efficient data pagination.
+-   **Backend:** FastAPI, MongoDB (Pymongo), Pydantic.
+-   **Frontend (Mobile):** Expo (React Native), Expo Router, React Context API.
+-   **Frontend (Web Panel):** React, CSS.
+-   **Authentication:** JWT with granular, role-based access control (RBAC) for , , , and .
+-   **Storage:** Emergent-managed object storage for media files.
+-   **Internationalization:**  for English, Hindi, Punjabi.
 
 **key DB schema**
 -   **users:** 
 -   **products:** 
--   **rates:** 
 -   **requests:** 
+-   **rewards_history:** 
+-   **cart / cart_items:** (Implicitly managed via API logic, potentially stored in a  collection)
+-   **batches:** 
 
 **changes in tech stack**
-N/A
+- The frontend has been split from a single Expo app into two separate applications: one Expo app for customers and one standard React app for the internal web panel.
 
 **All files of reference**
--   : Contains the entire backend logic, including all API endpoints, database models, and authentication logic.
--   : The complex, multi-tabbed admin panel for managing rates, products, and bulk uploads.
--   : The main home screen, featuring the custom-built 6-point rate card display.
--   : The implementation of the true infinite scroll .
--   : The screen for the newly added executive role.
--   : Contains the language switcher and navigation logic to the admin/executive panels.
--   : The configuration file for multi-language support.
+-   : The single source of truth for all API logic, database models, and permissions. Has grown significantly.
+-   : The new, complex, role-aware component that serves as the entire internal web application for Admins, Executives, and Billing Executives.
+-   : The rewritten customer request screen with multi-product selection.
+-   : The new full-page confirmation screen.
+-   : The screen for the customer's selection cart.
+-   : Updated with the searchable item dropdown.
 
 **Areas that need refactoring**:
-The  file is becoming a monolith. As more features like advanced rewards and order tracking are added, it should be broken down into smaller, more manageable modules (e.g., using FastAPI's ).
+-   **:** This is a critical monolith that should be broken down into multiple routers (e.g., , , ) for better maintainability.
+-   **:** This file now contains the UI for three different roles. It should be refactored into smaller, role-specific components and views to reduce its complexity.
 
 **key api endpoints**
--   : User/Admin/Executive login.
--   : GET (with pagination for infinite scroll).
--   : POST for bulk image uploads.
--   : GET and POST to manage the 6-point rate system.
--   : GET (for executives/admins).
--   : POST for the AI assistant, includes language parameter.
+-   : POST (Create new request with products), GET (List for executives).
+-   : GET, POST, DELETE (Manage user's selection cart).
+-   : POST (Submits the cart as a request to executives).
+-   , : POST (Used by Billing Executive to manage points).
+-   : GET (View a customer's reward history).
+-   : GET, POST, PATCH, DELETE (Full CRUD for upload batches).
+-   : POST (Handles direct file uploads to object storage).
 
 **Critical Info for New Agent**
--   **Three User Roles:** The app's logic is heavily dependent on the user's role (, , ). Admin and Executive panels are not separate web apps but are screens within the mobile app, accessible based on role.
--   **Content Strategy:** The feed is designed to handle products with minimal data (e.g., just an image), catering to the user's bulk upload requirement.  and  are optional.
--   **Rate System:** The rate management is now based on 6 distinct values (Dollar, MCX, Physical for both Gold and Silver), all controlled from the admin panel.
--   **Multi-language:** The app is configured for English, Hindi, and Punjabi. Any new user-facing text should be added to the translation files located in .
+-   **Two Frontends:** Remember there is a customer mobile app () and a separate internal web panel (). Do not mix them up.
+-   **Four Roles:** The logic is heavily dependent on four distinct roles:
+    1.   (Customer): Uses the mobile app.
+    2.   (Owner): Full access in the web panel.
+    3.   (Support): Manages customer requests in the web panel.
+    4.   (Accounts): Manages ONLY reward points in the web panel.
+-   **Billing Executive is RESTRICTED:** The most recent and critical change was isolating the Billing Executive. They CANNOT see support tickets. Their UI is a dedicated rewards wallet manager.
+-   **Cart is a Shortlist:** The cart is not for e-commerce. It's a tool for customers to select items and submit them to the executive team for a manual follow-up and billing.
 
 **documents created in this job**
-N/A
+-    (Updated)
+-   
+-   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User (Msg 110):** Requested major features: 1) Bulk photo upload (10,000+ images) with minimal metadata. 2) Advanced rates module showing 3 rates each for Gold/Silver (Dollar, MCX, Physical). 3) Backend control for the Physical rate with a premium/adjustment. (IN PROGRESS)
-2.  **Agent (Msg 109):** Finalized previous implementation and provided a summary. (DONE)
-3.  **Agent (Msg 106):** Verified the executive login, language selector, and executive panel UI via screenshots. (DONE)
-4.  **User (Msg 69):** Requested critical changes: 1) A separate login/panel for Video Call Executives. 2) A fix for the feed to make it truly endless. 3) The addition of Hindi and Punjabi language options. (DONE)
-5.  **Agent (Msg 68):** Answered user's questions about admin access, clarifying it's an in-app panel for the admin role. (DONE)
-6.  **User (Msg 60):** Requested app name change to Yash Trade and asked for clarification on how to access the admin dashboard (URL, login, etc.). (DONE)
-7.  **Agent (Msg 54-58):** Fixed minor issues from the testing agent report (async-storage version, JWT key length). (DONE)
-8.  **Agent (Msg 42-53):** Ran the testing agent, analyzed the report, and took screenshots of working features like the home screen and calculator. (DONE)
-9.  **User (Msg 5):** Provided initial detailed feedback on MVP scope, AI choice (Claude Sonnet 4.5), auth (mock OTP), design (dark/gold), and feature priorities. (DONE)
-10. **Agent (Msg 4):** Initial  to clarify requirements for AI, Auth, MVP scope, and design. (DONE)
+1.  **User (Msg 318):** Finished verifying the Billing Executive role separation with screenshots, confirming it works as intended. (DONE)
+2.  **Agent (Msg 317):** Took screenshots to prove the Billing Executive UI is correct and separate. (DONE)
+3.  **Agent (Msg 315):** Ran  tests to prove the Billing Executive is correctly blocked from the support API. (DONE)
+4.  **User (Msg 291):** Agreed with the agent's plan to fix the role separation issue. (DONE)
+5.  **Agent (Msg 290):** Proposed a clear plan to fix the role permissions on both backend and frontend. (PENDING USER APPROVAL)
+6.  **User (Msg 288):** **Critical Correction:** Pointed out that the Billing Executive should NOT see the support queue; their role is for rewards ONLY. (IN PROGRESS)
+7.  **Agent (Msg 286):** Concluded that all Batch A features were implemented and verified. (Mistakenly mixed roles). (DONE)
+8.  **Agent (Msg 284-285):** Took a screenshot showing the Executive Panel now correctly displays the product image linked to a customer request. (DONE)
+9.  **User (Msg 247):** Approved the agent's Batch A plan and provided key clarifications on the Billing Executive demo login and UI requirements for success screens/multi-select. (DONE)
+10. **Agent (Msg 246):** Proposed a batched plan (A & B) to tackle the user's large feature request and asked clarifying questions. (PENDING USER APPROVAL)
 
 **Project Health Check:**
-- **Working:** All core implemented features are functional based on the agent's testing.
-- **Broken:** Nothing is explicitly broken.
-- **Mocked:** Phone OTP authentication is mocked and needs to be replaced with a real SMS service.
+-   **Working:** Core architecture (app/panel separation), all major features including file upload, batch management, cart workflow, and role-based access are implemented and functional based on agent testing.
+-   **Broken:** Nothing is reported as broken, but the user has outstanding UX improvement requests (image quality, back navigation).
+-   **Mocked:** Phone OTP authentication is still mocked.
 
 **3rd Party Integrations**
 -   **Claude Sonnet 4.5** — uses Emergent LLM Key (via  library).
+-   **Emergent Object Storage** — used for all media file uploads.
 
 **Testing status**
--   Testing agent used after significant changes: NO (The testing agent was used once early on, but not after the last two major feature updates).
+-   Testing agent used after significant changes: NO (not in the most recent steps, but the agent performed extensive manual  tests and screenshot verification).
 -   Troubleshoot agent used after agent stuck in loop: NO
 -   Test files created: []
 -   Known regressions: []
 
 **Credentials to test flow:**
--   **Admin:** Phone: , OTP: 
--   **Executive:** Phone: , OTP: 
--   **User:** Phone: , OTP: 
+-   **Admin (Web Panel):** Phone: , OTP: 
+-   **Executive (Web Panel):** Phone: , OTP: 
+-   **Billing Executive (Web Panel):** Phone: , OTP: 
+-   **Customer (Mobile App):** Phone: , OTP: 
 
 **What agent forgot to execute**
-The agent has been thorough and has not forgotten any direct requests from the user. However, as per the system prompt, a call to the  is recommended after major feature implementations. This was not done after the last two significant updates (Executive Panel/Infinite Scroll/Languages and Bulk Upload/Advanced Rates). The next agent should consider running the testing agent to catch any potential regressions before proceeding with new features.
+The agent was asked to implement a batch of features. The following items were deferred and are now the highest priority upcoming tasks:
+-   Improving the image quality/clarity in the main feed (Point 4, Msg 244).
+-   Adding global success confirmations (toasts) for user actions (Point 5, Msg 244).
+-   Fixing the general back-navigation in the customer mobile app to prevent it from logging the user out (Point 6, Msg 244).
 </analysis>
-<SYS_PROMPT_SEPARATOR>
-<workspace_dir>
-/app
-</workspace_dir>
