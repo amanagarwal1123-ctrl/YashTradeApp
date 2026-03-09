@@ -394,7 +394,7 @@ async def update_profile(updates: Dict[str, Any], user=Depends(get_current_user)
 
 @api_router.get("/products")
 async def list_products(
-    page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=50),
+    page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=100000),
     category: str = Query(""), metal_type: str = Query(""),
     search: str = Query(""), post_type: str = Query(""),
     include_hidden: bool = Query(False)
@@ -558,7 +558,7 @@ async def get_batch(batch_id: str, user=Depends(get_admin_user)):
 async def get_batch_images(
     batch_id: str,
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=100000),
     user=Depends(get_admin_user)
 ):
     query = {"batch_id": batch_id, "is_deleted": {"$ne": True}}
