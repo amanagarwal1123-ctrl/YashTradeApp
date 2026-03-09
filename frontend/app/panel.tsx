@@ -844,7 +844,7 @@ export default function PanelScreen() {
 
                     {/* Step 3: Import button */}
                     {pdfFile && uploadBatchId && !pdfImporting && (
-                      <TouchableOpacity testID="pdf-import-btn" style={[s.saveBtn, { marginTop: Spacing.lg, backgroundColor: '#E91E63' }]} onPress={startPdfImport}>
+                      <TouchableOpacity testID="pdf-import-btn" style={[s.saveBtn, { marginTop: Spacing.lg, backgroundColor: '#E91E63' }]} onPress={() => startPdfImport()}>
                         <Text style={[s.saveBtnText, { letterSpacing: 2 }]}>IMPORT PDF CATALOGUE</Text>
                       </TouchableOpacity>
                     )}
@@ -961,7 +961,7 @@ export default function PanelScreen() {
                           </View>
                         )}
                         {pdfFile && !pdfImporting && (
-                          <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md, backgroundColor: '#E91E63' }]} onPress={startPdfImport}>
+                          <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md, backgroundColor: '#E91E63' }]} onPress={() => startPdfImport()}>
                             <Text style={s.saveBtnText}>IMPORT PDF CATALOGUE</Text>
                           </TouchableOpacity>
                         )}

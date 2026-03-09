@@ -746,15 +746,25 @@ async def pdf_upload_chunk(
     user=Depends(get_admin_user)
 ):
     """Upload a single chunk of the PDF file"""
-    job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+    # Retry DB lookup to handle brief disconnects during hot-reload
+    job = None
+    for attempt in range(3):
+        job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+        if job:
+            break
+        if attempt < 2:
+            logger.warning(f"PDF chunk: upload_id={upload_id} not found in DB (attempt {attempt+1}/3), retrying...")
+            await asyncio.sleep(0.5)
     if not job:
-        raise HTTPException(status_code=404, detail="Upload session not found. It may have expired.")
+        logger.error(f"PDF chunk: upload_id={upload_id} not found after 3 attempts")
+        raise HTTPException(status_code=404, detail=f"Upload session not found (id: {upload_id[:12]}...). Please start a new import.")
     if job["upload_status"] not in ("uploading",):
         raise HTTPException(status_code=400, detail=f"Upload session is in '{job['upload_status']}' state. Cannot accept more chunks.")
     if chunk_index < 0 or chunk_index >= job["total_chunks"]:
         raise HTTPException(status_code=400, detail=f"Invalid chunk index {chunk_index}. Expected 0-{job['total_chunks']-1}.")
 
     upload_dir = PDF_UPLOAD_DIR / upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)  # Recreate if missing after restart
     chunk_path = upload_dir / f"chunk_{chunk_index:06d}"
 
     try:
@@ -2233,6 +2243,7 @@ async def seed_new_features():
     await db.showroom_floors.create_index([("order", 1)])
     await db.exhibitions.create_index([("is_upcoming", -1), ("created_at", -1)])
     await db.live_rates.create_index([("type", 1)])
+    await db.pdf_jobs.create_index([("upload_id", 1)], unique=True)
 
 # ===================== APP SETUP =====================
 
