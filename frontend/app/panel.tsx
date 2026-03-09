@@ -68,6 +68,11 @@ export default function PanelScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
+  // PDF Import
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfImporting, setPdfImporting] = useState(false);
+  const [pdfResult, setPdfResult] = useState<any>(null);
+
   // Request detail
   const [editingReqId, setEditingReqId] = useState('');
   const [noteText, setNoteText] = useState('');
@@ -231,6 +236,31 @@ export default function PanelScreen() {
       input.onchange = (e: any) => { const f = Array.from(e.target.files || []) as File[]; if (f.length) setSelectedFiles(prev => [...prev, ...f]); };
       input.click();
     }
+  };
+
+  const pickPdfFile = () => {
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file'; input.accept = '.pdf,application/pdf'; input.multiple = false;
+      input.onchange = (e: any) => {
+        const f = e.target.files?.[0] as File | undefined;
+        if (f) { setPdfFile(f); setPdfResult(null); }
+      };
+      input.click();
+    }
+  };
+
+  const startPdfImport = async () => {
+    if (!uploadBatchId || !pdfFile) return;
+    setPdfImporting(true); setPdfResult(null);
+    try {
+      const result = await api.importPdf(`/batches/${uploadBatchId}/import-pdf`, pdfFile);
+      setPdfResult(result);
+      setPdfFile(null);
+      Alert.alert('PDF Imported', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
+      loadTab('products');
+    } catch (e: any) { Alert.alert('Error', e.message); setPdfResult({ error: e.message }); }
+    finally { setPdfImporting(false); }
   };
 
   const startUpload = async () => {
@@ -671,6 +701,61 @@ export default function PanelScreen() {
                       {selectedFiles.length > 0 && !uploading && (
                         <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} onPress={startUpload}><Text style={s.saveBtnText}>UPLOAD {selectedFiles.length} IMAGES</Text></TouchableOpacity>
                       )}
+
+                      {/* PDF Import Section */}
+                      <View style={{ marginTop: Spacing.lg, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: Spacing.lg }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.sm }}>
+                          <Ionicons name="document-text" size={20} color="#E91E63" />
+                          <Text style={{ fontSize: FontSize.md, fontWeight: '700', color: Colors.text }}>Import PDF Catalogue</Text>
+                        </View>
+                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.xs, marginBottom: Spacing.md }}>Upload a PDF file — each page will be extracted as a separate product image</Text>
+                        <TouchableOpacity style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
+                          <Ionicons name="document-text" size={32} color="#E91E63" />
+                          <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '600' }}>Tap to select PDF file</Text>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF only — Max 100MB — Pages become product images</Text>
+                        </TouchableOpacity>
+                        {pdfFile && (
+                          <View style={{ marginTop: Spacing.md, backgroundColor: Colors.surface, borderRadius: 10, padding: Spacing.md }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Ionicons name="document-text" size={24} color="#E91E63" />
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: Colors.text, fontWeight: '600', fontSize: FontSize.sm }}>{pdfFile.name}</Text>
+                                <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB</Text>
+                              </View>
+                              <TouchableOpacity onPress={() => setPdfFile(null)}><Ionicons name="close-circle" size={20} color={Colors.error} /></TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+                        {pdfImporting && (
+                          <View style={{ marginTop: Spacing.md, alignItems: 'center' }}>
+                            <ActivityIndicator color="#E91E63" size="large" />
+                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, marginTop: Spacing.sm }}>Extracting pages from PDF...</Text>
+                            <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Each page is being converted to a product image</Text>
+                          </View>
+                        )}
+                        {pdfResult && !pdfResult.error && (
+                          <View style={{ marginTop: Spacing.md, backgroundColor: Colors.success + '10', borderRadius: 10, padding: Spacing.md }}>
+                            <Text style={{ color: Colors.success, fontWeight: '700', fontSize: FontSize.md }}>PDF Import Complete</Text>
+                            <Text style={{ color: Colors.text, fontSize: FontSize.sm, marginTop: 4 }}>Total pages: {pdfResult.total_pages}</Text>
+                            <Text style={{ color: Colors.success, fontSize: FontSize.sm }}>Imported: {pdfResult.imported} pages</Text>
+                            {pdfResult.failed > 0 && <Text style={{ color: Colors.error, fontSize: FontSize.sm }}>Failed: {pdfResult.failed} pages</Text>}
+                            {pdfResult.skipped > 0 && <Text style={{ color: Colors.warning, fontSize: FontSize.sm }}>Skipped: {pdfResult.skipped} pages (empty/too small)</Text>}
+                            {pdfResult.results?.filter((r: any) => r.status !== 'ok').map((r: any, i: number) => (
+                              <Text key={i} style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 }}>Page {r.page}: {r.status} — {r.detail || ''}</Text>
+                            ))}
+                          </View>
+                        )}
+                        {pdfResult?.error && (
+                          <View style={{ marginTop: Spacing.md, backgroundColor: Colors.error + '10', borderRadius: 10, padding: Spacing.md }}>
+                            <Text style={{ color: Colors.error, fontWeight: '600' }}>Import Failed: {pdfResult.error}</Text>
+                          </View>
+                        )}
+                        {pdfFile && !pdfImporting && (
+                          <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md, backgroundColor: '#E91E63' }]} onPress={startPdfImport}>
+                            <Text style={s.saveBtnText}>IMPORT PDF CATALOGUE</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   )}
 

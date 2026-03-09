@@ -540,6 +540,21 @@ backend:
         - agent: "testing"
         - comment: "✅ PASSED: Live rate config API working correctly. GET /api/live-rates/config with admin auth returns premium config (silver_premium, gold_premium, auto_fetch_enabled). POST /api/live-rates/config successfully updates configuration values. Admin-only access properly enforced."
 
+  - task: "PDF Import Feature"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+        - agent: "testing"
+        - comment: "REVIEW REQUEST: Test complete PDF import flow - create batch, validate non-PDF rejection, import 3-page PDF, verify products created with source_type pdf_import, test normal image upload still works, cleanup"
+        - working: true
+        - agent: "testing"
+        - comment: "✅ PASSED: PDF import feature working perfectly! All 8 test steps passed (100% success rate). Created batch successfully, PDF validation correctly rejects non-PDF files, imported 3-page test PDF with all pages processed (total_pages=3, imported=3, failed=0), 3 products created with source_type='pdf_import' and proper page numbers, normal image upload still functional, cleanup successful. Complete PDF import workflow is production-ready."
+
 frontend:
   - task: "Login Flow Testing"
     implemented: true
@@ -673,3 +688,5 @@ agent_communication:
     - message: "🎯 REVIEW REQUEST VERIFICATION COMPLETED (100% Success Rate)! Comprehensive testing of all 15 requested API endpoints completed successfully. All critical features verified: ✅ About API (6 sections EN/HI), ✅ Products feed (50 products), ✅ Live rates (real-time silver/gold), ✅ Rate lists (10 slabs + filtering), ✅ Schemes/Brands/Showroom/Exhibitions APIs, ✅ Admin config access, ✅ CRUD operations with proper cleanup. Authentication working perfectly with customer (8888888888) and admin (9999999999) using OTP 1234. All endpoints production-ready at https://jeweler-network-dev.preview.emergentagent.com/api 🚀"
     - agent: "testing"
     - message: "🎯 SPECIFIC REVIEW CHANGES VERIFICATION COMPLETED (100% Success Rate)! Tested all 6 review-specific changes successfully: ✅ Silver Rate List now item-wise (6 items with item_name/category/subcategory/purity/wastage/labour_kg fields, no slab fields), ✅ Office addresses correct (Chandni Chowk Head Office 1159/1114 Kucha Mahajani, Karol Bagh Branch Office 20/2799 Beadon Pura), ✅ Admin can add item-wise rate entries, ✅ Admin can manage brands (poster-style), ✅ Cart submit functionality working, ✅ All existing endpoints still functional with silver_dollar > 0. All requested changes implemented and verified at https://jeweler-network-dev.preview.emergentagent.com/api 🎉"
+    - agent: "testing"
+    - message: "📄 PDF IMPORT FEATURE TESTING COMPLETED (100% Success Rate)! Comprehensive testing of new PDF import functionality at https://jeweler-network-dev.preview.emergentagent.com/api successfully completed. All 8 test scenarios PASSED: ✅ Admin authentication (9999999999, OTP 1234), ✅ Batch creation (POST /api/batches), ✅ PDF validation (non-PDF file correctly rejected with 'Not a valid PDF file'), ✅ Test PDF creation (3-page PDF with fitz library), ✅ PDF import (POST /api/batches/{id}/import-pdf returns total_pages=3, imported=3, failed=0, results=3 all status 'ok'), ✅ Products verification (GET /api/batches/{id}/images shows 3 products with source_type='pdf_import' and page numbers), ✅ Normal image upload compatibility (POST /api/batches/{id}/upload still works), ✅ Cleanup (DELETE /api/batches/{id}). PDF import feature is production-ready! 🎉"

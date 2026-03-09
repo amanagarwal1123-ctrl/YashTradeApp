@@ -18,6 +18,7 @@ from PIL import Image as PILImage
 from bs4 import BeautifulSoup
 import re
 import json as json_module
+import fitz  # PyMuPDF for PDF processing
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -680,6 +681,125 @@ async def upload_to_batch(
             {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
     return {"results": results, "uploaded": uploaded, "failed": len(results) - uploaded, "batch_image_count": current_count}
+
+@api_router.post("/batches/{batch_id}/import-pdf")
+async def import_pdf_to_batch(
+    batch_id: str,
+    file: UploadFile = File(...),
+    user=Depends(get_admin_user)
+):
+    """Import a PDF file: extract each page as an image and create product entries"""
+    batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    data = await file.read()
+    if len(data) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF too large (max 100MB)")
+    if len(data) < 100:
+        raise HTTPException(status_code=400, detail="File too small or empty")
+
+    # Detect if it's actually a PDF
+    if not data[:5] == b'%PDF-':
+        raise HTTPException(status_code=400, detail="Not a valid PDF file. Please use 'Upload Images' for image files.")
+
+    try:
+        pdf_doc = fitz.open(stream=data, filetype="pdf")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot open PDF: {str(e)}")
+
+    total_pages = len(pdf_doc)
+    if total_pages == 0:
+        pdf_doc.close()
+        raise HTTPException(status_code=400, detail="PDF has no pages")
+
+    results = []
+    current_count = batch.get("image_count", 0)
+    now = datetime.now(timezone.utc).isoformat()
+
+    for page_num in range(total_pages):
+        try:
+            page = pdf_doc[page_num]
+            # Render page at high resolution (2x for quality)
+            mat = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img_data = pix.tobytes("jpeg")
+
+            if len(img_data) < 500:
+                results.append({"page": page_num + 1, "status": "skipped", "detail": "Page rendered too small/empty"})
+                continue
+
+            file_id = str(uuid.uuid4())
+
+            # Process into standard sizes
+            original_data = process_image(img_data, max_size=1600, quality=85)
+            thumb_data = create_thumbnail(img_data, size=400, quality=60)
+
+            # Upload to storage
+            original_path = f"{APP_NAME}/originals/{file_id}.jpg"
+            thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
+            put_object(original_path, original_data, "image/jpeg")
+            put_object(thumb_path, thumb_data, "image/jpeg")
+
+            current_count += 1
+            product = {
+                "id": file_id,
+                "title": f"{batch['name']} #{current_count}",
+                "description": "",
+                "metal_type": batch.get("metal_type", "silver"),
+                "category": batch.get("category", ""),
+                "subcategory": "",
+                "images": [],
+                "storage_path": original_path,
+                "thumbnail_path": thumb_path,
+                "original_filename": f"{file.filename}_page_{page_num + 1}",
+                "file_size": len(img_data),
+                "source_type": "pdf_import",
+                "source_page": page_num + 1,
+                "video_url": "",
+                "approx_weight": "",
+                "stock_status": "in_stock",
+                "tags": [batch.get("metal_type", "silver"), "pdf_import", batch["id"][:8]],
+                "is_pinned": False,
+                "is_new_arrival": True,
+                "is_trending": False,
+                "visibility": "all" if batch.get("status") == "visible" else "hidden",
+                "post_type": "product",
+                "batch_id": batch["id"],
+                "batch_name": batch["name"],
+                "views": 0,
+                "is_deleted": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.products.insert_one(product)
+            results.append({"page": page_num + 1, "status": "ok", "id": file_id})
+        except Exception as e:
+            logger.error(f"PDF page {page_num + 1} error: {e}")
+            results.append({"page": page_num + 1, "status": "error", "detail": str(e)})
+
+    pdf_doc.close()
+
+    imported = sum(1 for r in results if r["status"] == "ok")
+    failed = sum(1 for r in results if r["status"] == "error")
+    skipped = sum(1 for r in results if r["status"] == "skipped")
+
+    if imported > 0:
+        await db.batches.update_one(
+            {"id": batch_id},
+            {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+
+    return {
+        "message": f"PDF imported: {imported} pages converted to products",
+        "total_pages": total_pages,
+        "imported": imported,
+        "failed": failed,
+        "skipped": skipped,
+        "results": results,
+        "batch_image_count": current_count,
+        "filename": file.filename
+    }
 
 @api_router.post("/batches/{batch_id}/images/delete")
 async def delete_batch_images(batch_id: str, req: BatchImageDelete, user=Depends(get_admin_user)):

@@ -50,6 +50,18 @@ export const api = {
     }
     return allResults;
   },
+  importPdf: async (path: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers: Record<string, string> = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'PDF import failed' }));
+      throw new Error(err.detail || `Error ${res.status}`);
+    }
+    return res.json();
+  },
 };
 
 export const getImageUrl = (product: any, thumbnail = true): string => {
