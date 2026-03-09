@@ -1,6 +1,44 @@
 # Changelog
 
-## March 9, 2026 - 9 New Features Implementation
+## March 9, 2026 - 9 UI/UX Business Changes (Batch 2)
+
+### Point 1: Silver Rate List → Item-wise Structure
+- Removed old quantity-slab system (Below 5KG, Above 10KG etc.)
+- Each entry now has: Item Name, Category/Subcategory, Purity, Wastage, Labour in KG
+- 6 silver items, 3 gold items, 2 diamond items seeded
+- Admin can add/edit/delete entries via Panel > Content > Rate List
+
+### Point 2: Office Addresses Fixed
+- Head Office = 1159/1114, 2nd-4th Floor, Yash Complex, Kucha Mahajani, Chandni Chowk, Delhi - 110006
+- Branch Office = 20/2799, Beadon Pura, Karol Bagh, New Delhi - 110005
+
+### Point 3: Showroom Title → "Showroom Photos"
+- Updated label everywhere including About page quick links, home quick actions
+
+### Point 4: Showroom Photos with Floor Product Description
+- Each floor shows: photo + floor name + products available text
+- Admin manages both photo and description
+
+### Point 5: Brands Section → Poster-style Image Layout
+- Full-width poster image cards with "Authorized Dealers" banner
+- Admin uploads poster images from Panel > Content > Brands
+
+### Point 6: About Points → Clickable with Detailed Written Matter
+- Each "Why Buy" point is now a clickable expandable card
+- Tap to expand shows detailed description for each point
+- "Tap any point to see details" hint shown
+
+### Point 7: Product View → Swapped Ask Price & Add to Cart
+- "Add to Cart" is now the primary (gold) button
+- "Ask Price" moved to secondary position
+- Alert shows "Product added to the cart" on Add to Cart tap
+
+### Point 8: Cart Submit → Thank You Success Screen
+- After Submit Selection, user is navigated to the full-page success/thank-you screen
+
+### Point 9: Feed Cards → Compact Product Metadata
+- Product cards in feed and home now show: Purity, Touch, Label as small gold tags
+- Weight and category already shown in meta line
 
 ### Point 1: About Yash Ornaments (5th Tab)
 - Added new `about.tsx` tab with brand presentation
