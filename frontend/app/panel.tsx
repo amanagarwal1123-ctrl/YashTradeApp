@@ -164,7 +164,7 @@ export default function PanelScreen() {
         }
         case 'products': {
           const [prodRes, batchRes] = await Promise.all([
-            api.get('/products?limit=50&include_hidden=true'),
+            api.get('/products?limit=100000&include_hidden=true'),
             api.get('/batches'),
           ]);
           setProducts(prodRes.products || []);

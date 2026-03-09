@@ -49,7 +49,7 @@ export default function HomeScreen() {
       const [rateRes, storyRes, prodRes, cartRes, liveRes] = await Promise.all([
         api.get('/rates/latest'),
         api.get('/stories'),
-        api.get('/products?limit=50'),
+        api.get('/products?limit=100000'),
         api.get('/cart/count').catch(() => ({ count: 0 })),
         api.get('/live-rates').catch(() => null),
       ]);
