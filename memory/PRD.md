@@ -60,6 +60,7 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Storage: Emergent Object Storage
 - AI: emergentintegrations (Claude Sonnet 4.5)
 - Live Rates: Yahoo Finance API + ExchangeRate API
+- PDF Processing: PyMuPDF (fitz)
 
 ## Key API Endpoints
 - Auth: /api/auth/send-otp, /api/auth/verify-otp, /api/auth/me
@@ -71,14 +72,21 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Content: /api/about, /api/rate-list, /api/schemes, /api/brands, /api/showroom, /api/exhibitions
 - Upload: /api/batches, /api/batches/{id}/upload
 
-### PDF Catalogue Import (March 9, 2026)
-- Separate PDF import option alongside image upload in admin panel
-- Backend extracts each PDF page as a high-res JPEG using PyMuPDF (fitz)
-- Each page becomes a separate product entry in the batch
-- Shows: total pages, imported count, failed count, per-page status
-- Validates PDF format (rejects non-PDF files)
-- Up to 100MB PDF size supported
-- Products tagged with source_type: "pdf_import" and source_page number
+### PDF Catalogue Import — Chunked Upload System (March 9, 2026)
+- **Max size: 1000MB (1 GB)** — production-grade for large catalogues
+- **Chunked upload architecture**: File split into 5MB chunks, uploaded sequentially with auto-retry (3 attempts per chunk)
+- **Background processing**: PDF assembled on server, pages extracted via PyMuPDF in background asyncio task
+- **Real-time progress**: Frontend polls for status — shows upload %, processing page X/Y, imported/failed counts
+- **Detailed error handling**: Specific errors for file too large, corrupt PDF, network interruption, page extraction failure
+- Separate "Import PDF" workflow alongside image upload in admin panel
+- Each PDF page becomes a separate product entry in the batch
+- Legacy single-shot endpoint preserved for backward compatibility
+- New API endpoints:
+  - `POST /api/pdf-upload/init` — Initialize chunked upload session
+  - `POST /api/pdf-upload/{id}/chunk?chunk_index=N` — Upload individual 5MB chunk
+  - `POST /api/pdf-upload/{id}/complete` — Signal upload done, start processing
+  - `GET /api/pdf-upload/{id}/status` — Poll processing progress
+  - `POST /api/batches/{id}/import-pdf` — Legacy direct upload (still works)
 
 ## Backlog / Future Tasks
 - P0: Improve feed image quality (HD thumbnails)
@@ -89,3 +97,7 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - P2: Analytics dashboard
 - P3: Real OTP integration (replace mock)
 - P3: Gold calculator
+
+## Areas Needing Refactoring
+- `backend/server.py` (~2000+ lines) — Break into modular routers
+- `frontend/app/panel.tsx` (~1400 lines) — Split into components
