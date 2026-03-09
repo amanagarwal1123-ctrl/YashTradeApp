@@ -68,11 +68,13 @@ export default function PanelScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
 
-  // PDF Import
+  // PDF Import (Chunked)
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfImporting, setPdfImporting] = useState(false);
   const [pdfResult, setPdfResult] = useState<any>(null);
   const [pdfPhase, setPdfPhase] = useState('');
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfStage, setPdfStage] = useState<'idle' | 'validating' | 'uploading' | 'processing' | 'done' | 'error'>('idle');
 
   // Request detail
   const [editingReqId, setEditingReqId] = useState('');
@@ -253,16 +255,18 @@ export default function PanelScreen() {
 
   const startPdfImport = async () => {
     if (!uploadBatchId || !pdfFile) return;
-    setPdfImporting(true); setPdfResult(null); setPdfPhase('');
+    setPdfImporting(true); setPdfResult(null); setPdfPhase(''); setPdfProgress(0); setPdfStage('idle');
     try {
-      const result = await api.importPdf(`/batches/${uploadBatchId}/import-pdf`, pdfFile, (phase, detail) => {
+      const result = await api.importPdfChunked(uploadBatchId, pdfFile, (stage, detail, progress) => {
+        setPdfStage(stage);
         setPdfPhase(detail);
+        if (progress !== undefined) setPdfProgress(progress);
       });
       setPdfResult(result);
-      setPdfFile(null); setPdfPhase('');
+      setPdfFile(null); setPdfPhase(''); setPdfStage('done');
       Alert.alert('PDF Import Complete', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
       loadTab('products');
-    } catch (e: any) { setPdfResult({ error: e.message }); setPdfPhase(''); }
+    } catch (e: any) { setPdfResult({ error: e.message }); setPdfPhase(''); setPdfStage('error'); }
     finally { setPdfImporting(false); }
   };
 
@@ -714,8 +718,9 @@ export default function PanelScreen() {
                     <TouchableOpacity testID="pdf-pick-btn" style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
                       <Ionicons name="document-text" size={40} color="#E91E63" />
                       <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '700' }}>Tap to select PDF from device</Text>
-                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 300MB</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 1000MB (1 GB)</Text>
                       <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Each page will be extracted as a product image</Text>
+                      <Text style={{ color: '#E91E63', fontSize: FontSize.xs, marginTop: 4, fontWeight: '600' }}>Chunked upload — reliable for large files</Text>
                     </TouchableOpacity>
 
                     {/* PDF file selected */}
@@ -724,24 +729,44 @@ export default function PanelScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                           <Ionicons name="document-text" size={28} color="#E91E63" />
                           <View style={{ flex: 1 }}>
-                            <Text style={{ color: Colors.text, fontWeight: '700', fontSize: FontSize.md }}>{pdfFile.name}</Text>
-                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }}>{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB</Text>
+                            <Text style={{ color: Colors.text, fontWeight: '700', fontSize: FontSize.md }} data-testid="pdf-filename">{pdfFile.name}</Text>
+                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }} data-testid="pdf-filesize">{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB ({Math.ceil(pdfFile.size / (5 * 1024 * 1024))} chunks)</Text>
                           </View>
-                          <TouchableOpacity onPress={() => { setPdfFile(null); setPdfResult(null); }}>
+                          <TouchableOpacity onPress={() => { setPdfFile(null); setPdfResult(null); setPdfStage('idle'); }} data-testid="pdf-clear-btn">
                             <Ionicons name="close-circle" size={24} color={Colors.error} />
                           </TouchableOpacity>
                         </View>
+                        {pdfFile.size > 1000 * 1024 * 1024 && (
+                          <Text style={{ color: Colors.error, fontSize: FontSize.sm, marginTop: 8, fontWeight: '600' }}>File exceeds 1000MB limit. Please select a smaller PDF.</Text>
+                        )}
                       </View>
                     )}
 
-                    {/* Importing progress */}
+                    {/* Importing progress — enhanced with progress bar */}
                     {pdfImporting && (
-                      <View style={{ marginTop: Spacing.lg, alignItems: 'center', paddingVertical: Spacing.lg }}>
-                        <ActivityIndicator color="#E91E63" size="large" />
-                        <Text style={{ color: Colors.text, fontSize: FontSize.md, fontWeight: '600', marginTop: Spacing.md }}>Importing PDF...</Text>
-                        {pdfPhase ? <Text style={{ color: '#E91E63', fontSize: FontSize.sm, marginTop: 4, textAlign: 'center' }}>{pdfPhase}</Text> : null}
-                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>This may take a few minutes for large catalogues</Text>
-                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Please do not close this page</Text>
+                      <View style={{ marginTop: Spacing.lg, paddingVertical: Spacing.lg, backgroundColor: '#1a1a2e', borderRadius: 12, padding: Spacing.lg, borderWidth: 1, borderColor: '#E91E63' + '30' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md }}>
+                          <ActivityIndicator color="#E91E63" size="small" />
+                          <Text style={{ color: Colors.text, fontSize: FontSize.md, fontWeight: '700', flex: 1 }} data-testid="pdf-import-status">
+                            {pdfStage === 'uploading' ? 'Uploading PDF...' : pdfStage === 'processing' ? 'Processing Pages...' : pdfStage === 'validating' ? 'Validating...' : 'Working...'}
+                          </Text>
+                          <Text style={{ color: '#E91E63', fontWeight: '700', fontSize: FontSize.lg }}>{pdfProgress}%</Text>
+                        </View>
+
+                        {/* Progress bar */}
+                        <View style={{ height: 8, backgroundColor: '#333', borderRadius: 4, overflow: 'hidden', marginBottom: Spacing.sm }}>
+                          <View style={{ height: '100%', backgroundColor: '#E91E63', borderRadius: 4, width: `${Math.min(pdfProgress, 100)}%` }} />
+                        </View>
+
+                        {pdfPhase ? <Text style={{ color: '#E91E63', fontSize: FontSize.sm, marginTop: 4 }} data-testid="pdf-phase-detail">{pdfPhase}</Text> : null}
+
+                        <View style={{ marginTop: Spacing.md, backgroundColor: '#ffffff10', borderRadius: 8, padding: Spacing.sm }}>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>
+                            {pdfStage === 'uploading' ? 'File is being uploaded in 5MB chunks with auto-retry.' : ''}
+                            {pdfStage === 'processing' ? 'Server is extracting pages and creating product images.' : ''}
+                          </Text>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 }}>Do not close this page. Large PDFs may take several minutes.</Text>
+                        </View>
                       </View>
                     )}
 
@@ -750,13 +775,14 @@ export default function PanelScreen() {
                       <View style={{ marginTop: Spacing.md, backgroundColor: Colors.success + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.success + '30' }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.sm }}>
                           <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
-                          <Text style={{ color: Colors.success, fontWeight: '700', fontSize: FontSize.lg }}>PDF Import Complete!</Text>
+                          <Text style={{ color: Colors.success, fontWeight: '700', fontSize: FontSize.lg }} data-testid="pdf-import-complete">PDF Import Complete!</Text>
                         </View>
                         <Text style={{ color: Colors.text, fontSize: FontSize.md }}>Total pages in PDF: {pdfResult.total_pages}</Text>
                         <Text style={{ color: Colors.success, fontSize: FontSize.md, fontWeight: '600' }}>Successfully imported: {pdfResult.imported} pages</Text>
                         {pdfResult.failed > 0 && <Text style={{ color: Colors.error, fontSize: FontSize.md }}>Failed pages: {pdfResult.failed}</Text>}
-                        {pdfResult.skipped > 0 && <Text style={{ color: Colors.warning, fontSize: FontSize.md }}>Skipped (empty): {pdfResult.skipped}</Text>}
+                        {pdfResult.skipped > 0 && <Text style={{ color: '#FFA500', fontSize: FontSize.md }}>Skipped (empty): {pdfResult.skipped}</Text>}
                         <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: Spacing.sm }}>Each imported page is now a separate product entry in your batch.</Text>
+                        {pdfResult.file_size > 0 && <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>File size: {(pdfResult.file_size / (1024 * 1024)).toFixed(1)}MB</Text>}
                         {pdfResult.results?.filter((r: any) => r.status !== 'ok').length > 0 && (
                           <View style={{ marginTop: Spacing.sm }}>
                             <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600' }}>Page details:</Text>
@@ -769,10 +795,14 @@ export default function PanelScreen() {
                     )}
                     {pdfResult?.error && (
                       <View style={{ marginTop: Spacing.md, backgroundColor: Colors.error + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '30' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                           <Ionicons name="alert-circle" size={24} color={Colors.error} />
-                          <Text style={{ color: Colors.error, fontWeight: '600', flex: 1 }}>Import Failed: {pdfResult.error}</Text>
+                          <Text style={{ color: Colors.error, fontWeight: '700', fontSize: FontSize.md }}>Import Failed</Text>
                         </View>
+                        <Text style={{ color: Colors.error, fontSize: FontSize.sm }} data-testid="pdf-error-detail">{pdfResult.error}</Text>
+                        <TouchableOpacity onPress={() => { setPdfResult(null); setPdfStage('idle'); setPdfProgress(0); }} style={{ marginTop: Spacing.md, backgroundColor: Colors.error + '20', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, alignSelf: 'flex-start' }}>
+                          <Text style={{ color: Colors.error, fontWeight: '600', fontSize: FontSize.sm }}>Dismiss & Try Again</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
 

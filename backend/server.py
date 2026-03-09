@@ -19,6 +19,8 @@ from bs4 import BeautifulSoup
 import re
 import json as json_module
 import fitz  # PyMuPDF for PDF processing
+import shutil
+import tempfile
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -682,29 +684,352 @@ async def upload_to_batch(
         )
     return {"results": results, "uploaded": uploaded, "failed": len(results) - uploaded, "batch_image_count": current_count}
 
+# ===================== CHUNKED PDF UPLOAD SYSTEM (1GB support) =====================
+
+PDF_UPLOAD_DIR = Path(tempfile.gettempdir()) / "pdf_uploads"
+PDF_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+PDF_MAX_SIZE = 1000 * 1024 * 1024  # 1000MB = 1GB
+PDF_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
+
+class PdfUploadInit(BaseModel):
+    batch_id: str
+    filename: str
+    file_size: int
+    total_chunks: int
+
+@api_router.post("/pdf-upload/init")
+async def pdf_upload_init(req: PdfUploadInit, user=Depends(get_admin_user)):
+    """Initialize a chunked PDF upload session"""
+    batch = await db.batches.find_one({"id": req.batch_id}, {"_id": 0})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if req.file_size > PDF_MAX_SIZE:
+        raise HTTPException(status_code=413, detail=f"PDF file too large ({req.file_size / (1024*1024):.0f}MB). Maximum allowed is 1000MB.")
+    if req.file_size < 100:
+        raise HTTPException(status_code=400, detail="File is too small to be a valid PDF.")
+    if not req.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted. Use 'Upload Images' for JPG/PNG files.")
+
+    upload_id = str(uuid.uuid4())
+    upload_dir = PDF_UPLOAD_DIR / upload_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    job = {
+        "upload_id": upload_id,
+        "batch_id": req.batch_id,
+        "filename": req.filename,
+        "file_size": req.file_size,
+        "total_chunks": req.total_chunks,
+        "chunks_received": 0,
+        "upload_status": "uploading",  # uploading -> uploaded -> processing -> done -> error
+        "process_status": None,
+        "total_pages": 0,
+        "pages_processed": 0,
+        "imported": 0,
+        "failed": 0,
+        "skipped": 0,
+        "error": None,
+        "results": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": user.get("id", ""),
+    }
+    await db.pdf_jobs.insert_one(job)
+    logger.info(f"PDF upload init: {upload_id}, file={req.filename}, size={req.file_size/(1024*1024):.1f}MB, chunks={req.total_chunks}")
+    return {"upload_id": upload_id, "chunk_size": PDF_CHUNK_SIZE, "status": "ready"}
+
+@api_router.post("/pdf-upload/{upload_id}/chunk")
+async def pdf_upload_chunk(
+    upload_id: str,
+    chunk_index: int = Query(...),
+    file: UploadFile = File(...),
+    user=Depends(get_admin_user)
+):
+    """Upload a single chunk of the PDF file"""
+    job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Upload session not found. It may have expired.")
+    if job["upload_status"] not in ("uploading",):
+        raise HTTPException(status_code=400, detail=f"Upload session is in '{job['upload_status']}' state. Cannot accept more chunks.")
+    if chunk_index < 0 or chunk_index >= job["total_chunks"]:
+        raise HTTPException(status_code=400, detail=f"Invalid chunk index {chunk_index}. Expected 0-{job['total_chunks']-1}.")
+
+    upload_dir = PDF_UPLOAD_DIR / upload_id
+    chunk_path = upload_dir / f"chunk_{chunk_index:06d}"
+
+    try:
+        data = await file.read()
+        with open(chunk_path, "wb") as f:
+            f.write(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save chunk {chunk_index}: {str(e)}")
+
+    # Count how many chunks we actually have on disk
+    received = len(list(upload_dir.glob("chunk_*")))
+    await db.pdf_jobs.update_one(
+        {"upload_id": upload_id},
+        {"$set": {"chunks_received": received, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    return {"chunk_index": chunk_index, "received": received, "total": job["total_chunks"]}
+
+@api_router.post("/pdf-upload/{upload_id}/complete")
+async def pdf_upload_complete(upload_id: str, user=Depends(get_admin_user)):
+    """Signal that all chunks have been uploaded. Assembles the file and starts background processing."""
+    job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    if job["upload_status"] != "uploading":
+        raise HTTPException(status_code=400, detail=f"Upload is in '{job['upload_status']}' state.")
+
+    upload_dir = PDF_UPLOAD_DIR / upload_id
+    received = len(list(upload_dir.glob("chunk_*")))
+    if received < job["total_chunks"]:
+        raise HTTPException(status_code=400, detail=f"Missing chunks: received {received} of {job['total_chunks']}. Upload incomplete.")
+
+    # Assemble chunks into single PDF file
+    pdf_path = upload_dir / "full.pdf"
+    try:
+        with open(pdf_path, "wb") as out:
+            for i in range(job["total_chunks"]):
+                chunk_file = upload_dir / f"chunk_{i:06d}"
+                if not chunk_file.exists():
+                    raise HTTPException(status_code=400, detail=f"Chunk {i} is missing. Please re-upload.")
+                with open(chunk_file, "rb") as cf:
+                    shutil.copyfileobj(cf, out)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to assemble PDF: {str(e)}")
+
+    # Validate assembled file
+    assembled_size = pdf_path.stat().st_size
+    if assembled_size < 100:
+        raise HTTPException(status_code=400, detail="Assembled file is empty or too small.")
+
+    # Quick PDF header check
+    with open(pdf_path, "rb") as f:
+        header = f.read(5)
+    if header != b'%PDF-':
+        await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "error", "error": "Not a valid PDF file. The uploaded file does not have a PDF header."}})
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="Not a valid PDF file. The uploaded file does not have a PDF header. Please ensure you are uploading a .pdf file.")
+
+    await db.pdf_jobs.update_one(
+        {"upload_id": upload_id},
+        {"$set": {"upload_status": "uploaded", "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    # Delete chunk files to free disk space (keep only assembled pdf)
+    for chunk_file in upload_dir.glob("chunk_*"):
+        chunk_file.unlink(missing_ok=True)
+
+    logger.info(f"PDF upload complete: {upload_id}, assembled {assembled_size/(1024*1024):.1f}MB")
+
+    # Start background processing
+    asyncio.create_task(_process_pdf_job(upload_id))
+
+    return {"status": "processing", "upload_id": upload_id, "assembled_size_mb": round(assembled_size / (1024 * 1024), 1)}
+
+@api_router.get("/pdf-upload/{upload_id}/status")
+async def pdf_upload_status(upload_id: str, user=Depends(get_admin_user)):
+    """Get the current status of a PDF upload/processing job"""
+    job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    # Don't return full results array during processing (too large for polling)
+    status = {
+        "upload_id": job["upload_id"],
+        "batch_id": job["batch_id"],
+        "filename": job["filename"],
+        "file_size": job["file_size"],
+        "upload_status": job["upload_status"],
+        "chunks_received": job["chunks_received"],
+        "total_chunks": job["total_chunks"],
+        "total_pages": job["total_pages"],
+        "pages_processed": job["pages_processed"],
+        "imported": job["imported"],
+        "failed": job["failed"],
+        "skipped": job["skipped"],
+        "error": job["error"],
+    }
+    # Only include results when done
+    if job["upload_status"] in ("done", "error"):
+        status["results"] = job.get("results", [])
+    return status
+
+async def _process_pdf_job(upload_id: str):
+    """Background task: open assembled PDF, extract pages, create products"""
+    try:
+        job = await db.pdf_jobs.find_one({"upload_id": upload_id}, {"_id": 0})
+        if not job:
+            return
+        batch = await db.batches.find_one({"id": job["batch_id"]}, {"_id": 0})
+        if not batch:
+            await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "error", "error": "Batch not found"}})
+            return
+
+        pdf_path = PDF_UPLOAD_DIR / upload_id / "full.pdf"
+        if not pdf_path.exists():
+            await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "error", "error": "Assembled PDF file not found on disk"}})
+            return
+
+        await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "processing", "updated_at": datetime.now(timezone.utc).isoformat()}})
+
+        try:
+            pdf_doc = fitz.open(str(pdf_path))
+        except Exception as e:
+            await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "error", "error": f"Cannot open PDF: {str(e)}. File may be corrupted or password-protected."}})
+            shutil.rmtree(PDF_UPLOAD_DIR / upload_id, ignore_errors=True)
+            return
+
+        total_pages = len(pdf_doc)
+        if total_pages == 0:
+            pdf_doc.close()
+            await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"upload_status": "error", "error": "PDF has 0 pages. Document appears empty."}})
+            shutil.rmtree(PDF_UPLOAD_DIR / upload_id, ignore_errors=True)
+            return
+
+        await db.pdf_jobs.update_one({"upload_id": upload_id}, {"$set": {"total_pages": total_pages}})
+        logger.info(f"PDF processing started: {upload_id}, {total_pages} pages, batch={job['batch_id']}")
+
+        results = []
+        current_count = batch.get("image_count", 0)
+        now = datetime.now(timezone.utc).isoformat()
+        imported = 0
+        failed = 0
+        skipped = 0
+
+        for page_num in range(total_pages):
+            try:
+                page = pdf_doc[page_num]
+                mat = fitz.Matrix(2.0, 2.0)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                img_data = pix.tobytes("jpeg")
+
+                if len(img_data) < 500:
+                    results.append({"page": page_num + 1, "status": "skipped", "detail": "Page rendered too small or blank"})
+                    skipped += 1
+                else:
+                    file_id = str(uuid.uuid4())
+                    original_data = process_image(img_data, max_size=1600, quality=85)
+                    thumb_data = create_thumbnail(img_data, size=400, quality=60)
+                    original_path = f"{APP_NAME}/originals/{file_id}.jpg"
+                    thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
+                    put_object(original_path, original_data, "image/jpeg")
+                    put_object(thumb_path, thumb_data, "image/jpeg")
+
+                    current_count += 1
+                    product = {
+                        "id": file_id,
+                        "title": f"{batch['name']} #{current_count}",
+                        "description": "",
+                        "metal_type": batch.get("metal_type", "silver"),
+                        "category": batch.get("category", ""),
+                        "subcategory": "",
+                        "images": [],
+                        "storage_path": original_path,
+                        "thumbnail_path": thumb_path,
+                        "original_filename": f"{job['filename']}_page_{page_num + 1}",
+                        "file_size": len(img_data),
+                        "source_type": "pdf_import",
+                        "source_page": page_num + 1,
+                        "video_url": "",
+                        "approx_weight": "",
+                        "stock_status": "in_stock",
+                        "tags": [batch.get("metal_type", "silver"), "pdf_import", batch["id"][:8]],
+                        "is_pinned": False,
+                        "is_new_arrival": True,
+                        "is_trending": False,
+                        "visibility": "all" if batch.get("status") == "visible" else "hidden",
+                        "post_type": "product",
+                        "batch_id": batch["id"],
+                        "batch_name": batch["name"],
+                        "views": 0,
+                        "is_deleted": False,
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                    await db.products.insert_one(product)
+                    results.append({"page": page_num + 1, "status": "ok", "id": file_id})
+                    imported += 1
+
+                # Update progress every page
+                await db.pdf_jobs.update_one(
+                    {"upload_id": upload_id},
+                    {"$set": {
+                        "pages_processed": page_num + 1,
+                        "imported": imported,
+                        "failed": failed,
+                        "skipped": skipped,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }}
+                )
+                if (page_num + 1) % 10 == 0:
+                    logger.info(f"PDF processing {upload_id}: {page_num + 1}/{total_pages} pages")
+
+            except Exception as e:
+                logger.error(f"PDF page {page_num + 1} error ({upload_id}): {e}")
+                results.append({"page": page_num + 1, "status": "error", "detail": str(e)})
+                failed += 1
+
+        pdf_doc.close()
+
+        if imported > 0:
+            await db.batches.update_one(
+                {"id": job["batch_id"]},
+                {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            )
+
+        await db.pdf_jobs.update_one(
+            {"upload_id": upload_id},
+            {"$set": {
+                "upload_status": "done",
+                "results": results,
+                "imported": imported,
+                "failed": failed,
+                "skipped": skipped,
+                "pages_processed": total_pages,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }}
+        )
+        logger.info(f"PDF processing done: {upload_id}, imported={imported}, failed={failed}, skipped={skipped}/{total_pages}")
+
+    except Exception as e:
+        logger.error(f"PDF processing fatal error ({upload_id}): {e}")
+        await db.pdf_jobs.update_one(
+            {"upload_id": upload_id},
+            {"$set": {"upload_status": "error", "error": f"Processing failed: {str(e)}", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    finally:
+        # Cleanup temp files
+        upload_dir = PDF_UPLOAD_DIR / upload_id
+        if upload_dir.exists():
+            shutil.rmtree(upload_dir, ignore_errors=True)
+
+# Keep legacy endpoint for backward compatibility (small PDFs)
 @api_router.post("/batches/{batch_id}/import-pdf")
 async def import_pdf_to_batch(
     batch_id: str,
     file: UploadFile = File(...),
     user=Depends(get_admin_user)
 ):
-    """Import a PDF file: extract each page as an image and create product entries"""
+    """Legacy: Import a small PDF file directly (for backward compat). Redirects to chunked system internally."""
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # Read file in chunks to handle large files
     chunks = []
     total_size = 0
-    max_size = 300 * 1024 * 1024  # 300MB
+    max_size = PDF_MAX_SIZE
     try:
         while True:
-            chunk = await file.read(1024 * 1024)  # Read 1MB at a time
+            chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
             total_size += len(chunk)
             if total_size > max_size:
-                raise HTTPException(status_code=413, detail=f"PDF file too large. Maximum size is 300MB. Your file is {total_size / (1024*1024):.0f}MB.")
+                raise HTTPException(status_code=413, detail=f"PDF file too large. Maximum size is 1000MB. Your file is {total_size / (1024*1024):.0f}MB.")
             chunks.append(chunk)
     except HTTPException:
         raise
@@ -714,22 +1039,18 @@ async def import_pdf_to_batch(
     data = b''.join(chunks)
     if len(data) < 100:
         raise HTTPException(status_code=400, detail="File is empty or too small to be a valid PDF.")
-
-    # Validate PDF format
     if not data[:5] == b'%PDF-':
-        raise HTTPException(status_code=400, detail="Not a valid PDF file. The file must be a PDF document (.pdf). Please use 'Upload Images' for image files (JPG, PNG, etc).")
+        raise HTTPException(status_code=400, detail="Not a valid PDF file. Please use 'Upload Images' for image files.")
 
     try:
         pdf_doc = fitz.open(stream=data, filetype="pdf")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cannot open PDF. The file may be corrupted or password-protected. Error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Cannot open PDF. File may be corrupted. Error: {str(e)}")
 
     total_pages = len(pdf_doc)
     if total_pages == 0:
         pdf_doc.close()
-        raise HTTPException(status_code=400, detail="PDF has 0 pages. The document appears to be empty.")
-
-    logger.info(f"PDF import started: {file.filename}, {total_size/(1024*1024):.1f}MB, {total_pages} pages, batch={batch_id}")
+        raise HTTPException(status_code=400, detail="PDF has 0 pages.")
 
     results = []
     current_count = batch.get("image_count", 0)
@@ -738,87 +1059,48 @@ async def import_pdf_to_batch(
     for page_num in range(total_pages):
         try:
             page = pdf_doc[page_num]
-            # Render page at 2x resolution for quality
             mat = fitz.Matrix(2.0, 2.0)
             pix = page.get_pixmap(matrix=mat, alpha=False)
             img_data = pix.tobytes("jpeg")
-
             if len(img_data) < 500:
-                results.append({"page": page_num + 1, "status": "skipped", "detail": "Page rendered too small or blank"})
+                results.append({"page": page_num + 1, "status": "skipped", "detail": "Page too small or blank"})
                 continue
-
             file_id = str(uuid.uuid4())
             original_data = process_image(img_data, max_size=1600, quality=85)
             thumb_data = create_thumbnail(img_data, size=400, quality=60)
-
             original_path = f"{APP_NAME}/originals/{file_id}.jpg"
             thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
             put_object(original_path, original_data, "image/jpeg")
             put_object(thumb_path, thumb_data, "image/jpeg")
-
             current_count += 1
             product = {
-                "id": file_id,
-                "title": f"{batch['name']} #{current_count}",
-                "description": "",
-                "metal_type": batch.get("metal_type", "silver"),
-                "category": batch.get("category", ""),
-                "subcategory": "",
-                "images": [],
-                "storage_path": original_path,
-                "thumbnail_path": thumb_path,
-                "original_filename": f"{file.filename}_page_{page_num + 1}",
-                "file_size": len(img_data),
-                "source_type": "pdf_import",
-                "source_page": page_num + 1,
-                "video_url": "",
-                "approx_weight": "",
-                "stock_status": "in_stock",
-                "tags": [batch.get("metal_type", "silver"), "pdf_import", batch["id"][:8]],
-                "is_pinned": False,
-                "is_new_arrival": True,
-                "is_trending": False,
+                "id": file_id, "title": f"{batch['name']} #{current_count}", "description": "",
+                "metal_type": batch.get("metal_type", "silver"), "category": batch.get("category", ""),
+                "subcategory": "", "images": [], "storage_path": original_path, "thumbnail_path": thumb_path,
+                "original_filename": f"{file.filename}_page_{page_num + 1}", "file_size": len(img_data),
+                "source_type": "pdf_import", "source_page": page_num + 1, "video_url": "", "approx_weight": "",
+                "stock_status": "in_stock", "tags": [batch.get("metal_type", "silver"), "pdf_import", batch["id"][:8]],
+                "is_pinned": False, "is_new_arrival": True, "is_trending": False,
                 "visibility": "all" if batch.get("status") == "visible" else "hidden",
-                "post_type": "product",
-                "batch_id": batch["id"],
-                "batch_name": batch["name"],
-                "views": 0,
-                "is_deleted": False,
-                "created_at": now,
-                "updated_at": now,
+                "post_type": "product", "batch_id": batch["id"], "batch_name": batch["name"],
+                "views": 0, "is_deleted": False, "created_at": now, "updated_at": now,
             }
             await db.products.insert_one(product)
             results.append({"page": page_num + 1, "status": "ok", "id": file_id})
-            if (page_num + 1) % 10 == 0:
-                logger.info(f"PDF import progress: {page_num + 1}/{total_pages} pages processed")
         except Exception as e:
-            logger.error(f"PDF page {page_num + 1} error: {e}")
             results.append({"page": page_num + 1, "status": "error", "detail": str(e)})
 
     pdf_doc.close()
-
     imported = sum(1 for r in results if r["status"] == "ok")
     failed = sum(1 for r in results if r["status"] == "error")
     skipped = sum(1 for r in results if r["status"] == "skipped")
-
     if imported > 0:
-        await db.batches.update_one(
-            {"id": batch_id},
-            {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-
-    logger.info(f"PDF import complete: {imported} imported, {failed} failed, {skipped} skipped out of {total_pages} pages")
-
+        await db.batches.update_one({"id": batch_id}, {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {
         "message": f"PDF imported: {imported} pages converted to product images",
-        "total_pages": total_pages,
-        "imported": imported,
-        "failed": failed,
-        "skipped": skipped,
-        "file_size_mb": round(total_size / (1024 * 1024), 1),
-        "results": results,
-        "batch_image_count": current_count,
-        "filename": file.filename
+        "total_pages": total_pages, "imported": imported, "failed": failed, "skipped": skipped,
+        "file_size_mb": round(total_size / (1024 * 1024), 1), "results": results,
+        "batch_image_count": current_count, "filename": file.filename
     }
 
 @api_router.post("/batches/{batch_id}/images/delete")
