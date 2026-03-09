@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Platform, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api } from '../../src/api';
-import { getImageUrl } from '../../src/api';
+import { api, getImageUrl } from '../../src/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -15,16 +14,37 @@ export default function ProductDetail() {
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentImage, setCurrentImage] = useState(0);
-  const [zoomed, setZoomed] = useState(false);
+  const [wishlisted, setWishlisted] = useState(false);
+  const [addedToCart, setAddedToCart] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const p = await api.get(`/products/${id}`);
         setProduct(p);
+        // Check wishlist status
+        try {
+          const wl = await api.get('/wishlist');
+          setWishlisted((wl.products || []).some((w: any) => w.id === id));
+        } catch {}
       } catch {} finally { setLoading(false); }
     })();
   }, [id]);
+
+  const toggleWishlist = async () => {
+    try {
+      const r = await api.post(`/wishlist/toggle?product_id=${id}`);
+      setWishlisted(r.wishlisted);
+    } catch {}
+  };
+
+  const addToCart = async () => {
+    try {
+      await api.post('/cart/add', { product_id: id });
+      setAddedToCart(true);
+      setTimeout(() => setAddedToCart(false), 3000);
+    } catch {}
+  };
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
   if (!product) return <View style={styles.loader}><Text style={styles.errorText}>Product not found</Text></View>;
@@ -43,10 +63,13 @@ export default function ProductDetail() {
           <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={Colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity testID="wishlist-btn" style={styles.backBtn} onPress={async () => {
-            try { const r = await api.post(`/wishlist/toggle?product_id=${id}`); Alert.alert(r.wishlisted ? 'Added to Wishlist' : 'Removed from Wishlist'); } catch {}
-          }}>
-            <Ionicons name="heart-outline" size={24} color={Colors.text} />
+          {/* POINT 9: Wishlist heart with visible color toggle */}
+          <TouchableOpacity testID="wishlist-btn" style={styles.backBtn} onPress={toggleWishlist}>
+            <Ionicons
+              name={wishlisted ? 'heart' : 'heart-outline'}
+              size={24}
+              color={wishlisted ? Colors.pastelPink : Colors.text}
+            />
           </TouchableOpacity>
         </View>
 
@@ -55,29 +78,21 @@ export default function ProductDetail() {
           {displayImageUri ? (
             <View style={{ width: '100%', aspectRatio: 1 }}>
               <ScrollView
-                data-testid="product-image-zoom-scroll"
                 maximumZoomScale={4}
                 minimumZoomScale={1}
                 bouncesZoom={true}
                 showsHorizontalScrollIndicator={false}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ width: '100%', aspectRatio: 1 }}
-                scrollEnabled={true}
                 pinchGestureEnabled={true}
-                onScrollEndDrag={(e) => {
-                  const z = (e.nativeEvent as any).zoomScale;
-                  setZoomed(z !== undefined ? z > 1.05 : false);
-                }}
                 style={{ width: '100%', aspectRatio: 1 }}
               >
                 <Image source={{ uri: displayImageUri }} style={styles.mainImage} resizeMode="contain" data-testid="product-main-image" />
               </ScrollView>
-              {!zoomed && (
-                <View style={styles.zoomHint} pointerEvents="none">
-                  <Ionicons name="search" size={14} color="rgba(255,255,255,0.8)" />
-                  <Text style={styles.zoomHintText}>Pinch to zoom</Text>
-                </View>
-              )}
+              <View style={styles.zoomHint} pointerEvents="none">
+                <Ionicons name="search" size={14} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.zoomHintText}>Pinch to zoom</Text>
+              </View>
             </View>
           ) : (
             <View style={[styles.mainImage, { backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center' }]}>
@@ -95,17 +110,25 @@ export default function ProductDetail() {
           )}
         </View>
 
+        {/* POINT 4: Cart added confirmation banner */}
+        {addedToCart && (
+          <View style={styles.cartConfirmBanner} data-testid="cart-confirm-banner">
+            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+            <Text style={styles.cartConfirmText}>Product added to your cart!</Text>
+          </View>
+        )}
+
         {/* Info */}
         <View style={styles.infoSection}>
           <View style={styles.badges}>
             <View style={[styles.badge, { backgroundColor: Colors.gold + '20' }]}><Text style={[styles.badgeText, { color: Colors.gold }]}>{product.metal_type?.toUpperCase()}</Text></View>
             <View style={styles.badge}><Text style={styles.badgeText}>{product.category?.replace(/_/g, ' ').toUpperCase()}</Text></View>
-            {product.is_new_arrival && <View style={[styles.badge, { backgroundColor: Colors.success + '20' }]}><Text style={[styles.badgeText, { color: Colors.success }]}>NEW</Text></View>}
-            {product.stock_status === 'limited' && <View style={[styles.badge, { backgroundColor: Colors.warning + '20' }]}><Text style={[styles.badgeText, { color: Colors.warning }]}>LIMITED</Text></View>}
+            {product.is_new_arrival && <View style={[styles.badge, { backgroundColor: Colors.pastelGreen + '30' }]}><Text style={[styles.badgeText, { color: Colors.pastelGreen }]}>NEW</Text></View>}
+            {product.stock_status === 'limited' && <View style={[styles.badge, { backgroundColor: Colors.pastelOrange + '30' }]}><Text style={[styles.badgeText, { color: Colors.pastelOrange }]}>LIMITED</Text></View>}
           </View>
 
           <Text style={styles.title}>{product.title}</Text>
-          <Text style={styles.description}>{product.description}</Text>
+          {product.description ? <Text style={styles.description}>{product.description}</Text> : null}
 
           {product.approx_weight && (
             <View style={styles.detailRow}>
@@ -138,11 +161,9 @@ export default function ProductDetail() {
           )}
         </View>
 
-        {/* CTAs */}
+        {/* POINT 1: CTAs — Add to Cart FIRST, Ask Price second */}
         <View style={styles.ctaSection}>
-          <TouchableOpacity testID="add-to-cart-btn" style={styles.ctaPrimary} onPress={async () => {
-            try { await api.post('/cart/add', { product_id: id }); Alert.alert('Product added to the cart', 'Item has been added to your selection cart.'); } catch {}
-          }}>
+          <TouchableOpacity testID="add-to-cart-btn" style={styles.ctaPrimary} onPress={addToCart}>
             <Ionicons name="cart" size={18} color="#000" />
             <Text style={styles.ctaPrimaryText}>Add to Cart</Text>
           </TouchableOpacity>
@@ -183,6 +204,8 @@ const styles = StyleSheet.create({
   thumbRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   thumb: { width: 56, height: 56, borderRadius: 8, marginRight: 8, borderWidth: 2, borderColor: 'transparent' },
   thumbActive: { borderColor: Colors.gold },
+  cartConfirmBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: Spacing.lg, marginTop: Spacing.md, paddingVertical: 12, backgroundColor: Colors.success, borderRadius: 12 },
+  cartConfirmText: { color: '#fff', fontWeight: '700', fontSize: FontSize.md },
   infoSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.md },
   badge: { backgroundColor: Colors.surface, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },

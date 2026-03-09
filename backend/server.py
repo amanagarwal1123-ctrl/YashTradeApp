@@ -415,7 +415,12 @@ async def list_products(
         ]
     skip = (page - 1) * limit
     total = await db.products.count_documents(query)
-    products = await db.products.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    # POINT 3: Randomize product order using MongoDB $sample for first page
+    if page == 1 and not search:
+        pipeline = [{"$match": query}, {"$sample": {"size": min(limit, total)}}, {"$project": {"_id": 0}}]
+        products = await db.products.aggregate(pipeline).to_list(limit)
+    else:
+        products = await db.products.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return {"products": products, "total": total, "page": page, "pages": (total + limit - 1) // limit}
 
 @api_router.get("/products/{product_id}")
@@ -1596,6 +1601,25 @@ async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
 async def cart_count(user=Depends(get_current_user)):
     count = await db.cart.count_documents({"user_id": user["id"], "status": "active"})
     return {"count": count}
+
+@api_router.get("/cart/orders")
+async def cart_orders(user=Depends(get_current_user)):
+    """Get all submitted cart orders for the current user"""
+    orders = await db.requests.find(
+        {"user_id": user["id"], "request_type": "cart_selection"},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    result = []
+    for o in orders:
+        result.append({
+            "id": o.get("id", ""),
+            "status": o.get("status", "pending"),
+            "item_count": o.get("cart_count", 0),
+            "items": o.get("cart_items", []),
+            "notes": o.get("notes", ""),
+            "created_at": o.get("created_at", ""),
+        })
+    return {"orders": result}
 
 # ===================== ANALYTICS ENDPOINTS =====================
 

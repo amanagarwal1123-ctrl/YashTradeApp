@@ -11,6 +11,7 @@ export default function CartScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const loadCart = async () => {
     try {
@@ -37,7 +38,7 @@ export default function CartScreen() {
         setSubmitting(true);
         try {
           await api.post('/cart/submit', { notes: '' });
-          router.replace('/request-success');
+          setSubmitted(true);
         } catch (e: any) { Alert.alert('Error', e.message); }
         finally { setSubmitting(false); }
       }}
@@ -54,6 +55,24 @@ export default function CartScreen() {
         <Text style={styles.headerCount}>{items.length} items</Text>
       </View>
 
+      {/* POINT 5: Thank you screen after submit */}
+      {submitted ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.xl }}>
+          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: Colors.success, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.xl }}>
+            <Ionicons name="checkmark" size={56} color="#fff" />
+          </View>
+          <Text style={{ fontSize: FontSize.xxl, fontWeight: '700', color: Colors.text, marginBottom: 8, textAlign: 'center' }}>Thank You!</Text>
+          <Text style={{ fontSize: FontSize.lg, color: Colors.gold, fontWeight: '600', textAlign: 'center', marginBottom: Spacing.md }}>Your order has been placed on Yash Trade</Text>
+          <Text style={{ fontSize: FontSize.md, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: Spacing.xl }}>We will connect with you very soon to confirm your selection and prepare the billing.</Text>
+          <View style={{ width: 60, height: 2, backgroundColor: Colors.gold, borderRadius: 1, marginBottom: Spacing.xl }} />
+          <Text style={{ fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center' }}>Thank you for choosing</Text>
+          <Text style={{ fontSize: FontSize.xl, fontWeight: '700', color: Colors.gold, letterSpacing: 3, marginTop: 4 }}>YASH TRADE</Text>
+          <TouchableOpacity style={{ marginTop: Spacing.xl, backgroundColor: Colors.gold, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 12 }} onPress={() => router.replace('/(tabs)')}>
+            <Text style={{ fontSize: FontSize.md, fontWeight: '700', color: '#000' }}>Back to Home</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+      <>
       {loading ? <ActivityIndicator color={Colors.gold} style={{ marginTop: 40 }} /> : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {items.length === 0 && (
@@ -105,6 +124,8 @@ export default function CartScreen() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+      )}
+      </>
       )}
     </SafeAreaView>
   );

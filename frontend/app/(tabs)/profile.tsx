@@ -14,14 +14,19 @@ export default function ProfileScreen() {
   const { t, language, setLang } = useLang();
   const router = useRouter();
   const [requests, setRequests] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
         await refreshUser();
-        const res = await api.get('/requests/my');
-        setRequests(res.requests || []);
+        const [reqRes, orderRes] = await Promise.all([
+          api.get('/requests/my'),
+          api.get('/cart/orders').catch(() => ({ orders: [] })),
+        ]);
+        setRequests(reqRes.requests || []);
+        setOrders(orderRes.orders || []);
       } catch {} finally { setLoading(false); }
     })();
   }, []);
@@ -86,6 +91,7 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>ACCOUNT</Text>
           <MenuItem testID="my-orders-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => router.push('/my-requests')} />
+          <MenuItem testID="my-orders-history" icon="bag-check" label="My Orders" value={`${orders.length}`} onPress={() => {}} />
           <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => router.push('/wishlist')} />
           <MenuItem testID="rewards-btn" icon="gift" label="Rewards History" onPress={() => router.push('/rewards')} />
         </View>
@@ -123,6 +129,27 @@ export default function ProfileScreen() {
           <Ionicons name="log-out-outline" size={20} color={Colors.error} />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
+
+        {/* My Orders Section */}
+        {orders.length > 0 && (
+          <View style={styles.recentSection}>
+            <Text style={styles.menuSectionTitle}>MY ORDERS</Text>
+            {orders.map((o: any, idx: number) => (
+              <View key={o.id || idx} style={styles.requestItem}>
+                <View style={styles.requestLeft}>
+                  <Ionicons name="bag-check" size={16} color={Colors.pastelGreen} />
+                  <View>
+                    <Text style={styles.requestType}>{o.item_count || 0} items selected</Text>
+                    <Text style={styles.requestDate}>{new Date(o.created_at).toLocaleDateString()} {new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: Colors.pastelGreen + '20' }]}>
+                  <Text style={[styles.statusText, { color: Colors.pastelGreen }]}>{o.status || 'submitted'}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Recent Requests */}
         {requests.length > 0 && (
