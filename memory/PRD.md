@@ -1,187 +1,77 @@
-# Yash Trade App - Product Requirements Document
+# Yash Trade - Jewellery Business App
 
 ## Original Problem Statement
-Private mobile app for Yash Trade jewelry business, serving ~40,000 wholesale and retail jewelers. The app functions as a daily-use business utility combining:
-- Endless jewelry media viewer (10,000+ images)
-- Daily gold/silver rate updates (6-point system)
-- Customer engagement tools (requests, rewards, AI assistant)
-- Operational management (admin panel, executive dashboard)
+Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments" - a wholesale jewellery business serving ~40,000 wholesale/retail jewelers.
 
-## Tech Stack
-- **Backend:** FastAPI (Python) + MongoDB (via Motor async)
-- **Frontend:** Expo (React Native) with Expo Router, running as web app
-- **Storage:** Emergent Object Storage for production image uploads
-- **AI:** Claude Sonnet 4.5 via Emergent LLM Key
-- **Auth:** JWT with mocked phone OTP (mock code: 1234)
+## Architecture
+- **Customer App**: Expo (React Native) mobile app
+- **Admin Panel**: React web panel at `/panel` route
+- **Backend**: FastAPI + MongoDB
+- **Storage**: Emergent Object Storage
+- **AI**: Claude Sonnet 4.5 via Emergent LLM Key
 
 ## User Roles
-1. **Admin** (phone: 9999999999) - Full control
-2. **Executive** (phone: 7777777777) - Request management
-3. **Customer** (phone: 8888888888) - Browse, request, rewards
+1. **Customer (user)** - Mobile app access
+2. **Admin** - Full panel access (Phone: 9999999999)
+3. **Executive** - Request management (Phone: 7777777777)
+4. **Billing Executive** - Reward points only (Phone: 6666666666)
 
-## Core Architecture
-```
-/app/backend/server.py       - FastAPI backend (all routes + models + storage)
-/app/frontend/app/
-  ├── (tabs)/                 - Customer app tabs (Home, Feed, Calculator, Profile)
-  ├── panel.tsx               - STANDALONE web admin/executive panel (own auth, own dashboard)
-  ├── image-viewer.tsx        - Full-screen image viewer
-  ├── my-requests.tsx         - Customer request history
-  ├── wishlist.tsx            - Customer wishlist
-  └── ...
-/app/frontend/src/api.ts     - API layer with file upload support
+## Implemented Features (as of March 2026)
 
-Customer App:  {base_url}/          → Mobile app (Play Store / App Store ready)
-Admin Panel:   {base_url}/panel     → Web dashboard for admin + executive
-```
+### Core Features
+- JWT auth with mock OTP
+- Product catalog with feed, search, filters
+- Cart (selection/shortlist tool for executives)
+- Request flow (call, video call, ask price) with multi-product selection
+- Rewards/loyalty system with audit trail
+- AI assistant (Claude Sonnet 4.5)
+- Silver Calculator with searchable dropdown
+- Stories/Highlights
+- Knowledge base
 
-## What's Been Implemented
+### March 9, 2026 - 9 Major Features Added
+1. **About Yash Ornaments** (5th tab) - Brand presentation, Why Buy, Benefits, B2B points, Locations
+2. **Endless Home Feed** - Products cycle infinitely, never stops
+3. **Live Rate Auto-Fetch** - Yahoo Finance for dollar rates, auto-calculate MCX via USD/INR conversion, Physical = MCX + Admin Premium
+4. **Rate List** - Silver/Gold/Diamond quantity-based slabs, admin-managed
+5. **Schemes Page** - Poster-based scheme display, admin-managed
+6. **Brands Section** - Brand logos with authorized dealer presentation
+7. **Showroom Photos** - Floor-wise photos with product descriptions
+8. **Upcoming Exhibition** - Shows upcoming/past exhibitions with posters
+9. **Full Language Support** - Hindi/English/Punjabi selector on login, all screens translated
 
-### Phase 0 (Previous Sessions)
-- [x] JWT Auth with 3 roles (admin/executive/customer)
-- [x] 6-point rate system (Dollar/MCX/Physical for Gold & Silver)
-- [x] Endless feed with pagination
-- [x] URL-based bulk upload
-- [x] Silver calculator
-- [x] AI assistant (Claude Sonnet 4.5)
-- [x] Multi-language (English/Hindi/Punjabi)
-- [x] Executive dashboard
-- [x] Stories/highlights
-- [x] Rewards system (basic)
-- [x] Request system (call/video call/ask price)
-- [x] Knowledge articles
+### Admin Panel Content Management
+- About content editor (multilingual)
+- Rate list slab manager
+- Schemes CRUD
+- Brands CRUD
+- Showroom floors CRUD
+- Exhibitions CRUD
+- Live rates premium config
 
-### Phase 1 (2026-03-07) - Production Media Upload + Batch Management
-- [x] **Emergent Object Storage Integration** - init, put_object, get_object
-- [x] **Image Processing** - Pillow-based compression + thumbnail generation
-  - Thumbnails: 400px max, 60% JPEG quality (for feed)
-  - Originals: 1600px max, 85% JPEG quality (for viewer)
-- [x] **Real File Upload** - Admin can upload actual image files from device
-  - Multi-file selection
-  - Chunked upload (3 files per batch request)
-  - Upload progress tracking
-  - File size validation (max 20MB per file)
-- [x] **Batch/Folder Management (CRUD)**
-  - Create batch with name, metal type, category
-  - List/search batches
-  - Edit batch metadata (name, metal, category)
-  - Delete batch (soft-delete/archive)
-  - Toggle visibility (hide/show from customer feed)
-  - Batch reassigns metal/category to all child products
-- [x] **Batch Image Management**
-  - Upload images to specific batches
-  - View all images in a batch (paginated grid)
-  - Multi-select images
-  - Bulk delete selected images
-  - Image count tracking per batch
-- [x] **File Serving** - Backend serves images from storage with 24hr cache
-- [x] **Products Visibility Filtering** - Hidden/deleted products excluded from public feed
-- [x] **Enhanced Request Management** - Notes history, customer info retrieval
-
-### Phase 2 (2026-03-07) - Feed Viewer Experience
-- [x] **Full-Screen Image Viewer** - Opens on tap from feed
-  - Navigation arrows (prev/next)
-  - Image counter (1/N)
-  - Close button
-  - Ask Price + Video Call action buttons
-  - Smooth transitions
-- [x] **Feed Improvements**
-  - Uses getImageUrl() utility for both URL and storage-backed images
-  - Increased page size (20 items)
-  - FlatList performance optimizations (windowSize, removeClippedSubviews)
-  - Latest uploads first (sorted by created_at DESC)
-- [x] **Home Screen** - Updated to use getImageUrl for product cards
-- [x] **Product Detail** - Updated to use storage images when available
+## Tech Stack
+- Frontend: Expo, React Native, TypeScript
+- Backend: FastAPI, Motor (async MongoDB), Pydantic
+- Storage: Emergent Object Storage
+- AI: emergentintegrations (Claude Sonnet 4.5)
+- Live Rates: Yahoo Finance API + ExchangeRate API
 
 ## Key API Endpoints
+- Auth: /api/auth/send-otp, /api/auth/verify-otp, /api/auth/me
+- Products: /api/products, /api/products/{id}
+- Rates: /api/rates/latest, /api/live-rates, /api/live-rates/config
+- Requests: /api/requests, /api/requests/my
+- Cart: /api/cart, /api/cart/add, /api/cart/submit
+- Rewards: /api/rewards/wallet, /api/rewards/credit, /api/rewards/deduct
+- Content: /api/about, /api/rate-list, /api/schemes, /api/brands, /api/showroom, /api/exhibitions
+- Upload: /api/batches, /api/batches/{id}/upload
 
-### Auth
-- POST /api/auth/send-otp
-- POST /api/auth/verify-otp
-- GET /api/auth/me
-
-### Products
-- GET /api/products (pagination, filters, excludes hidden/deleted)
-- POST /api/products (admin)
-- POST /api/products/bulk (admin - URL-based)
-
-### Batches (NEW)
-- POST /api/batches (admin - create)
-- GET /api/batches (admin - list)
-- GET /api/batches/{id} (admin - detail)
-- PUT /api/batches/{id} (admin - update)
-- DELETE /api/batches/{id} (admin - archive)
-- PATCH /api/batches/{id}/visibility (admin - toggle)
-- POST /api/batches/{id}/upload (admin - file upload)
-- GET /api/batches/{id}/images (admin - paginated images)
-- POST /api/batches/{id}/images/delete (admin - delete selected)
-
-### Files
-- GET /api/files/{path} (serves images from storage, cached 24hr)
-
-### Rates
-- GET /api/rates/latest
-- POST /api/rates (admin)
-- GET /api/rates/history
-
-### Requests
-- POST /api/requests (user)
-- GET /api/requests (exec/admin, with filters)
-- PATCH /api/requests/{id} (exec/admin, notes history)
-- GET /api/requests/{id}/history (customer detail + past requests)
-
-## DB Collections
-- **users** - phone, name, city, role, reward_points
-- **products** - title, images[], storage_path, thumbnail_path, batch_id, visibility, is_deleted
-- **batches** - name, metal_type, category, status, image_count, upload_type
-- **rates** - 6 rate values, movement, physical mode/premium
-- **requests** - request_type, status, notes_history[]
-- **reward_transactions** - points, type, reason
-- **knowledge** - articles/tips
-- **stories** - highlights
-
-### Bug Fixes (2026-03-07) — 12-point patch set
-- [x] Fix 1: Redeem rejects points ≤ 0 — Pydantic `Field(gt=0)` + endpoint guard → HTTP 422
-- [x] Fix 2: `/api/seed` + `/api/seed/expand` require admin auth → HTTP 401 unauthenticated
-- [x] Fix 3: PATCH /api/requests/{id} returns 404 for non-existent requests
-- [x] Fix 4: Unified request statuses — canonical: `pending|in_progress|contacted|resolved|no_response`. Backend aliases `done→resolved`, `assigned→in_progress`
-- [x] Fix 5: Wired dead CTAs — Home Ask Price→request flow, Heart→wishlist toggle, Profile→My Requests screen, Profile→Wishlist screen, Product detail→wishlist toggle
-- [x] Fix 6: Product gallery — thumbnail selection updates main image for URL-based products; storage-backed products use full-res image
-- [x] Fix 7: Image viewer — productId match prioritized over startIndex fallback
-- [x] Fix 8: Admin rates tab hydrates movement + market summary from existing values (prevents accidental overwrite)
-- [x] Fix 9: i18n verified clean UTF-8 (Devanagari + Gurmukhi); backend AI prompts verified
-- [x] Fix 10: .gitignore cleaned — removed 4x duplicate env blocks + malformed `-e` line; metro cache removed from git index
-- [x] Fix 11: Frontend .env.example created + runtime console warning if EXPO_PUBLIC_BACKEND_URL missing
-- [x] Fix 12: Executive user seeded at startup via `_internal_seed()` (no manual seed/expand needed)
-
-### Feature Update (2026-03-07) — Crash Fixes + Cart + Calculator + Highlights + Product Metadata
-- [x] Fix: "router is not defined" crash — ProductCard component used `router` from parent scope; moved all actions inline within HomeScreen where `useRouter()` is available
-- [x] Fix: LanguageContext verified stable — uses React Context + AsyncStorage, no expo-router dependency conflicts
-- [x] Calculator: Item Name replaced with searchable dropdown/modal selector (22 preset items + custom entry)
-- [x] Highlights/Stories: Now clickable — category stories open category feed, request stories open request flow, rate stories scroll to rates
-- [x] Product metadata: Added `purity`, `selling_touch`, `selling_label` fields (backend model + product detail display)
-- [x] Cart system: Add to Selection (product card + detail), Cart screen, Submit Selection workflow
-- [x] Cart → Executive: Cart submissions create `cart_selection` request type with full item details, visible in executive panel
-- [x] Cart status flow: pending → in_progress → contacted → resolved/no_response
-
-## Prioritized Backlog
-
-### P1 - Upcoming
-- [ ] Executive Panel upgrade (WhatsApp/Call buttons, advanced filters, customer detail modal)
-- [ ] Rate History charts (mini charts, intraday history, previous update comparison)
-- [ ] Push notification architecture
-- [ ] Rewards/Loyalty system enhancement (catalog, redemption flow, campaigns)
-
-### P2 - Next
-- [ ] Silver Knowledge section build-out (admin + display)
-- [ ] Calculator improvements (multi-item, copy/share, save history)
-- [ ] Language improvements (full localization of all sections)
-- [ ] Analytics improvements (views, engagement, scroll depth)
-- [ ] Stories/Highlights admin management
-
-### P3 - Future
-- [ ] Real OTP integration (Twilio/SMS)
-- [ ] Parcel/Order status tracking
-- [ ] Personalized AI feed recommendations
-- [ ] City-wise notification campaigns
-- [ ] Backend modularization (APIRouter)
+## Backlog / Future Tasks
+- P0: Improve feed image quality (HD thumbnails)
+- P1: Global success toasts after actions
+- P1: Fix back-navigation in customer app
+- P2: Rate history with mini-charts
+- P2: Push notifications
+- P2: Analytics dashboard
+- P3: Real OTP integration (replace mock)
+- P3: Gold calculator
