@@ -6,7 +6,7 @@ import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl } from '../src/api';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
-type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload';
+type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'liverates';
 type Role = 'admin' | 'executive' | null;
 
@@ -603,8 +603,13 @@ export default function PanelScreen() {
                     </TouchableOpacity>
                     <TouchableOpacity testID="pm-bulk" style={s.menuCard} onPress={() => { setProductSubView('batches'); loadTab('products'); }}>
                       <View style={[s.menuCardIcon, { backgroundColor: Colors.gold + '15' }]}><Ionicons name="cloud-upload" size={28} color={Colors.gold} /></View>
-                      <Text style={s.menuCardTitle}>Bulk Upload</Text>
-                      <Text style={s.menuCardHint}>Upload 100s of images at once</Text>
+                      <Text style={s.menuCardTitle}>Upload Images</Text>
+                      <Text style={s.menuCardHint}>Upload photos from device</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity testID="pm-pdf" style={s.menuCard} onPress={() => { setProductSubView('pdf_import'); loadTab('products'); }}>
+                      <View style={[s.menuCardIcon, { backgroundColor: '#E91E63' + '15' }]}><Ionicons name="document-text" size={28} color="#E91E63" /></View>
+                      <Text style={s.menuCardTitle}>Import PDF</Text>
+                      <Text style={s.menuCardHint}>Import PDF catalogue as products</Text>
                     </TouchableOpacity>
                     <TouchableOpacity testID="pm-list" style={s.menuCard} onPress={() => { setProductSubView('list'); loadTab('products'); }}>
                       <View style={[s.menuCardIcon, { backgroundColor: Colors.info + '15' }]}><Ionicons name="grid" size={28} color={Colors.info} /></View>
@@ -653,6 +658,133 @@ export default function PanelScreen() {
                   {products.length === 0 && <Text style={s.emptyText}>No products yet</Text>}
                 </>
               )}
+
+              {/* PDF IMPORT — standalone view */}
+              {productSubView === 'pdf_import' && (
+                <>
+                  <Text style={s.sectionTitle}>IMPORT PDF CATALOGUE</Text>
+                  <View style={[s.formCard, { borderColor: '#E91E63' + '30' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.md }}>
+                      <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: '#E91E63' + '15', alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="document-text" size={24} color="#E91E63" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.formTitle}>PDF to Product Images</Text>
+                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.xs }}>Each PDF page becomes a separate product image</Text>
+                      </View>
+                    </View>
+
+                    {/* Step 1: Select or create batch */}
+                    <Text style={[s.formLabel, { marginTop: 0 }]}>STEP 1: Select Batch</Text>
+                    {batches.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: Spacing.md }}>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {batches.map(b => (
+                            <TouchableOpacity key={b.id} style={[s.chip, uploadBatchId === b.id && { backgroundColor: '#E91E63' + '20', borderColor: '#E91E63' }]} onPress={() => setUploadBatchId(b.id)}>
+                              <Text style={[s.chipText, uploadBatchId === b.id && { color: '#E91E63' }]}>{b.name} ({b.image_count})</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    ) : null}
+                    {!uploadBatchId && (
+                      <View style={{ marginBottom: Spacing.md }}>
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.sm, marginBottom: Spacing.sm }}>Or create a new batch:</Text>
+                        <View style={s.formRow}>
+                          <TextInput style={[s.formInput, { flex: 1, marginBottom: 0 }]} placeholder="New batch name" placeholderTextColor={Colors.textMuted} value={newBatchName} onChangeText={setNewBatchName} />
+                          <TouchableOpacity style={[s.saveBtn, { flex: 0, paddingHorizontal: Spacing.lg, marginTop: 0 }]} onPress={async () => {
+                            if (!newBatchName.trim()) return;
+                            try {
+                              const batch = await api.post('/batches', { name: newBatchName, metal_type: newBatchMetal, category: '' });
+                              setUploadBatchId(batch.id);
+                              setNewBatchName('');
+                              loadTab('products');
+                            } catch (e: any) { Alert.alert('Error', e.message); }
+                          }}><Text style={s.saveBtnText}>CREATE</Text></TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                    {uploadBatchId && <Text style={{ color: '#E91E63', fontWeight: '600', fontSize: FontSize.sm, marginBottom: Spacing.sm }}>Batch: {batches.find(b => b.id === uploadBatchId)?.name || uploadBatchId.slice(0, 8)}</Text>}
+
+                    {/* Step 2: Select PDF */}
+                    <Text style={s.formLabel}>STEP 2: Select PDF File</Text>
+                    <TouchableOpacity testID="pdf-pick-btn" style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
+                      <Ionicons name="document-text" size={40} color="#E91E63" />
+                      <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '700' }}>Tap to select PDF from device</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 100MB</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Each page will be extracted as a product image</Text>
+                    </TouchableOpacity>
+
+                    {/* PDF file selected */}
+                    {pdfFile && (
+                      <View style={{ marginTop: Spacing.md, backgroundColor: '#E91E63' + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: '#E91E63' + '30' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <Ionicons name="document-text" size={28} color="#E91E63" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: Colors.text, fontWeight: '700', fontSize: FontSize.md }}>{pdfFile.name}</Text>
+                            <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm }}>{(pdfFile.size / (1024 * 1024)).toFixed(1)} MB</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => { setPdfFile(null); setPdfResult(null); }}>
+                            <Ionicons name="close-circle" size={24} color={Colors.error} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Importing progress */}
+                    {pdfImporting && (
+                      <View style={{ marginTop: Spacing.lg, alignItems: 'center', paddingVertical: Spacing.lg }}>
+                        <ActivityIndicator color="#E91E63" size="large" />
+                        <Text style={{ color: Colors.text, fontSize: FontSize.md, fontWeight: '600', marginTop: Spacing.md }}>Importing PDF...</Text>
+                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, marginTop: 4 }}>Extracting pages and converting to product images</Text>
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>This may take a moment for large PDFs</Text>
+                      </View>
+                    )}
+
+                    {/* Import result */}
+                    {pdfResult && !pdfResult.error && (
+                      <View style={{ marginTop: Spacing.md, backgroundColor: Colors.success + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.success + '30' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: Spacing.sm }}>
+                          <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
+                          <Text style={{ color: Colors.success, fontWeight: '700', fontSize: FontSize.lg }}>PDF Import Complete!</Text>
+                        </View>
+                        <Text style={{ color: Colors.text, fontSize: FontSize.md }}>Total pages in PDF: {pdfResult.total_pages}</Text>
+                        <Text style={{ color: Colors.success, fontSize: FontSize.md, fontWeight: '600' }}>Successfully imported: {pdfResult.imported} pages</Text>
+                        {pdfResult.failed > 0 && <Text style={{ color: Colors.error, fontSize: FontSize.md }}>Failed pages: {pdfResult.failed}</Text>}
+                        {pdfResult.skipped > 0 && <Text style={{ color: Colors.warning, fontSize: FontSize.md }}>Skipped (empty): {pdfResult.skipped}</Text>}
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: Spacing.sm }}>Each imported page is now a separate product entry in your batch.</Text>
+                        {pdfResult.results?.filter((r: any) => r.status !== 'ok').length > 0 && (
+                          <View style={{ marginTop: Spacing.sm }}>
+                            <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, fontWeight: '600' }}>Page details:</Text>
+                            {pdfResult.results.filter((r: any) => r.status !== 'ok').map((r: any, i: number) => (
+                              <Text key={i} style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Page {r.page}: {r.status} — {r.detail || ''}</Text>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    {pdfResult?.error && (
+                      <View style={{ marginTop: Spacing.md, backgroundColor: Colors.error + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '30' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Ionicons name="alert-circle" size={24} color={Colors.error} />
+                          <Text style={{ color: Colors.error, fontWeight: '600', flex: 1 }}>Import Failed: {pdfResult.error}</Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Step 3: Import button */}
+                    {pdfFile && uploadBatchId && !pdfImporting && (
+                      <TouchableOpacity testID="pdf-import-btn" style={[s.saveBtn, { marginTop: Spacing.lg, backgroundColor: '#E91E63' }]} onPress={startPdfImport}>
+                        <Text style={[s.saveBtnText, { letterSpacing: 2 }]}>IMPORT PDF CATALOGUE</Text>
+                      </TouchableOpacity>
+                    )}
+                    {pdfFile && !uploadBatchId && (
+                      <Text style={{ color: Colors.warning, fontSize: FontSize.sm, textAlign: 'center', marginTop: Spacing.md }}>Please select or create a batch first</Text>
+                    )}
+                  </View>
+                </>
+              )}
+
 
               {/* BATCHES + BULK UPLOAD */}
               {(productSubView === 'batches' || productSubView === 'batch_upload') && (
