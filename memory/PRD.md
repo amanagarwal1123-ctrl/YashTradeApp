@@ -71,6 +71,15 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Content: /api/about, /api/rate-list, /api/schemes, /api/brands, /api/showroom, /api/exhibitions
 - Upload: /api/batches, /api/batches/{id}/upload
 
+### PDF Catalogue Import (March 9, 2026)
+- Separate PDF import option alongside image upload in admin panel
+- Backend extracts each PDF page as a high-res JPEG using PyMuPDF (fitz)
+- Each page becomes a separate product entry in the batch
+- Shows: total pages, imported count, failed count, per-page status
+- Validates PDF format (rejects non-PDF files)
+- Up to 100MB PDF size supported
+- Products tagged with source_type: "pdf_import" and source_page number
+
 ## Backlog / Future Tasks
 - P0: Improve feed image quality (HD thumbnails)
 - P1: Global success toasts after actions
