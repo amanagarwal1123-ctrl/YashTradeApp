@@ -72,6 +72,7 @@ export default function PanelScreen() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfImporting, setPdfImporting] = useState(false);
   const [pdfResult, setPdfResult] = useState<any>(null);
+  const [pdfPhase, setPdfPhase] = useState('');
 
   // Request detail
   const [editingReqId, setEditingReqId] = useState('');
@@ -252,14 +253,16 @@ export default function PanelScreen() {
 
   const startPdfImport = async () => {
     if (!uploadBatchId || !pdfFile) return;
-    setPdfImporting(true); setPdfResult(null);
+    setPdfImporting(true); setPdfResult(null); setPdfPhase('');
     try {
-      const result = await api.importPdf(`/batches/${uploadBatchId}/import-pdf`, pdfFile);
+      const result = await api.importPdf(`/batches/${uploadBatchId}/import-pdf`, pdfFile, (phase, detail) => {
+        setPdfPhase(detail);
+      });
       setPdfResult(result);
-      setPdfFile(null);
-      Alert.alert('PDF Imported', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
+      setPdfFile(null); setPdfPhase('');
+      Alert.alert('PDF Import Complete', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
       loadTab('products');
-    } catch (e: any) { Alert.alert('Error', e.message); setPdfResult({ error: e.message }); }
+    } catch (e: any) { setPdfResult({ error: e.message }); setPdfPhase(''); }
     finally { setPdfImporting(false); }
   };
 
@@ -711,7 +714,7 @@ export default function PanelScreen() {
                     <TouchableOpacity testID="pdf-pick-btn" style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
                       <Ionicons name="document-text" size={40} color="#E91E63" />
                       <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '700' }}>Tap to select PDF from device</Text>
-                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 100MB</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 300MB</Text>
                       <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Each page will be extracted as a product image</Text>
                     </TouchableOpacity>
 
@@ -736,8 +739,9 @@ export default function PanelScreen() {
                       <View style={{ marginTop: Spacing.lg, alignItems: 'center', paddingVertical: Spacing.lg }}>
                         <ActivityIndicator color="#E91E63" size="large" />
                         <Text style={{ color: Colors.text, fontSize: FontSize.md, fontWeight: '600', marginTop: Spacing.md }}>Importing PDF...</Text>
-                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, marginTop: 4 }}>Extracting pages and converting to product images</Text>
-                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>This may take a moment for large PDFs</Text>
+                        {pdfPhase ? <Text style={{ color: '#E91E63', fontSize: FontSize.sm, marginTop: 4, textAlign: 'center' }}>{pdfPhase}</Text> : null}
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>This may take a few minutes for large catalogues</Text>
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Please do not close this page</Text>
                       </View>
                     )}
 
@@ -844,7 +848,7 @@ export default function PanelScreen() {
                         <TouchableOpacity style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
                           <Ionicons name="document-text" size={32} color="#E91E63" />
                           <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '600' }}>Tap to select PDF file</Text>
-                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF only — Max 100MB — Pages become product images</Text>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF only — Max 300MB — Pages become product images</Text>
                         </TouchableOpacity>
                         {pdfFile && (
                           <View style={{ marginTop: Spacing.md, backgroundColor: Colors.surface, borderRadius: 10, padding: Spacing.md }}>

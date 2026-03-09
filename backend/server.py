@@ -693,25 +693,43 @@ async def import_pdf_to_batch(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    data = await file.read()
-    if len(data) > 100 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="PDF too large (max 100MB)")
-    if len(data) < 100:
-        raise HTTPException(status_code=400, detail="File too small or empty")
+    # Read file in chunks to handle large files
+    chunks = []
+    total_size = 0
+    max_size = 300 * 1024 * 1024  # 300MB
+    try:
+        while True:
+            chunk = await file.read(1024 * 1024)  # Read 1MB at a time
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > max_size:
+                raise HTTPException(status_code=413, detail=f"PDF file too large. Maximum size is 300MB. Your file is {total_size / (1024*1024):.0f}MB.")
+            chunks.append(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading uploaded file: {str(e)}")
 
-    # Detect if it's actually a PDF
+    data = b''.join(chunks)
+    if len(data) < 100:
+        raise HTTPException(status_code=400, detail="File is empty or too small to be a valid PDF.")
+
+    # Validate PDF format
     if not data[:5] == b'%PDF-':
-        raise HTTPException(status_code=400, detail="Not a valid PDF file. Please use 'Upload Images' for image files.")
+        raise HTTPException(status_code=400, detail="Not a valid PDF file. The file must be a PDF document (.pdf). Please use 'Upload Images' for image files (JPG, PNG, etc).")
 
     try:
         pdf_doc = fitz.open(stream=data, filetype="pdf")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cannot open PDF: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Cannot open PDF. The file may be corrupted or password-protected. Error: {str(e)}")
 
     total_pages = len(pdf_doc)
     if total_pages == 0:
         pdf_doc.close()
-        raise HTTPException(status_code=400, detail="PDF has no pages")
+        raise HTTPException(status_code=400, detail="PDF has 0 pages. The document appears to be empty.")
+
+    logger.info(f"PDF import started: {file.filename}, {total_size/(1024*1024):.1f}MB, {total_pages} pages, batch={batch_id}")
 
     results = []
     current_count = batch.get("image_count", 0)
@@ -720,22 +738,19 @@ async def import_pdf_to_batch(
     for page_num in range(total_pages):
         try:
             page = pdf_doc[page_num]
-            # Render page at high resolution (2x for quality)
+            # Render page at 2x resolution for quality
             mat = fitz.Matrix(2.0, 2.0)
             pix = page.get_pixmap(matrix=mat, alpha=False)
             img_data = pix.tobytes("jpeg")
 
             if len(img_data) < 500:
-                results.append({"page": page_num + 1, "status": "skipped", "detail": "Page rendered too small/empty"})
+                results.append({"page": page_num + 1, "status": "skipped", "detail": "Page rendered too small or blank"})
                 continue
 
             file_id = str(uuid.uuid4())
-
-            # Process into standard sizes
             original_data = process_image(img_data, max_size=1600, quality=85)
             thumb_data = create_thumbnail(img_data, size=400, quality=60)
 
-            # Upload to storage
             original_path = f"{APP_NAME}/originals/{file_id}.jpg"
             thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
             put_object(original_path, original_data, "image/jpeg")
@@ -774,6 +789,8 @@ async def import_pdf_to_batch(
             }
             await db.products.insert_one(product)
             results.append({"page": page_num + 1, "status": "ok", "id": file_id})
+            if (page_num + 1) % 10 == 0:
+                logger.info(f"PDF import progress: {page_num + 1}/{total_pages} pages processed")
         except Exception as e:
             logger.error(f"PDF page {page_num + 1} error: {e}")
             results.append({"page": page_num + 1, "status": "error", "detail": str(e)})
@@ -790,12 +807,15 @@ async def import_pdf_to_batch(
             {"$set": {"image_count": current_count, "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
 
+    logger.info(f"PDF import complete: {imported} imported, {failed} failed, {skipped} skipped out of {total_pages} pages")
+
     return {
-        "message": f"PDF imported: {imported} pages converted to products",
+        "message": f"PDF imported: {imported} pages converted to product images",
         "total_pages": total_pages,
         "imported": imported,
         "failed": failed,
         "skipped": skipped,
+        "file_size_mb": round(total_size / (1024 * 1024), 1),
         "results": results,
         "batch_image_count": current_count,
         "filename": file.filename

@@ -50,17 +50,58 @@ export const api = {
     }
     return allResults;
   },
-  importPdf: async (path: string, file: File) => {
+  importPdf: async (path: string, file: File, onProgress?: (phase: string, detail: string) => void) => {
+    // Validate file size client-side
+    const maxSize = 300 * 1024 * 1024; // 300MB
+    if (file.size > maxSize) {
+      throw new Error(`PDF file is too large (${(file.size / (1024 * 1024)).toFixed(0)}MB). Maximum allowed size is 300MB.`);
+    }
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      throw new Error('Please select a PDF file (.pdf). For images, use the "Upload Images" option instead.');
+    }
+
+    onProgress?.('uploading', `Uploading ${(file.size / (1024 * 1024)).toFixed(1)}MB PDF...`);
+
     const formData = new FormData();
     formData.append('file', file);
     const headers: Record<string, string> = {};
     if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'PDF import failed' }));
-      throw new Error(err.detail || `Error ${res.status}`);
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 min timeout
+
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `Server error ${res.status}` }));
+        throw new Error(err.detail || `Server returned error ${res.status}`);
+      }
+
+      onProgress?.('processing', 'PDF uploaded. Extracting pages...');
+      return await res.json();
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        throw new Error('Upload timed out. The PDF may be too large or the connection is slow. Please try again or use a smaller file.');
+      }
+      if (e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError')) {
+        throw new Error(
+          `Network error during PDF upload. Possible reasons:\n` +
+          `• PDF file may be too large for your connection\n` +
+          `• Internet connection was interrupted\n` +
+          `• Server took too long to respond\n\n` +
+          `File size: ${(file.size / (1024 * 1024)).toFixed(1)}MB\n` +
+          `Try again or use a smaller PDF.`
+        );
+      }
+      throw e;
     }
-    return res.json();
   },
 };
 
