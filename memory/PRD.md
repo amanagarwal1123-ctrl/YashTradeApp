@@ -47,6 +47,15 @@ About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Ex
 - Product detail page: ScrollView with maximumZoomScale=4, "Pinch to zoom" hint
 - Image viewer: ScrollView with maximumZoomScale=5, full-screen zoom support
 
+### Virtual Try-On (Web)
+- Standalone web page at `/api/virtual-try-on` — no Expo dependency
+- Login via phone/OTP, loads real products from API
+- 3-tab workflow: Product Selection → Customer Photo Upload → Generate Preview
+- Backend compositing: Pillow-based background removal + overlay of exact product onto exact user photo
+- Features: body area selection (neck/ear/wrist/ankle/finger), scale/position adjustment, compare before/after, zoom
+- Endpoint: POST /api/ai/try-on (returns image_url + image_base64)
+- Mobile Expo app also has try-on at `/try-on` route (React Native version)
+
 ## Tech Stack
 - Frontend: Expo, React Native, TypeScript
 - Backend: FastAPI, Motor (async MongoDB), Pydantic
