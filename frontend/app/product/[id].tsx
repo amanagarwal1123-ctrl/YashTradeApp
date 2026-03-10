@@ -173,15 +173,13 @@ export default function ProductDetail() {
           </TouchableOpacity>
         </View>
 
-        {/* AI Try-On button for wearable categories */}
-        {product.category && ['payal', 'chain', 'necklace', 'bracelet', 'bangles', 'kadaa', 'ring', 'earrings', 'pendant', 'nose_ring', 'toe_rings', 'articles'].includes(product.category.toLowerCase()) && (
-          <View style={styles.ctaSection}>
-            <TouchableOpacity testID="try-on-btn" style={styles.tryOnBtn} onPress={() => router.push({ pathname: '/try-on', params: { productId: id } })}>
-              <Ionicons name="sparkles" size={18} color="#fff" />
-              <Text style={styles.tryOnBtnText}>AI Try-On Preview</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* AI Try-On button — visible on all jewellery products */}
+        <View style={styles.ctaSection}>
+          <TouchableOpacity testID="try-on-btn" style={styles.tryOnBtn} onPress={() => router.push({ pathname: '/try-on', params: { productId: id } })}>
+            <Ionicons name="sparkles" size={18} color="#fff" />
+            <Text style={styles.tryOnBtnText}>AI Try-On Preview</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
