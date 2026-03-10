@@ -14,7 +14,7 @@ import time
 import os
 
 # Get backend URL from frontend env
-BACKEND_URL = "https://gem-bulk-import.preview.emergentagent.com/api"
+BACKEND_URL = "https://yash-tryon-test.preview.emergentagent.com/api"
 
 # Test data
 ADMIN_PHONE = "9999999999"

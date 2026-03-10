@@ -3,7 +3,7 @@
 Backend API Tests for Yash Trade App Web Panel Architecture
 Testing customer mobile app + admin/executive web panel split with role-based access.
 
-Base URL: https://gem-bulk-import.preview.emergentagent.com
+Base URL: https://yash-tryon-test.preview.emergentagent.com
 
 Credentials:
 - Admin: Phone 9999999999, OTP 1234
@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://gem-bulk-import.preview.emergentagent.com/api"
+BASE_URL = "https://yash-tryon-test.preview.emergentagent.com/api"
 print(f"Testing Web Panel Architecture at: {BASE_URL}")
 
 class WebPanelTestRunner:

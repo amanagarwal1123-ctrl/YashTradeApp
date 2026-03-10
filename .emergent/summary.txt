@@ -1,55 +1,71 @@
 <analysis>
+<original_problem_statement>
+The user wants to enhance his Yash Trade jewelry business app. The initial project involved adding numerous features like About Us, live rate scraping, and multi-language support.
 
-**original_problem_statement**: The user wants to enhance his Yash Trade jewelry business app with a wide array of new features and fixes. The initial goal was to build a private mobile app for his network of jewelers to increase retention.
-
-This session focused on three major waves of user requests:
-1.  **Nine New Features:** Implementation of About Us, endless home feed, live rate scraping, a new Rate List page, a Schemes page, a Brands section, a Showroom Photos section, an Upcoming Exhibition page, and full app-wide language support (Hindi, English, Punjabi).
-2.  **Nine UI/UX Refinements:** A complete overhaul of the previously implemented features based on specific user feedback. This included changing the Silver Rate List to be item-wise, correcting addresses, making About section content interactive, swapping button positions on the product page, adding success confirmations, and displaying more product details on feed cards.
-3.  **Production-Grade PDF Import:** A critical and multi-stage feature request to allow the admin to upload large PDF catalogs (up to 300MB), have the system extract each page as a product image, and add them to the bulk upload workflow. This involved backend processing with PyMuPDF, a complete Admin Panel UI refactor for a better user experience, and fixing server-side upload limits.
+The current session has been focused on a series of complex, high-priority user requests:
+1.  **Production-Grade PDF Import (1GB):** The user urgently required the ability to upload PDF catalogs up to 1GB. This necessitated a complete re-architecture from a simple file upload to a robust, production-grade chunked and resumable upload system. This involved extensive debugging of frontend caching issues, race conditions, and retry logic.
+2.  **Critical UX/UI Fixes:** The user requested four critical improvements: a cancel option for uploads, zoomable product images, making the chunked upload more reliable, and ensuring uploads continue even if the mobile screen locks.
+3.  **Product Limit Increase:** The user requested the app support up to 100,000 (1 lakh) products, requiring removal of hardcoded limits.
+4.  **Nine UI/UX Refinements:** A large batch of UI improvements including new button layouts, confirmation messages, a new color theme, a floating WhatsApp icon, an My Orders history page, and randomized product listings.
+5.  **AI Try-On Feature:** The user requested a feature for customers to preview jewelry on their own photos. This feature has gone through multiple incorrect iterations (random image generation, simple overlay) and the current implementation attempts to create a realistic composite using the exact user photo and the exact product image.
+</original_problem_statement>
 
 **User's preferred language**: English
 
 **what currently exists?**
-The application now has a significantly expanded feature set on both the customer-facing mobile app and the internal web panel.
--   **Mobile App:** Features nine new sections (About, Rate List, Schemes, etc.), a live-updating rates ticker powered by a web scraper (Yahoo Finance), and an endless home feed. The UI/UX has been refined with more interactive elements, better user feedback (toasts, success messages), and more data-rich product cards. A language selector is available on the login screen.
--   **Web Panel:** The admin panel has been extended to manage content for all nine new features. Most critically, it now includes a dedicated, standalone Import PDF workflow designed to handle large catalog files.
--   **Backend:** The  monolith now includes dozens of new endpoints, data models, and business logic to support all new features. It contains a web scraping task that runs in the background and a PDF processing engine using PyMuPDF. The NGINX configuration has been modified to allow large file uploads up to 350MB.
+-   **Backend:** The monolithic  now includes a sophisticated chunked upload system to handle large files (up to 1GB). It uses a temporary directory to assemble 25MB chunks and a MongoDB collection () to track upload state for resumability. It also features a new endpoint () that uses the Pillow library to composite product images onto user-provided photos. The product query endpoints now support randomization and a limit of 100,000 items. An endpoint to fetch a user's order history () has also been added.
+-   **Admin Panel ():** The PDF import UI has been completely overhauled to support the new chunked upload system, showing detailed progress, status, and error messages. It includes logic for upload cancellation and resuming failed uploads.
+-   **Mobile App ():**
+    -   A new AI Try-On screen () has been created, which allows users to upload a photo and receive a composite image from the backend.
+    -   Numerous UI/UX enhancements have been implemented: a new, more colorful theme; a floating WhatsApp button; Add to Cart confirmations on both the feed and product detail pages; a My Orders section in the user profile; and a Thank You screen after submitting a cart.
+    -   Product images on the detail page () are now zoomable.
 
 **Last working item**:
-- Last item agent was working: The agent was fixing the PDF import feature, which was failing for large files and providing poor user feedback. The fix involved multiple steps:
-    1.  Identified that the default 1MB NGINX upload limit was the root cause of the Failed to fetch error.
-    2.  Modified  to increase  to  and raised timeouts.
-    3.  Improved the backend PDF import endpoint to return specific error messages.
-    4.  Overhauled the frontend UI in  to increase the displayed limit to 300MB, show upload/processing status, and display detailed error messages returned from the backend.
-- Status: USER VERIFICATION PENDING
-- Agent Testing Done: Y (Tested backend API with a 10-page PDF via a script, but not a full 300MB file via the UI.)
-- Which testing method agent to use? The user must perform manual testing with a real, large PDF file (e.g., >100MB). If issues persist, the next agent should use 'both' (frontend and backend testing agents) to debug the entire flow.
-- User Testing Done: N
+- Last item agent was working: Re-implementing the AI Try-On feature for the third time to meet the user's specific requirements. The user rejected the previous random AI generation and simple overlay approaches. The latest implementation uses the Python Pillow library on the backend to create a composite image by placing the exact selected product image onto the exact user-uploaded photo. The frontend  screen was also rebuilt to support this new flow (upload -> generate -> display composite).
+    - Status: IN PROGRESS
+    - Agent Testing Done: N (The code was just written and services were restarted, but no end-to-end test was performed on this new implementation).
+    - Which testing method agent to use? both. The frontend flow needs to be checked, and the backend image composition result needs to be verified for correctness and quality.
+    - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-  - Issue 1:  **User Verification for Large PDF Import (P0)**
-     - Attempted fixes: The agent increased the NGINX  to 350MB and improved UI/backend error handling. The agent did not implement a true chunked upload, instead opting to raise the server's single-file limit.
-     - Next debug checklist: The user needs to test uploading a PDF file larger than 100MB (up to 300MB) through the Import PDF Catalogue UI in the admin panel. The agent should verify:
-         1. Does the upload succeed without a Failed to fetch or timeout error on a slow connection?
-         2. Are the progress indicators and status messages accurate?
-         3. Are all pages from the PDF correctly extracted and visible in the selected batch?
-     - Why fix this issue and what will be achieved with the fix? This is a critical business requirement for bulk product entry from existing catalogues. Fixing it will unblock a major admin workflow.
-     - Status:  USER VERIFICATION PENDING
+  - Issue 1: **AI Try-On Feature Functionality and Quality (P0)**
+     - Attempted fixes:
+        1.  Initial version used OpenAI to generate a random image, which was incorrect.
+        2.  Second version was a simple client-side canvas overlay, which the user rejected as too basic.
+        3.  The current version uses a backend Pillow-based image compositor.
+     - Next debug checklist:
+        1.  Verify that the  screen correctly allows a user to select a product, upload a photo, and trigger the backend process.
+        2.  Confirm the backend  endpoint correctly receives the images, creates a composite, and returns it.
+        3.  Critically evaluate the quality of the output image. Does it look realistic? Is the placement, scale, and rotation of the jewelry correct?
+        4.  The user wants an AI-generated realistic try-on, but the current implementation is a non-AI smart overlay. The next agent must be prepared for the user to potentially reject this implementation as well and may need to investigate actual AI try-on models or APIs.
+     - Why fix this issue and what will be achieved with the fix? This is a major feature request from the user and is the current primary focus.
+     - Status: IN PROGRESS
      - Is recurring issue? Y
      - Should Test frontend/backend/both after fix? Both.
+     - Blocked on other issue: None.
+
+  - Issue 2: **Uploads Fail When Mobile Screen Locks (P1)**
+     - Attempted fixes: The agent initially implemented  to solve this. However, it caused the web version of the admin panel to crash and was completely removed as a fix.
+     - Next debug checklist:
+        1.  Re-implement the  hook in .
+        2.  Wrap the hook's activation in a platform check (e.g., ).
+        3.  This will restore the required functionality on mobile without crashing the web panel.
+     - Why fix this issue and what will be achieved with the fix? This is a critical requirement for a mobile app that handles large uploads. The user explicitly requested it (Point 4, Msg 109), and its removal is a regression.
+     - Status: NOT STARTED
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? Frontend.
      - Blocked on other issue: None.
 
 **In progress Task List**:
 None.
 
 **Upcoming and Future Tasks**
+*   **Upcoming Tasks (Carried over from handoff):**
+    *   **P1: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. (File: , )
+    *   **P1: Implement Global Success Confirmations:** While some were added, the user requested this *across the entire app*. A systematic review is needed.
+    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button behaves predictably and doesn't log the user out.
 
-*   **Upcoming Tasks (Carried over from previous session):**
-    *   **P1: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. This involves reviewing thumbnail generation and image rendering strategies.
-    *   **P1: Implement Global Success Confirmations:** Add clear success confirmations (e.g., toasts) after major actions like save, upload, and update *across the entire app* to improve user feedback. (Some were added, but not globally).
-    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button in the customer mobile app behaves predictably (e.g., Product Detail -> Feed) and does not incorrectly log the user out.
-
-*   **Future Tasks (From PRD):**
+*   **Future Tasks (From PRD/Handoff):**
     *   **Rate System History:** Add rate history, intraday update logs, and mini-charts.
     *   **Push Notifications:** Implement architecture for notifications.
     *   **Analytics:** Build out the analytics dashboard for admins.
@@ -57,37 +73,30 @@ None.
     *   **Expand Calculator:** Add a Gold calculator.
 
 **Completed work in this session**
-- **Feature Implementation (9 New Features):**
-  - Added About Us, Brands, Schemes, Showroom Photos, Exhibition, and Rate List screens to the mobile app with full backend and admin panel management.
-  - Implemented a live-rate scraping system from Yahoo Finance that updates every 60 seconds.
-  - Created a language selector (English, Hindi, Punjabi) on the login screen.
-- **UI/UX Refinements (9 Fixes):**
-  - Re-architected the Silver Rate List to be item-wise instead of quantity-based.
-  - Corrected office addresses in the About Us section.
-  - Made About Us content interactive and expandable.
-  - Swapped Ask Price and Add to Cart buttons on the product page and added a confirmation toast.
-  - Added a Thank You message after cart submission.
-  - Added compact product details (Weight, Purity, etc.) to product cards in the feed.
-- **PDF Catalog Import System:**
-  - Created a backend PDF processing endpoint using PyMuPDF to extract pages as images.
-  - Completely refactored the Admin Panel UI to provide a clear, standalone Import PDF Catalogue workflow.
-  - Debugged and fixed large file upload failures by increasing the NGINX server's  to 350MB.
-  - Implemented improved progress indicators and error handling for the PDF import process.
+- **Production-Grade PDF Import (1GB):**
+  - Implemented a resilient chunked (25MB) upload system with resume capabilities.
+  - Resolved critical bugs including an  error caused by incorrect event handling, a consumed blob issue in the retry logic, and a Metro bundler caching issue that prevented frontend fixes from being served.
+  - Increased NGINX  to 30MB to support the larger chunks.
+- **Product & Feed Enhancements:**
+  - Increased product query limits to 100,000.
+  - Implemented product list randomization on the backend.
+  - Added an Add to Cart button with a confirmation message to the main feed cards.
+- **Major UI/UX Overhaul (9-point list):**
+  - Implemented a new, more colorful application theme.
+  - Added a permanent floating WhatsApp icon linking to a pre-filled chat.
+  - Added an My Orders history section to the user profile, with a corresponding backend endpoint.
+  - Added clear confirmation toasts/messages for Add to Cart (inner page) and Submit Selection.
+  - Reordered buttons on the product detail page and added a visual reaction to the wishlist heart icon.
+- **UX Fixes (4-point list):**
+  - Implemented a Cancel button for uploads using .
+  - Made product images zoomable on the detail page.
 
 **Earlier issues found/mentioned but not fixed**
-The following tasks were on the agenda at the start of the session but were superseded by the user's new, high-priority requests and remain unaddressed:
-   - **Issue 1: Improve Feed Image Quality:** The user noted that feed images can be blurry.
-     - Debug checklist: Review image upload/compression logic in  and the  component rendering in  and . Check if lower-resolution thumbnails are being used where high-definition images are needed.
-     - Why to solve this: High-quality visuals are essential for a jewelry business.
-     - Should Test frontend/backend/both after fix: Both.
-   - **Issue 2: Implement Global Success Confirmations:** The user wanted clearer feedback after actions.
-     - Debug checklist: Identify key user actions (e.g., saving profile, updating settings) that lack feedback. Integrate the  toast component in relevant places.
-     - Why to solve this: Improves user confidence and application usability.
+   - Issue 1: **Uploads stop when the mobile screen locks.** This was explicitly requested by the user, implemented with , and then fully removed to fix a web crash. The fix was not made platform-specific, so the requirement remains unfulfilled.
+     - Debug checklist: Re-introduce  in  behind a  check.
+     - Why to solve this: It's a critical usability feature for large mobile uploads and a regression on a user requirement.
      - Should Test frontend/backend/both after fix: Frontend.
-   - **Issue 3: Fix Customer App Back-Navigation:** The user reported unpredictable back button behavior.
-     - Debug checklist: Analyze the navigation stack in Expo Router. Trace the user flow from Home -> Feed -> Product Detail and back. Check for any  calls that might be breaking the history stack.
-     - Why to solve this: A broken back button is a frustrating and critical usability flaw.
-     - Should Test frontend/backend/both after fix: Frontend.
+     - Is recurring issue? Y
 
 **Known issue recurrence from previous fork**
 N/A
@@ -96,103 +105,90 @@ N/A
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI, MongoDB (Pymongo), Pydantic.
--   **Frontend (Mobile):** Expo (React Native), Expo Router, React Context API.
+-   **Backend:** FastAPI, MongoDB, Pydantic, **Pillow (PIL)** for image manipulation.
+-   **Frontend (Mobile):** Expo, React Native, Expo Router.  for toasts.
 -   **Frontend (Web Panel):** React, CSS.
--   **PDF Processing:**  for extracting pages from PDF files.
--   **Web Scraping:**  and  for fetching live commodity prices from Yahoo Finance.
--   **Server Configuration:** Modified NGINX config () to handle large file uploads.
+-   **Large File Uploads:** A custom chunked upload architecture (25MB chunks) with client-side slicing () and server-side assembly.
+-   **Upload Management:**  for cancellation, and a backend/frontend system for resuming uploads by checking for already received chunks.
+-   **Debugging:** Traced and fixed critical bugs related to JS event objects, consumed blobs in retry loops, and Metro bundler caching ().
 
 **key DB schema**
--   **users:** 
--   **products:** 
--   **about_content:**  (New)
--   **rate_slabs:**  (Schema Changed)
--   **schemes:**  (New)
--   **brands:**  (New)
--   **showrooms:**  (New)
--   **exhibitions:**  (New)
--   **live_rates:**  (New)
+-   **upload_sessions:**  (New)
+-   **carts:** Now includes a  field to differentiate pending carts from  orders.
 
 **changes in tech stack**
--   **PyMuPDF (usage: pymupdf [-h]
-               {show,clean,join,extract,embed-info,embed-add,embed-del,embed-upd,embed-extract,embed-copy,gettext,internal}
-               ...
-
-------------------------- Basic PyMuPDF Functions -------------------------
-
-options:
-  -h, --help            show this help message and exit
-
-Subcommands:
-  {show,clean,join,extract,embed-info,embed-add,embed-del,embed-upd,embed-extract,embed-copy,gettext,internal}
-                        Enter 'command -h' for subcommand specific help)** was added to the backend for PDF processing.
--   **Beautiful Soup ()** was added for web scraping.
+-   **Pillow ()** was added to the backend for server-side image composition.
+-   **** was added and then removed from the frontend.
 
 **All files of reference**
--   : Heavily modified with numerous new models, endpoints, and logic for PDF processing and web scraping.
--   : Massively expanded and refactored to include management UIs for all new features and the standalone PDF import flow.
--   New Mobile App Screens: , , , , , .
--   Modified Core UI Files: , , , , , .
--   Modified Server Config: .
+-   : Heavily modified with chunked upload endpoints (), an image compositing endpoint (), an order history endpoint (), and product randomization.
+-   : Major overhaul to implement the chunked PDF upload UI, including progress bars, status messages, and cancel/resume buttons. The  hook was removed from this file.
+-   : New file containing the core logic for chunking, uploading, retrying, and cancelling file uploads.
+-   : New screen for the AI Try-On feature. Rewritten multiple times.
+-   : Added zoomable images, AI Try-On button, reordered action buttons, and added cart confirmation toast.
+-   : Added an Add to Cart button directly on product cards.
+-   : Added My Orders list.
+-   : Added floating WhatsApp button and new theme colors.
+-   : Updated  to 30M.
 
 **Areas that need refactoring**:
--   ****: This file is now critically oversized and difficult to maintain. It urgently needs to be broken down into separate Python modules/routers (e.g., , , ).
--   ****: This single file contains the logic and views for multiple admin roles and dozens of features. It must be refactored into a component-based architecture with separate files for each major admin section (e.g., , ).
+-   ** and ** are more critical than ever. Their monolithic nature made debugging the upload issues incredibly difficult. They must be broken down into smaller, manageable modules (e.g., ,  for backend; ,  for frontend). The agent should strongly propose this to the user.
+-   The  logic needs to be refactored to be platform-specific instead of being completely removed.
 
 **key api endpoints**
--   : (POST) The new endpoint for processing uploaded PDF catalogs.
--   : (GET) Returns the latest scraped commodity prices.
--   , , , , , : Full CRUD endpoints for managing the new content sections.
+-    (POST): Starts a new chunked upload session.
+-    (POST): Uploads a single chunk.
+-    (POST): Finalizes the upload and processes the file.
+-    (GET): Gets the status and list of received chunks for an upload.
+-    (POST): Takes a user image and product image and returns a composite.
+-    (GET): Retrieves the user's submitted order history.
 
 **Critical Info for New Agent**
--   **PDF Import is the Priority:** The last user interaction was about the PDF import failing. Verifying this fix is your first priority. Be aware that the chunked upload was implemented by raising the NGINX server limit, not by true frontend chunking. This might still be a point of failure.
--   **Monoliths are at Breaking Point:** Both  and  are extremely large and complex. Any further feature additions will be difficult and risky without refactoring. Propose this refactoring to the user.
--   **User is Very Specific:** The user provides detailed, exact requirements and notices when they are not met. Pay close attention to their instructions and test every point from their perspective in the UI.
--   **Admin Panel Access:** Always provide the direct URL to the admin panel in your summaries for the user. The URL is the main preview URL with  appended.
+-   **AI Try-On is P0 and Unverified:** The current focus is the AI Try-On feature. The latest implementation (server-side composite with Pillow) has **not been tested or shown to the user**. The user has very specific, high expectations for a realistic AI-generated result, which the current non-generative composite may not meet. Be prepared for another round of feedback on this.
+-   **Mobile Uploads Will Fail on Screen-Lock:** The  feature was removed to fix a web crash. This is a **critical regression** that violates a user requirement. A platform-specific fix is needed immediately.
+-   **PDF Upload System is Complex:** The chunked upload system has been through many bug fixes (caching, , blob consumption). While it appears stable now, be aware of its history. The core logic is in  and .
+-   **Frontend Caching:** A previous major blocker was the Metro bundler caching old versions of frontend files due to . While fixed, always be mindful of caching and instruct the user to do a hard refresh if a frontend change doesn't appear to work.
 
 **documents created in this job**
--    (updated with new features and access links)
+-    (updated with all new features and fixes)
 
 **Last 10 User Messages and any pending HUMAN messages**
--   **User (Msg 273):** Reports that PDF import is still not working reliably. It fails with a vague Failed to fetch error, the 100MB limit is too low (requests 300MB), and it needs to be a stable, practical workflow with better error handling and progress status. (IN PROGRESS)
--   **Agent (Msg 272):** Finishes after implementing the v2 UI fix for PDF import, believing the task is complete. (Incorrectly Resolved)
--   **User (Msg 238):** Reports that the PDF import UI is unusable and buried within another workflow. Demands a separate, clearly visible Import PDF option. (IN PROGRESS)
--   **Agent (Msg 237):** Finishes after implementing the v1 backend for PDF import, but the UI is poor. (Incorrectly Resolved)
--   **User (Msg 197):** First requests the PDF import feature, detailing that PDF pages should be extracted as product images. (NOT STARTED)
--   **Agent (Msg 196):** Finishes after implementing the second wave of 9 UI/UX refinements. (DONE)
--   **User (Msg 132):** Provides the list of 9 specific UI/UX refinements and corrections for the features implemented earlier. (NOT STARTED)
--   **Agent (Msg 131):** Finishes after implementing the first wave of 9 new features and adding access links to the summary as requested. (DONE)
--   **User (Msg 126):** Asks the agent to include access links for the admin panel in all future summaries. (DONE)
--   **User (Msg 5):** Provided the initial massive list of 9 new features to implement, overriding all previous plans. (DONE)
+-   **User (Msg 419):** Re-iterates in great detail that the AI Try-On must be a realistic AI-generated preview using the *exact user photo* and *exact selected product*, not a simple overlay or random image. (IN PROGRESS)
+-   **User (Msg 408):** Angry feedback that the AI Try-On is generating random, useless images. Demands it be fixed to use the user's photo and the selected product. (IN PROGRESS)
+-   **User (Msg 399):** Reports that the Try It On button is not visible on a product. (RESOLVED - was due to a category filter)
+-   **User (Msg 358):** Requests two new features: Add to Cart confirmation on the main feed and the AI Try-On feature. (IN PROGRESS)
+-   **User (Msg 297):** Provides a large list of 9 UI/UX improvements to be implemented. (RESOLVED)
+-   **User (Msg 282):** Reports that the home page is still showing only 50 products after the limit was supposed to be increased. (RESOLVED)
+-   **User (Msg 269):** Requests the product limit be increased to 1 lakh (100,000). (RESOLVED)
+-   **User (Msg 228):** Reports the PDF upload is still failing on chunk 1 and asks to bring in the troubleshoot agent. (RESOLVED - led to discovery of Metro cache issue)
+-   **User (Msg 199):** Reports chunk 1 is still failing and correctly guesses it might be related to the number of chunks. (RESOLVED - led to increasing chunk size)
+-   **User (Msg 166):** Shows a screenshot of the PDF upload failing with Upload session not found. (RESOLVED - was the  bug)
 
 **Project Health Check:**
--   **Working:** The core app and the 18+ features/refinements implemented in this session are functionally working based on agent testing. Live rates are fetching correctly. The admin panel has management UIs for all new content.
--   **Broken / Needs Verification:** The reliability of the large PDF import (up to 300MB) is unconfirmed and needs immediate user verification.
+-   **Working:** The core app, the 9 UI/UX features, and the chunked PDF upload system (on desktop).
+-   **Broken / Needs Verification:**
+    -   The AI Try-On feature is the highest priority and is unverified.
+    -   The large PDF upload workflow is **broken on mobile** because uploads will fail when the screen locks (due to the removal of ).
 -   **Mocked:** Phone OTP authentication is still mocked.
 
 **3rd Party Integrations**
--   **Claude Sonnet 4.5** — uses Emergent LLM Key.
--   **Emergent Object Storage** — used for all media file uploads.
--   **Yahoo Finance** — used via web scraping for live rates (no formal API/key).
+-   **OpenAI GPT Image 1:** Used for the (now defunct) generative AI try-on. The API key is accessed via Emergent LLM Key. The current implementation does not use it.
+-   **Pillow (PIL):** Used in the backend for image manipulation in the current try-on implementation.
+-   **Yahoo Finance:** Used via web scraping for live rates.
+-   **Emergent Object Storage:** Used for all media file uploads.
 
 **Testing status**
--   Testing agent used after significant changes: YES
--   Troubleshoot agent used after agent stuck in loop: NO
--   Test files created: None new in this session, but backend tests were run.
--   Known regressions: []
+-   Testing agent used after significant changes: NO (The agent last used the testing agent before the major PDF bug fixes, the 9 UI/UX features, and the AI Try-on feature were implemented).
+-   Troubleshoot agent used after agent stuck in loop: YES (Used to diagnose the Metro bundler caching issue).
+-   Test files created: None.
+-   Known regressions: The removal of  has reintroduced the bug where uploads fail on mobile screen lock.
 
 **Credentials to test flow:**
--   **Admin Panel URL:** 
 -   **Admin:** Phone: , OTP: 
--   **Executive:** Phone: , OTP: 
--   **Billing Executive:** Phone: , OTP: 
 -   **Customer (Mobile App):** Phone: , OTP: 
 
 **What agent forgot to execute**
-The agent completely overlooked the three pending tasks from the initial handoff summary due to the user's large, new requests. These are:
-1.  Improving feed image quality/clarity.
-2.  Implementing global success confirmations (toasts).
-3.  Fixing the back-navigation behavior in the customer mobile app.
+- The agent correctly identified the  crash on web but failed to implement a platform-specific fix, leading to a regression of a user-requested feature (uploads continuing on screen lock).
+- The agent has not run the testing agent after a very large number of significant changes and bug fixes, increasing the risk of other regressions.
 
 </analysis>

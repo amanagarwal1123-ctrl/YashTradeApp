@@ -13,7 +13,7 @@ from datetime import datetime
 import fitz  # PyMuPDF
 
 # Configuration
-BASE_URL = "https://gem-bulk-import.preview.emergentagent.com/api"
+BASE_URL = "https://yash-tryon-test.preview.emergentagent.com/api"
 ADMIN_PHONE = "9999999999"
 OTP = "1234"
 
