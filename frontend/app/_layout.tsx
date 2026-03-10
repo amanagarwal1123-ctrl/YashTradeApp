@@ -29,6 +29,7 @@ export default function RootLayout() {
           <Stack.Screen name="brands" options={{ presentation: 'modal' }} />
           <Stack.Screen name="showroom" options={{ presentation: 'modal' }} />
           <Stack.Screen name="exhibition" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="try-on" options={{ presentation: 'modal' }} />
         </Stack>
       </LanguageProvider>
     </AuthProvider>

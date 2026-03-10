@@ -25,6 +25,7 @@ export default function FeedScreen() {
   const [search, setSearch] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const flatListRef = useRef<FlatList>(null);
+  const [cartAdded, setCartAdded] = useState<string | null>(null);
 
   const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false) => {
     if (loadingMore && p > 1) return;
@@ -54,6 +55,14 @@ export default function FeedScreen() {
   const loadMore = () => { if (!loadingMore && hasMore && page < totalPages) fetchProducts(page + 1); };
   const doSearch = () => fetchProducts(1, true);
 
+  const handleAddToCart = async (productId: string) => {
+    try {
+      await api.post('/cart/add', { product_id: productId });
+      setCartAdded(productId);
+      setTimeout(() => setCartAdded(null), 2500);
+    } catch {}
+  };
+
   const openViewer = (index: number) => {
     const item = products[index];
     if (item) {
@@ -63,6 +72,7 @@ export default function FeedScreen() {
 
   const renderItem = ({ item, index }: { item: Product; index: number }) => {
     const thumbUri = getImageUrl(item, true);
+    const isAdded = cartAdded === item.id;
     return (
       <TouchableOpacity testID={`feed-item-${item.id}`} style={styles.card} onPress={() => openViewer(index)} activeOpacity={0.85}>
         <Image source={{ uri: thumbUri }} style={styles.cardImage} />
@@ -72,14 +82,29 @@ export default function FeedScreen() {
           </View>
           {item.is_trending && <View style={[styles.cardBadge, { backgroundColor: Colors.warning + '30' }]}><Ionicons name="flame" size={10} color={Colors.warning} /></View>}
         </View>
+        {/* Cart added confirmation overlay */}
+        {isAdded && (
+          <View style={styles.cartAddedOverlay} data-testid="feed-cart-confirm">
+            <Ionicons name="checkmark-circle" size={20} color="#fff" />
+            <Text style={styles.cartAddedText}>Added to Cart!</Text>
+          </View>
+        )}
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.cardMeta}>{item.category?.replace(/_/g, ' ')}{item.approx_weight ? ` \u2022 ${item.approx_weight}` : ''}</Text>
-          {/* Compact product metadata */}
           <View style={styles.cardDetails}>
             {item.purity ? <Text style={styles.cardDetail}>Purity: {item.purity}</Text> : null}
             {item.selling_touch ? <Text style={styles.cardDetail}>Touch: {item.selling_touch}</Text> : null}
           </View>
+          {/* Add to Cart button on feed card */}
+          <TouchableOpacity
+            data-testid={`feed-add-cart-${item.id}`}
+            style={[styles.feedCartBtn, isAdded && { backgroundColor: Colors.success }]}
+            onPress={(e) => { e.stopPropagation(); handleAddToCart(item.id); }}
+          >
+            <Ionicons name={isAdded ? "checkmark" : "cart"} size={12} color="#000" />
+            <Text style={styles.feedCartBtnText}>{isAdded ? 'Added!' : 'Add to Cart'}</Text>
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -171,6 +196,10 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'capitalize' },
   cardDetails: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3 },
   cardDetail: { fontSize: 8, color: Colors.gold, fontWeight: '500', backgroundColor: Colors.gold + '10', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 },
+  feedCartBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: Colors.gold, paddingVertical: 6, borderRadius: 6, marginTop: 6 },
+  feedCartBtnText: { fontSize: 10, fontWeight: '700', color: '#000' },
+  cartAddedOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(34,201,147,0.85)', alignItems: 'center', justifyContent: 'center', zIndex: 10, borderRadius: 14 },
+  cartAddedText: { color: '#fff', fontWeight: '700', fontSize: FontSize.sm, marginTop: 4 },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
   endText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', paddingVertical: 20 },
 });

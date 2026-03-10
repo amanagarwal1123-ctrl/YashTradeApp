@@ -173,6 +173,16 @@ export default function ProductDetail() {
           </TouchableOpacity>
         </View>
 
+        {/* AI Try-On button for wearable categories */}
+        {product.category && ['payal', 'chain', 'necklace', 'bracelet', 'bangles', 'kadaa', 'ring', 'earrings', 'pendant', 'nose_ring', 'toe_rings', 'articles'].includes(product.category.toLowerCase()) && (
+          <View style={styles.ctaSection}>
+            <TouchableOpacity testID="try-on-btn" style={styles.tryOnBtn} onPress={() => router.push({ pathname: '/try-on', params: { productId: id } })}>
+              <Ionicons name="sparkles" size={18} color="#fff" />
+              <Text style={styles.tryOnBtnText}>AI Try-On Preview</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
             <Text style={styles.ctaOutlineText}>Video Call</Text>
@@ -225,4 +235,6 @@ const styles = StyleSheet.create({
   ctaSecondaryText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold },
   ctaOutline: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: Colors.border },
   ctaOutlineText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textSecondary },
+  tryOnBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.pastelPurple, paddingVertical: 14, borderRadius: 12 },
+  tryOnBtnText: { fontSize: FontSize.md, fontWeight: '700', color: '#fff' },
 });

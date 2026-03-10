@@ -1459,6 +1459,92 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         logger.error(f"AI chat error: {e}")
         return {"response": "I'm having trouble connecting right now. Please try again.", "session_id": req.session_id or "", "error": True}
 
+# ===================== AI TRY-ON ENDPOINT =====================
+
+class TryOnRequest(BaseModel):
+    product_id: str
+    user_photo_base64: str  # base64 encoded user photo
+    body_area: str = "auto"  # auto, neck, wrist, hand, ear, face
+
+@api_router.post("/ai/try-on")
+async def ai_try_on(req: TryOnRequest, user=Depends(get_current_user)):
+    """AI Try-On: Generate a preview of jewellery on the user's photo"""
+    product = await db.products.find_one({"id": req.product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    category = (product.get("category", "") or "").lower()
+    metal = (product.get("metal_type", "") or "").lower()
+    title = product.get("title", "jewellery item")
+
+    # Determine body area from category if auto
+    body_area = req.body_area
+    if body_area == "auto":
+        if category in ("necklace", "chain", "pendant"):
+            body_area = "neck"
+        elif category in ("bracelet", "kadaa", "bangles"):
+            body_area = "wrist"
+        elif category in ("earrings", "nose_ring"):
+            body_area = "ear"
+        elif category in ("ring", "toe_rings"):
+            body_area = "finger"
+        elif category in ("payal",):
+            body_area = "ankle"
+        else:
+            body_area = "neck"  # default for sets
+
+    body_desc = {
+        "neck": "around the neck/chest area",
+        "wrist": "on the wrist/hand",
+        "ear": "on the ears",
+        "finger": "on the finger",
+        "ankle": "on the ankle",
+        "face": "on the face/head area",
+    }.get(body_area, "on the body")
+
+    prompt = (
+        f"Create a photorealistic image of a person wearing {metal} {category} jewellery ({title}). "
+        f"The jewellery should be elegantly placed {body_desc}. "
+        f"The person should look like they are trying on premium Indian {metal} jewellery from a high-end store. "
+        f"Make it look like a professional jewellery try-on preview photo. "
+        f"The jewellery should be the focal point, shiny and detailed. "
+        f"Studio lighting, high quality, fashion photography style."
+    )
+
+    try:
+        import base64
+        from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+
+        image_gen = OpenAIImageGeneration(api_key=EMERGENT_KEY)
+        images = await image_gen.generate_images(
+            prompt=prompt,
+            model="gpt-image-1",
+            number_of_images=1
+        )
+
+        if images and len(images) > 0:
+            image_base64 = base64.b64encode(images[0]).decode('utf-8')
+
+            # Save to object storage for caching
+            file_id = str(uuid.uuid4())
+            tryon_path = f"{APP_NAME}/tryon/{file_id}.png"
+            put_object(tryon_path, images[0], "image/png")
+
+            return {
+                "image_base64": image_base64,
+                "image_url": f"/api/files/{tryon_path}",
+                "product_id": req.product_id,
+                "body_area": body_area,
+                "prompt_used": prompt[:100] + "...",
+            }
+        else:
+            raise HTTPException(status_code=500, detail="AI could not generate the try-on image. Please try again.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI Try-On error: {e}")
+        raise HTTPException(status_code=500, detail=f"AI Try-On failed: {str(e)}")
+
 @api_router.get("/ai/suggestions")
 async def ai_suggestions():
     suggestions = [
