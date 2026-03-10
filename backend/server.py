@@ -1463,87 +1463,151 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
 
 class TryOnRequest(BaseModel):
     product_id: str
-    user_photo_base64: str  # base64 encoded user photo
-    body_area: str = "auto"  # auto, neck, wrist, hand, ear, face
+    user_photo_base64: str
+    body_area: str = "auto"
+    scale: float = 0.4
+    offset_x: float = 0.5
+    offset_y: float = 0.3
+
+def _remove_bg_and_composite(user_img_bytes: bytes, product_img_bytes: bytes, body_area: str, scale: float, ox: float, oy: float) -> bytes:
+    """Composite exact product image onto exact user photo with background removal and blending."""
+    import numpy as np
+
+    user_img = PILImage.open(io.BytesIO(user_img_bytes)).convert('RGB')
+    prod_img = PILImage.open(io.BytesIO(product_img_bytes)).convert('RGBA')
+
+    # --- Step 1: Remove product background ---
+    prod_np = np.array(prod_img)
+    # Sample corners to detect background color
+    h, w = prod_np.shape[:2]
+    corners = [prod_np[0,0,:3], prod_np[0,w-1,:3], prod_np[h-1,0,:3], prod_np[h-1,w-1,:3]]
+    bg_color = np.median(corners, axis=0).astype(int)
+
+    # Create alpha mask: pixels similar to background become transparent
+    rgb = prod_np[:,:,:3].astype(int)
+    diff = np.sqrt(np.sum((rgb - bg_color) ** 2, axis=2))
+    threshold = 60
+    alpha = np.where(diff < threshold, 0, 255).astype(np.uint8)
+
+    # Smooth edges
+    alpha_img = PILImage.fromarray(alpha, 'L').filter(ImageFilter.GaussianBlur(radius=2))
+    alpha = np.array(alpha_img)
+    alpha = np.where(alpha < 128, 0, 255).astype(np.uint8)
+
+    prod_np[:,:,3] = alpha
+    prod_cutout = PILImage.fromarray(prod_np, 'RGBA')
+
+    # Crop to non-transparent bounding box
+    bbox = prod_cutout.getbbox()
+    if bbox:
+        prod_cutout = prod_cutout.crop(bbox)
+
+    # --- Step 2: Resize user image to standard size ---
+    canvas_size = 1024
+    user_img = user_img.resize((canvas_size, canvas_size), PILImage.Resampling.LANCZOS)
+
+    # --- Step 3: Scale and position product ---
+    prod_w = int(canvas_size * scale)
+    prod_h = int(prod_cutout.height * (prod_w / prod_cutout.width))
+    prod_cutout = prod_cutout.resize((prod_w, prod_h), PILImage.Resampling.LANCZOS)
+
+    # Position based on body area
+    pos_x = int((ox * canvas_size) - prod_w / 2)
+    pos_y = int(oy * canvas_size)
+
+    # Clamp to canvas
+    pos_x = max(0, min(canvas_size - prod_w, pos_x))
+    pos_y = max(0, min(canvas_size - prod_h, pos_y))
+
+    # --- Step 4: Create shadow ---
+    shadow = PILImage.new('RGBA', (prod_w, prod_h), (0, 0, 0, 0))
+    shadow_np = np.array(prod_cutout)
+    shadow_alpha = (shadow_np[:,:,3].astype(float) * 0.3).astype(np.uint8)
+    shadow_layer = np.zeros_like(shadow_np)
+    shadow_layer[:,:,3] = shadow_alpha
+    shadow = PILImage.fromarray(shadow_layer, 'RGBA').filter(ImageFilter.GaussianBlur(radius=4))
+
+    # --- Step 5: Composite ---
+    result = user_img.convert('RGBA')
+    # Paste shadow offset
+    result.paste(shadow, (pos_x + 3, pos_y + 3), shadow)
+    # Paste product
+    result.paste(prod_cutout, (pos_x, pos_y), prod_cutout)
+
+    # --- Step 6: Light blend at edges ---
+    result = result.convert('RGB')
+
+    # Slight warmth/contrast enhancement
+    from PIL import ImageEnhance
+    result = ImageEnhance.Contrast(result).enhance(1.05)
+    result = ImageEnhance.Color(result).enhance(1.05)
+
+    buf = io.BytesIO()
+    result.save(buf, format='JPEG', quality=92)
+    return buf.getvalue()
 
 @api_router.post("/ai/try-on")
 async def ai_try_on(req: TryOnRequest, user=Depends(get_current_user)):
-    """AI Try-On: Generate a preview of jewellery on the user's photo"""
+    """AI Try-On: Composite exact product onto exact user photo with smart background removal."""
+    import base64
+
     product = await db.products.find_one({"id": req.product_id}, {"_id": 0})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
     category = (product.get("category", "") or "").lower()
-    metal = (product.get("metal_type", "") or "").lower()
-    title = product.get("title", "jewellery item")
 
-    # Determine body area from category if auto
+    # Auto-detect body area and default positioning
     body_area = req.body_area
+    scale = req.scale
+    ox, oy = req.offset_x, req.offset_y
+
     if body_area == "auto":
         if category in ("necklace", "chain", "pendant"):
-            body_area = "neck"
+            body_area, oy, scale = "neck", 0.2, 0.45
         elif category in ("bracelet", "kadaa", "bangles"):
-            body_area = "wrist"
+            body_area, oy, scale = "wrist", 0.35, 0.4
         elif category in ("earrings", "nose_ring"):
-            body_area = "ear"
+            body_area, oy, scale = "ear", 0.15, 0.25
         elif category in ("ring", "toe_rings"):
-            body_area = "finger"
-        elif category in ("payal",):
-            body_area = "ankle"
+            body_area, oy, scale = "finger", 0.4, 0.2
+        elif category == "payal":
+            body_area, oy, scale = "ankle", 0.5, 0.45
         else:
-            body_area = "neck"  # default for sets
-
-    body_desc = {
-        "neck": "around the neck/chest area",
-        "wrist": "on the wrist/hand",
-        "ear": "on the ears",
-        "finger": "on the finger",
-        "ankle": "on the ankle",
-        "face": "on the face/head area",
-    }.get(body_area, "on the body")
-
-    prompt = (
-        f"Create a photorealistic image of a person wearing {metal} {category} jewellery ({title}). "
-        f"The jewellery should be elegantly placed {body_desc}. "
-        f"The person should look like they are trying on premium Indian {metal} jewellery from a high-end store. "
-        f"Make it look like a professional jewellery try-on preview photo. "
-        f"The jewellery should be the focal point, shiny and detailed. "
-        f"Studio lighting, high quality, fashion photography style."
-    )
+            body_area, oy, scale = "neck", 0.25, 0.45
 
     try:
-        import base64
-        from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+        # Get user photo
+        user_photo_bytes = base64.b64decode(req.user_photo_base64)
 
-        image_gen = OpenAIImageGeneration(api_key=EMERGENT_KEY)
-        images = await image_gen.generate_images(
-            prompt=prompt,
-            model="gpt-image-1",
-            number_of_images=1
-        )
+        # Get exact product image from storage
+        product_path = product.get("storage_path") or product.get("thumbnail_path")
+        if not product_path:
+            raise HTTPException(status_code=400, detail="Product has no image")
+        product_img_bytes, _ = get_object(product_path)
 
-        if images and len(images) > 0:
-            image_base64 = base64.b64encode(images[0]).decode('utf-8')
+        # Composite
+        result_bytes = _remove_bg_and_composite(user_photo_bytes, product_img_bytes, body_area, scale, ox, oy)
 
-            # Save to object storage for caching
-            file_id = str(uuid.uuid4())
-            tryon_path = f"{APP_NAME}/tryon/{file_id}.png"
-            put_object(tryon_path, images[0], "image/png")
+        # Save to storage
+        file_id = str(uuid.uuid4())
+        tryon_path = f"{APP_NAME}/tryon/{file_id}.jpg"
+        put_object(tryon_path, result_bytes, "image/jpeg")
 
-            return {
-                "image_base64": image_base64,
-                "image_url": f"/api/files/{tryon_path}",
-                "product_id": req.product_id,
-                "body_area": body_area,
-                "prompt_used": prompt[:100] + "...",
-            }
-        else:
-            raise HTTPException(status_code=500, detail="AI could not generate the try-on image. Please try again.")
+        result_b64 = base64.b64encode(result_bytes).decode('utf-8')
+
+        return {
+            "image_base64": result_b64,
+            "image_url": f"/api/files/{tryon_path}",
+            "product_id": req.product_id,
+            "body_area": body_area,
+            "method": "exact_composite",
+        }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"AI Try-On error: {e}")
-        raise HTTPException(status_code=500, detail=f"AI Try-On failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Try-on processing failed: {str(e)}")
 
 @api_router.get("/ai/suggestions")
 async def ai_suggestions():
