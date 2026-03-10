@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Virtual Try-On — Yash Trade</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['"DM Sans"', 'sans-serif'] },
+          colors: {
+            brand: { 50: '#fdf8f0', 100: '#f9eddb', 200: '#f2d6aa', 300: '#e9b96e', 400: '#d4982b', 500: '#b07d1a', 600: '#8a6114', 700: '#6b4b10', 800: '#4e370d', 900: '#352509' },
+            surface: { DEFAULT: '#faf9f7', muted: '#f3f1ed', dark: '#1a1816' },
+          },
+          borderRadius: { '4xl': '2rem' },
+        }
+      }
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'DM Sans', sans-serif; margin: 0; background: #faf9f7; }
+    .fade-in { animation: fadeIn .35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .glass { backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); background: rgba(255,255,255,.82); }
+    .zoom-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.85); }
+    .progress-bar { transition: width .3s ease; }
+    input[type="file"] { display: none; }
+    .tab-btn { transition: all .2s; }
+    .tab-btn.active { background: #b07d1a; color: #fff; box-shadow: 0 2px 8px rgba(176,125,26,.3); }
+    .product-card { transition: all .2s; cursor: pointer; }
+    .product-card:hover, .product-card.selected { border-color: #b07d1a; box-shadow: 0 0 0 2px rgba(176,125,26,.25); }
+    .product-card.selected { background: #fdf8f0; }
+    .btn-primary { background: linear-gradient(135deg, #d4982b, #b07d1a); color: #fff; transition: all .2s; }
+    .btn-primary:hover { box-shadow: 0 4px 16px rgba(176,125,26,.35); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    const API_BASE = window.location.origin + '/api';
+
+    // ─── Helpers ────────────────────────────────────────────────
+    function fileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+    }
+
+    function getProductImage(product) {
+      if (product.storage_path) return `${API_BASE}/files/${product.storage_path}`;
+      if (product.thumbnail_path) return `${API_BASE}/files/${product.thumbnail_path}`;
+      if (product.images && product.images.length > 0) return product.images[0];
+      return '';
+    }
+
+    function detectTryOnArea(category) {
+      const c = (category || '').toLowerCase();
+      if (['necklace', 'chain', 'pendant', 'haar', 'mala'].some(k => c.includes(k))) return 'neck';
+      if (['earring', 'jhumka', 'tops', 'ear'].some(k => c.includes(k))) return 'ear';
+      if (['bracelet', 'kadaa', 'bangle', 'kada'].some(k => c.includes(k))) return 'wrist';
+      if (['payal', 'anklet', 'ankle'].some(k => c.includes(k))) return 'ankle';
+      if (['ring', 'finger'].some(k => c.includes(k))) return 'finger';
+      return 'neck';
+    }
+
+    const AREA_GUIDES = {
+      neck: 'Upload a clear face + neck photo from the front.',
+      ear: 'Upload a side face photo where ears are visible.',
+      wrist: 'Upload a close wrist/hand photo with open wrist area.',
+      ankle: 'Upload an ankle/foot photo with the ankle clearly visible.',
+      finger: 'Upload a close hand photo with fingers clearly visible.',
+    };
+
+    const AREA_LABELS = { neck: 'Neck / Chest', ear: 'Ears / Face', wrist: 'Wrist / Hand', ankle: 'Ankle', finger: 'Finger' };
+
+    // ─── Icons (inline SVGs) ────────────────────────────────────
+    const Icon = ({ name, size = 20, className = '' }) => {
+      const s = { width: size, height: size };
+      const icons = {
+        sparkles: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.912 5.813a2 2 0 001.275 1.275L21 12l-5.813 1.912a2 2 0 00-1.275 1.275L12 21l-1.912-5.813a2 2 0 00-1.275-1.275L3 12l5.813-1.912a2 2 0 001.275-1.275L12 3z"/></svg>,
+        upload: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+        camera: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>,
+        refresh: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>,
+        check: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+        alert: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+        x: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+        zoomIn: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>,
+        eye: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+        login: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>,
+        search: <svg style={s} className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+      };
+      return icons[name] || null;
+    };
+
+    // ─── Login Component ────────────────────────────────────────
+    function LoginScreen({ onLogin }) {
+      const [phone, setPhone] = useState('');
+      const [otp, setOtp] = useState('');
+      const [step, setStep] = useState('phone');
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState('');
+
+      const sendOtp = async () => {
+        if (phone.length < 10) { setError('Enter a valid phone number'); return; }
+        setLoading(true); setError('');
+        try {
+          await fetch(`${API_BASE}/auth/send-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+          setStep('otp');
+        } catch { setError('Failed to send OTP'); }
+        setLoading(false);
+      };
+
+      const verifyOtp = async () => {
+        setLoading(true); setError('');
+        try {
+          const res = await fetch(`${API_BASE}/auth/verify-otp`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, otp }) });
+          const data = await res.json();
+          if (data.token) { onLogin(data.token); }
+          else { setError('Invalid OTP'); }
+        } catch { setError('Verification failed'); }
+        setLoading(false);
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-surface p-4">
+          <div className="w-full max-w-sm glass rounded-3xl p-8 shadow-lg border border-brand-200/40 fade-in">
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-brand-700 tracking-tight">Yash Trade</h1>
+              <p className="text-sm text-gray-500 mt-1">Virtual Try-On</p>
+            </div>
+            {error && <div className="mb-4 text-sm text-red-600 bg-red-50 rounded-xl p-3 flex items-center gap-2"><Icon name="alert" size={16} />{error}</div>}
+            {step === 'phone' ? (
+              <>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone Number</label>
+                <input
+                  type="tel" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="Enter your phone number"
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none text-base"
+                  data-testid="tryon-login-phone"
+                />
+                <button onClick={sendOtp} disabled={loading} className="btn-primary w-full mt-4 py-3 rounded-2xl font-semibold flex items-center justify-center gap-2" data-testid="tryon-login-send-otp">
+                  {loading ? 'Sending...' : <><Icon name="login" size={18} /> Send OTP</>}
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Enter OTP</label>
+                <input
+                  type="text" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="Enter OTP"
+                  className="w-full px-4 py-3 rounded-2xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none text-base tracking-widest text-center text-lg"
+                  data-testid="tryon-login-otp"
+                />
+                <button onClick={verifyOtp} disabled={loading} className="btn-primary w-full mt-4 py-3 rounded-2xl font-semibold" data-testid="tryon-login-verify">
+                  {loading ? 'Verifying...' : 'Verify & Continue'}
+                </button>
+                <button onClick={() => setStep('phone')} className="w-full mt-2 py-2 text-sm text-gray-500 hover:text-brand-600">Change phone number</button>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Main Try-On App ────────────────────────────────────────
+    function TryOnApp() {
+      const [token, setToken] = useState(sessionStorage.getItem('tryon_token') || '');
+      const [products, setProducts] = useState([]);
+      const [loadingProducts, setLoadingProducts] = useState(true);
+      const [selectedProduct, setSelectedProduct] = useState(null);
+      const [selectedArea, setSelectedArea] = useState('neck');
+      const [userPhoto, setUserPhoto] = useState('');
+      const [userPhotoName, setUserPhotoName] = useState('');
+      const [previewUrl, setPreviewUrl] = useState('');
+      const [isGenerating, setIsGenerating] = useState(false);
+      const [progress, setProgress] = useState(0);
+      const [error, setError] = useState('');
+      const [success, setSuccess] = useState('');
+      const [showZoom, setShowZoom] = useState(false);
+      const [showOriginal, setShowOriginal] = useState(false);
+      const [activeTab, setActiveTab] = useState('product');
+      const [searchQuery, setSearchQuery] = useState('');
+      const [scale, setScale] = useState(0.45);
+      const [posY, setPosY] = useState(0.25);
+
+      const uploadRef = useRef(null);
+      const cameraRef = useRef(null);
+
+      const authHeaders = useMemo(() => ({ 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+
+      const handleLogin = useCallback((t) => {
+        setToken(t);
+        sessionStorage.setItem('tryon_token', t);
+      }, []);
+
+      // Load products
+      useEffect(() => {
+        if (!token) return;
+        setLoadingProducts(true);
+        fetch(`${API_BASE}/products?limit=200`, { headers: authHeaders })
+          .then(r => r.json())
+          .then(data => {
+            const list = data.products || data || [];
+            setProducts(list);
+            if (list.length > 0 && !selectedProduct) {
+              setSelectedProduct(list[0]);
+              setSelectedArea(detectTryOnArea(list[0].category));
+            }
+          })
+          .catch(() => {})
+          .finally(() => setLoadingProducts(false));
+      }, [token]);
+
+      const filteredProducts = useMemo(() => {
+        if (!searchQuery.trim()) return products;
+        const q = searchQuery.toLowerCase();
+        return products.filter(p =>
+          (p.title || '').toLowerCase().includes(q) ||
+          (p.category || '').toLowerCase().includes(q) ||
+          (p.metal_type || '').toLowerCase().includes(q)
+        );
+      }, [products, searchQuery]);
+
+      const onSelectProduct = (p) => {
+        setSelectedProduct(p);
+        setSelectedArea(detectTryOnArea(p.category));
+        setPreviewUrl('');
+        setShowOriginal(false);
+      };
+
+      const onFilePicked = async (file) => {
+        if (!file) return;
+        setError(''); setSuccess('');
+        const dataUrl = await fileToDataUrl(file);
+        setUserPhoto(dataUrl);
+        setUserPhotoName(file.name);
+        setPreviewUrl('');
+        setShowOriginal(false);
+        setActiveTab('generate');
+      };
+
+      const startTryOn = async () => {
+        if (!selectedProduct) { setError('Please select a product.'); return; }
+        if (!userPhoto) { setError('Please upload a customer photo first.'); return; }
+
+        setError(''); setSuccess(''); setIsGenerating(true); setProgress(12); setShowOriginal(false);
+
+        const ticker = setInterval(() => setProgress(p => p < 90 ? p + 7 : p), 280);
+
+        try {
+          const b64 = userPhoto.split(',')[1];
+          const res = await fetch(`${API_BASE}/ai/try-on`, {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({
+              product_id: selectedProduct.id,
+              user_photo_base64: b64,
+              body_area: selectedArea,
+              scale: scale,
+              offset_x: 0.5,
+              offset_y: posY,
+            })
+          });
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error (${res.status})`);
+          }
+
+          const result = await res.json();
+          if (result.image_url) {
+            setPreviewUrl(`${window.location.origin}${result.image_url}`);
+          } else if (result.image_base64) {
+            setPreviewUrl(`data:image/jpeg;base64,${result.image_base64}`);
+          }
+          setProgress(100);
+          setSuccess('Try-on preview generated successfully!');
+        } catch (e) {
+          setError(e.message || 'Try-on generation failed. Please try again.');
+        } finally {
+          clearInterval(ticker);
+          setTimeout(() => { setIsGenerating(false); setProgress(0); }, 500);
+        }
+      };
+
+      const resetAll = () => {
+        setUserPhoto(''); setUserPhotoName(''); setPreviewUrl('');
+        setError(''); setSuccess(''); setShowOriginal(false);
+        setScale(0.45); setPosY(0.25);
+      };
+
+      if (!token) return <LoginScreen onLogin={handleLogin} />;
+
+      const tabs = [
+        { id: 'product', label: 'Product' },
+        { id: 'photo', label: 'Customer Photo' },
+        { id: 'generate', label: 'Generate' },
+      ];
+
+      return (
+        <div className="min-h-screen bg-surface">
+          {/* Header */}
+          <header className="sticky top-0 z-30 glass border-b border-brand-100/50 px-4 py-3 md:px-6">
+            <div className="max-w-6xl mx-auto flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-brand-700 tracking-tight">Virtual Try-On</h1>
+                <p className="text-xs text-gray-500">Yash Trade — Jewellery Preview</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200/60">
+                  <Icon name="sparkles" size={14} /> AI-Powered
+                </span>
+                <button onClick={() => { setToken(''); sessionStorage.removeItem('tryon_token'); }} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">Logout</button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-6xl mx-auto p-4 md:p-6">
+            <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+              {/* ── Left Panel: Setup ── */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-5 border-b border-gray-100">
+                  <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Icon name="sparkles" size={20} className="text-brand-500" /> Try-On Setup
+                  </h2>
+                </div>
+
+                {/* Tabs */}
+                <div className="px-5 pt-4">
+                  <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl">
+                    {tabs.map(t => (
+                      <button key={t.id} onClick={() => setActiveTab(t.id)}
+                        className={`tab-btn flex-1 py-2 text-sm font-medium rounded-xl ${activeTab === t.id ? 'active' : 'text-gray-500 hover:text-gray-700'}`}
+                        data-testid={`tryon-tab-${t.id}`}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-5">
+                  {/* ── Product Tab ── */}
+                  {activeTab === 'product' && (
+                    <div className="space-y-4 fade-in">
+                      {/* Search */}
+                      <div className="relative">
+                        <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                          placeholder="Search products by name, category..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-gray-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-100 outline-none text-sm"
+                          data-testid="tryon-product-search"
+                        />
+                      </div>
+
+                      {/* Area selector */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Try-On Area</label>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(AREA_LABELS).map(([key, label]) => (
+                            <button key={key} onClick={() => setSelectedArea(key)}
+                              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${selectedArea === key ? 'bg-brand-50 border-brand-400 text-brand-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}
+                              data-testid={`tryon-area-${key}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Product grid */}
+                      {loadingProducts ? (
+                        <div className="text-center py-12 text-gray-400">Loading products...</div>
+                      ) : (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[360px] overflow-y-auto pr-1">
+                          {filteredProducts.slice(0, 60).map(p => (
+                            <div key={p.id} onClick={() => onSelectProduct(p)}
+                              className={`product-card rounded-2xl border-2 p-1.5 ${selectedProduct?.id === p.id ? 'selected border-brand-400' : 'border-transparent'}`}
+                              data-testid={`tryon-product-${p.id}`}>
+                              <img src={getProductImage(p)} alt={p.title} className="w-full aspect-square object-cover rounded-xl bg-gray-100" loading="lazy" />
+                              <p className="text-[10px] font-medium text-gray-700 mt-1 truncate px-0.5">{p.title || 'Product'}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Selected product detail */}
+                      {selectedProduct && (
+                        <div className="flex items-start gap-3 p-3 rounded-2xl bg-brand-50/60 border border-brand-200/50 fade-in">
+                          <img src={getProductImage(selectedProduct)} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-semibold text-sm text-gray-900 truncate">{selectedProduct.title}</h3>
+                            <p className="text-xs text-gray-500 mt-0.5 capitalize">{selectedProduct.metal_type} {selectedProduct.category ? `· ${selectedProduct.category.replace(/_/g, ' ')}` : ''}</p>
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <Icon name="check" size={13} className="text-green-600" />
+                              <span className="text-[11px] font-medium text-green-600">This exact product will be used</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Photo Tab ── */}
+                  {activeTab === 'photo' && (
+                    <div className="space-y-4 fade-in">
+                      <div className="rounded-3xl border-2 border-dashed border-gray-300 p-6 text-center">
+                        <p className="text-sm text-gray-600 mb-4">{AREA_GUIDES[selectedArea] || 'Upload a clear photo.'}</p>
+                        <div className="flex flex-wrap gap-3 justify-center">
+                          <button onClick={() => uploadRef.current?.click()} className="btn-primary px-5 py-2.5 rounded-2xl text-sm font-medium flex items-center gap-2" data-testid="tryon-upload-photo">
+                            <Icon name="upload" size={16} /> Upload Photo
+                          </button>
+                          <button onClick={() => cameraRef.current?.click()} className="px-5 py-2.5 rounded-2xl text-sm font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-2" data-testid="tryon-capture-photo">
+                            <Icon name="camera" size={16} /> Capture
+                          </button>
+                          {userPhoto && (
+                            <button onClick={resetAll} className="px-4 py-2.5 rounded-2xl text-sm font-medium text-gray-500 hover:bg-gray-100 flex items-center gap-2">
+                              <Icon name="refresh" size={16} /> Reset
+                            </button>
+                          )}
+                        </div>
+                        <input ref={uploadRef} type="file" accept="image/*" onChange={e => onFilePicked(e.target.files?.[0])} />
+                        <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={e => onFilePicked(e.target.files?.[0])} />
+                      </div>
+
+                      {userPhoto && (
+                        <div className="flex gap-4 p-4 rounded-2xl border border-gray-200 bg-white fade-in">
+                          <img src={userPhoto} alt="Customer upload" className="w-40 h-44 rounded-xl object-cover flex-shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <p className="font-medium text-sm text-gray-900">Uploaded photo</p>
+                            <p className="text-xs text-gray-500">{userPhotoName || 'Captured photo'}</p>
+                            <p className="text-xs text-green-600 font-medium flex items-center gap-1"><Icon name="check" size={13} /> Your exact photo will be preserved</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Generate Tab ── */}
+                  {activeTab === 'generate' && (
+                    <div className="space-y-4 fade-in">
+                      {/* Readiness checklist */}
+                      <div className="rounded-2xl bg-gray-50 p-4 text-sm space-y-2">
+                        <p className="font-semibold text-gray-900 text-xs uppercase tracking-wider">Readiness</p>
+                        <div className={`flex items-center gap-2 ${selectedProduct ? 'text-green-600' : 'text-gray-400'}`}>
+                          <Icon name={selectedProduct ? 'check' : 'alert'} size={15} />
+                          <span>Product selected{selectedProduct ? `: ${selectedProduct.title}` : ''}</span>
+                        </div>
+                        <div className={`flex items-center gap-2 ${userPhoto ? 'text-green-600' : 'text-gray-400'}`}>
+                          <Icon name={userPhoto ? 'check' : 'alert'} size={15} />
+                          <span>Customer photo {userPhoto ? 'uploaded' : 'not uploaded'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-brand-600">
+                          <Icon name="sparkles" size={15} />
+                          <span>Area: {AREA_LABELS[selectedArea]}</span>
+                        </div>
+                      </div>
+
+                      {/* Adjustments */}
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Placement Adjustments</p>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-gray-600 w-16">Size</span>
+                          <input type="range" min="15" max="90" value={Math.round(scale * 100)} onChange={e => setScale(parseInt(e.target.value) / 100)} className="flex-1 accent-brand-500" />
+                          <span className="text-sm font-bold text-brand-600 w-10 text-right">{Math.round(scale * 100)}%</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm text-gray-600 w-16">Position</span>
+                          <input type="range" min="0" max="80" value={Math.round(posY * 100)} onChange={e => setPosY(parseInt(e.target.value) / 100)} className="flex-1 accent-brand-500" />
+                          <span className="text-sm font-bold text-brand-600 w-10 text-right">{Math.round(posY * 100)}%</span>
+                        </div>
+                      </div>
+
+                      <button onClick={startTryOn} disabled={isGenerating || !selectedProduct || !userPhoto}
+                        className="btn-primary w-full py-4 rounded-2xl text-base font-semibold flex items-center justify-center gap-2"
+                        data-testid="tryon-generate-btn">
+                        <Icon name="sparkles" size={20} />
+                        {isGenerating ? 'Generating Try-On Preview...' : 'Generate Try-On Preview'}
+                      </button>
+
+                      {isGenerating && (
+                        <div className="space-y-2">
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div className="progress-bar bg-brand-500 h-full rounded-full" style={{ width: `${progress}%` }}></div>
+                          </div>
+                          <p className="text-xs text-gray-500 text-center">Compositing product onto your photo...</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Messages */}
+                  {error && (
+                    <div className="mt-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 fade-in" data-testid="tryon-error">
+                      <Icon name="alert" size={16} className="mt-0.5 flex-shrink-0" /><div>{error}</div>
+                    </div>
+                  )}
+                  {success && !error && (
+                    <div className="mt-4 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 fade-in" data-testid="tryon-success">
+                      <Icon name="check" size={16} className="mt-0.5 flex-shrink-0" /><div>{success}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Right Panel: Preview ── */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-5 border-b border-gray-100">
+                  <h2 className="text-lg font-semibold text-gray-900">Preview Panel</h2>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  {!previewUrl ? (
+                    <div className="flex flex-col items-center justify-center min-h-[460px] rounded-3xl border-2 border-dashed border-gray-200 bg-gray-50/60 p-8 text-center">
+                      <Icon name="sparkles" size={40} className="text-gray-300 mb-3" />
+                      <p className="text-sm text-gray-400 max-w-[200px]">Your try-on preview will appear here after generation.</p>
+                    </div>
+                  ) : (
+                    <div className="fade-in">
+                      <div className="relative group">
+                        <img src={showOriginal ? userPhoto : previewUrl} alt="Try-on preview"
+                          className="w-full min-h-[460px] rounded-3xl object-cover bg-gray-100"
+                          data-testid="tryon-preview-image" />
+                        <div className="absolute top-3 left-3 bg-black/60 text-white text-[10px] font-bold tracking-wider uppercase px-3 py-1 rounded-lg">
+                          {showOriginal ? 'Original Photo' : 'Try-On Preview'}
+                        </div>
+                        <button onClick={() => setShowZoom(true)}
+                          className="absolute top-3 right-3 bg-white/90 hover:bg-white p-2 rounded-full shadow-md transition-all"
+                          data-testid="tryon-zoom-btn">
+                          <Icon name="zoomIn" size={16} className="text-gray-700" />
+                        </button>
+                      </div>
+
+                      {/* Compare toggle */}
+                      <button onClick={() => setShowOriginal(!showOriginal)}
+                        className="w-full mt-3 py-2.5 rounded-2xl text-sm font-medium border border-brand-200 text-brand-600 hover:bg-brand-50 flex items-center justify-center gap-2 transition-all"
+                        data-testid="tryon-compare-btn">
+                        <Icon name="eye" size={16} />
+                        {showOriginal ? 'Show Try-On Result' : 'Compare with Original'}
+                      </button>
+
+                      {/* Regenerate */}
+                      <button onClick={startTryOn} disabled={isGenerating}
+                        className="w-full mt-2 py-2.5 rounded-2xl text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2"
+                        data-testid="tryon-regenerate-btn">
+                        <Icon name="refresh" size={16} /> Regenerate with Adjustments
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Info */}
+                  <div className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600 space-y-2">
+                    <div><span className="font-medium text-gray-900">Product:</span> {selectedProduct?.title || '—'}</div>
+                    <div><span className="font-medium text-gray-900">Area:</span> {AREA_LABELS[selectedArea]}</div>
+                    <div><span className="font-medium text-gray-900">Scale:</span> {Math.round(scale * 100)}% · <span className="font-medium text-gray-900">Position:</span> {Math.round(posY * 100)}%</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* Zoom overlay */}
+          {showZoom && previewUrl && (
+            <div className="zoom-overlay" onClick={() => setShowZoom(false)}>
+              <button className="absolute right-4 top-4 bg-white/10 hover:bg-white/20 p-2 rounded-full text-white transition-all" onClick={() => setShowZoom(false)}>
+                <Icon name="x" size={20} />
+              </button>
+              <img src={showOriginal ? userPhoto : previewUrl} alt="Zoomed preview" className="max-h-[90vh] max-w-[90vw] rounded-2xl object-contain" />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<TryOnApp />);
+  </script>
+</body>
+</html>

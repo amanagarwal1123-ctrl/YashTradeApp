@@ -1,440 +1,451 @@
 #!/usr/bin/env python3
 """
-Backend Testing for Chunked PDF Upload System (1GB support)
-Comprehensive test suite for the new PDF import functionality
+Comprehensive Backend Testing for Yash Trade Jewellery App - Virtual Try-On Feature
+Testing all backend APIs at https://yash-tryon-test.preview.emergentagent.com
 """
 
-import asyncio
 import requests
-import json
-import tempfile
+import base64
 import io
-from pathlib import Path
-import time
-import os
+import json
+from PIL import Image, ImageDraw
 
-# Get backend URL from frontend env
-BACKEND_URL = "https://yash-tryon-test.preview.emergentagent.com/api"
-
-# Test data
+# Configuration
+API_URL = "https://yash-tryon-test.preview.emergentagent.com"
 ADMIN_PHONE = "9999999999"
-OTP = "1234"
+CUSTOMER_PHONE = "8888888888"
+TEST_OTP = "1234"
 
-class TestResult:
-    def __init__(self):
-        self.tests = []
-        
-    def add_test(self, name, status, details=""):
-        self.tests.append({
-            "test": name,
-            "status": status,
-            "details": details
-        })
-        print(f"{'✅' if status == 'PASS' else '❌'} {name}: {details}")
-    
-    def summary(self):
-        passed = sum(1 for t in self.tests if t["status"] == "PASS")
-        failed = sum(1 for t in self.tests if t["status"] == "FAIL")
-        print(f"\n=== TEST SUMMARY ===")
-        print(f"Total: {len(self.tests)}, Passed: {passed}, Failed: {failed}")
-        return passed, failed
-
-class PDFChunkedUploadTester:
+class VirtualTryOnTester:
     def __init__(self):
         self.session = requests.Session()
-        self.session.timeout = 60
-        self.auth_token = None
-        self.result = TestResult()
-        
-    def authenticate(self):
-        """Authenticate as admin user"""
-        # Send OTP
-        resp = self.session.post(f"{BACKEND_URL}/auth/send-otp", 
-                               json={"phone": ADMIN_PHONE})
-        if resp.status_code != 200:
-            self.result.add_test("Admin OTP Send", "FAIL", f"Status {resp.status_code}")
-            return False
-            
-        # Verify OTP
-        resp = self.session.post(f"{BACKEND_URL}/auth/verify-otp",
-                               json={"phone": ADMIN_PHONE, "otp": OTP})
-        if resp.status_code != 200:
-            self.result.add_test("Admin OTP Verify", "FAIL", f"Status {resp.status_code}")
-            return False
-            
-        data = resp.json()
-        self.auth_token = data["token"]
-        self.session.headers.update({"Authorization": f"Bearer {self.auth_token}"})
-        self.result.add_test("Admin Authentication", "PASS", f"Role: {data['user'].get('role')}")
-        return True
-    
-    def create_test_batch(self):
-        """Create a test batch for PDF upload"""
-        resp = self.session.post(f"{BACKEND_URL}/batches", json={
-            "name": "PDF Chunked Upload Test",
-            "metal_type": "silver",
-            "category": "test"
-        })
-        if resp.status_code != 200:
-            self.result.add_test("Create Test Batch", "FAIL", f"Status {resp.status_code}")
-            return None
-            
-        batch = resp.json()
-        self.batch_id = batch["id"]
-        self.result.add_test("Create Test Batch", "PASS", f"Batch ID: {batch['id']}")
-        return batch["id"]
-    
-    def create_test_pdf(self, num_pages=5):
-        """Create a test PDF with PyMuPDF"""
-        try:
-            import fitz  # PyMuPDF
-            doc = fitz.open()  # Create empty PDF
-            
-            for i in range(num_pages):
-                page = doc.new_page()
-                text = f"Test PDF Page {i+1}\nThis is a test page for chunked upload testing.\nPage content: {i+1} of {num_pages}"
-                page.insert_text((100, 100), text, fontsize=12)
-                
-                # Add some more content to make page larger
-                for j in range(10):
-                    page.insert_text((100, 200 + j*20), f"Line {j+1}: Sample content for testing PDF import functionality", fontsize=10)
-            
-            # Save to temporary file
-            temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-            doc.save(temp_file.name)
-            doc.close()
-            
-            file_size = os.path.getsize(temp_file.name)
-            self.result.add_test("Create Test PDF", "PASS", f"{num_pages} pages, {file_size} bytes")
-            return temp_file.name, file_size
-            
-        except Exception as e:
-            self.result.add_test("Create Test PDF", "FAIL", f"Error: {str(e)}")
-            return None, 0
-    
-    def test_validation_errors(self):
-        """Test various validation scenarios"""
-        
-        # Test 1: File size > 1000MB
-        resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-            "batch_id": self.batch_id,
-            "filename": "huge.pdf",
-            "file_size": 1100000000,  # 1.1GB
-            "total_chunks": 220
-        })
-        if resp.status_code == 413:
-            self.result.add_test("Reject >1GB File", "PASS", "413 status returned")
-        else:
-            self.result.add_test("Reject >1GB File", "FAIL", f"Status {resp.status_code}")
-        
-        # Test 2: Non-PDF file
-        resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-            "batch_id": self.batch_id,
-            "filename": "image.jpg",
-            "file_size": 1000000,
-            "total_chunks": 1
-        })
-        if resp.status_code == 400 and "PDF" in resp.text:
-            self.result.add_test("Reject Non-PDF File", "PASS", "400 status with PDF error")
-        else:
-            self.result.add_test("Reject Non-PDF File", "FAIL", f"Status {resp.status_code}")
-        
-        # Test 3: Empty file
-        resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-            "batch_id": self.batch_id,
-            "filename": "empty.pdf", 
-            "file_size": 10,
-            "total_chunks": 1
-        })
-        if resp.status_code == 400:
-            self.result.add_test("Reject Empty File", "PASS", "400 status returned")
-        else:
-            self.result.add_test("Reject Empty File", "FAIL", f"Status {resp.status_code}")
-        
-        # Test 4: Invalid batch ID
-        resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-            "batch_id": "invalid-batch-id",
-            "filename": "test.pdf",
-            "file_size": 1000000,
-            "total_chunks": 1
-        })
-        if resp.status_code == 404:
-            self.result.add_test("Invalid Batch ID", "PASS", "404 status returned")
-        else:
-            self.result.add_test("Invalid Batch ID", "FAIL", f"Status {resp.status_code}")
-    
-    def test_chunked_upload_flow(self):
-        """Test the complete chunked upload flow"""
-        
-        # Create test PDF
-        pdf_path, file_size = self.create_test_pdf(5)
-        if not pdf_path:
-            return False
-        
-        # Calculate chunks (5MB per chunk)
-        chunk_size = 5 * 1024 * 1024  # 5MB
-        total_chunks = (file_size + chunk_size - 1) // chunk_size
-        
-        try:
-            # Step 1: Initialize upload
-            resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-                "batch_id": self.batch_id,
-                "filename": "test_5pages.pdf",
-                "file_size": file_size,
-                "total_chunks": total_chunks
-            })
-            
-            if resp.status_code != 200:
-                self.result.add_test("PDF Upload Init", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            init_data = resp.json()
-            upload_id = init_data["upload_id"]
-            self.result.add_test("PDF Upload Init", "PASS", f"Upload ID: {upload_id}, Chunk size: {init_data['chunk_size']}")
-            
-            # Step 2: Upload chunks
-            with open(pdf_path, 'rb') as f:
-                for chunk_index in range(total_chunks):
-                    chunk_data = f.read(chunk_size)
-                    if not chunk_data:
-                        break
-                    
-                    # Upload chunk
-                    files = {'file': ('chunk.bin', chunk_data, 'application/octet-stream')}
-                    resp = self.session.post(f"{BACKEND_URL}/pdf-upload/{upload_id}/chunk?chunk_index={chunk_index}", 
-                                           files=files)
-                    
-                    if resp.status_code != 200:
-                        self.result.add_test(f"Upload Chunk {chunk_index}", "FAIL", f"Status {resp.status_code}")
-                        return False
-                    
-                    chunk_resp = resp.json()
-                    print(f"  Chunk {chunk_index}: {chunk_resp['received']}/{chunk_resp['total']}")
-            
-            self.result.add_test("Upload All Chunks", "PASS", f"{total_chunks} chunks uploaded")
-            
-            # Step 3: Complete upload
-            resp = self.session.post(f"{BACKEND_URL}/pdf-upload/{upload_id}/complete")
-            if resp.status_code != 200:
-                self.result.add_test("Complete Upload", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            complete_data = resp.json()
-            self.result.add_test("Complete Upload", "PASS", f"Status: {complete_data['status']}, Size: {complete_data['assembled_size_mb']}MB")
-            
-            # Step 4: Poll for completion
-            max_polls = 30  # 30 seconds max
-            for i in range(max_polls):
-                resp = self.session.get(f"{BACKEND_URL}/pdf-upload/{upload_id}/status")
-                if resp.status_code != 200:
-                    self.result.add_test("Status Polling", "FAIL", f"Status {resp.status_code}")
-                    return False
-                
-                status_data = resp.json()
-                upload_status = status_data["upload_status"]
-                
-                print(f"  Poll {i+1}: {upload_status}, Pages: {status_data['pages_processed']}/{status_data['total_pages']}, Imported: {status_data['imported']}")
-                
-                if upload_status == "done":
-                    self.result.add_test("PDF Processing Complete", "PASS", 
-                                       f"Pages: {status_data['total_pages']}, Imported: {status_data['imported']}, Failed: {status_data['failed']}")
-                    
-                    # Verify expected results
-                    if status_data['total_pages'] == 5 and status_data['imported'] == 5 and status_data['failed'] == 0:
-                        self.result.add_test("PDF Import Results", "PASS", "All 5 pages imported successfully")
-                    else:
-                        self.result.add_test("PDF Import Results", "FAIL", f"Expected 5/5/0, got {status_data['total_pages']}/{status_data['imported']}/{status_data['failed']}")
-                    break
-                    
-                elif upload_status == "error":
-                    self.result.add_test("PDF Processing Complete", "FAIL", f"Error: {status_data.get('error', 'Unknown error')}")
-                    return False
-                
-                time.sleep(1)
-            else:
-                self.result.add_test("PDF Processing Complete", "FAIL", "Timeout waiting for completion")
-                return False
-            
-            # Step 5: Verify products created
-            resp = self.session.get(f"{BACKEND_URL}/batches/{self.batch_id}/images")
-            if resp.status_code != 200:
-                self.result.add_test("Verify Products", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            products_data = resp.json()
-            products = products_data["images"]
-            pdf_products = [p for p in products if p.get("source_type") == "pdf_import"]
-            
-            if len(pdf_products) == 5:
-                # Check that all pages have correct source_page
-                page_numbers = sorted([p.get("source_page", 0) for p in pdf_products])
-                expected_pages = [1, 2, 3, 4, 5]
-                if page_numbers == expected_pages:
-                    self.result.add_test("Verify Products", "PASS", f"5 products with correct page numbers: {page_numbers}")
-                else:
-                    self.result.add_test("Verify Products", "FAIL", f"Wrong page numbers: {page_numbers}")
-            else:
-                self.result.add_test("Verify Products", "FAIL", f"Expected 5 PDF products, got {len(pdf_products)}")
-            
-            return True
-            
-        finally:
-            # Cleanup temp file
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-    
-    def test_missing_chunks_validation(self):
-        """Test that completing upload with missing chunks fails"""
-        pdf_path, file_size = self.create_test_pdf(2)
-        if not pdf_path:
-            return False
-        
-        try:
-            # Initialize upload for 2 chunks but only upload 1
-            total_chunks = 2
-            resp = self.session.post(f"{BACKEND_URL}/pdf-upload/init", json={
-                "batch_id": self.batch_id,
-                "filename": "incomplete.pdf",
-                "file_size": file_size,
-                "total_chunks": total_chunks
-            })
-            
-            if resp.status_code != 200:
-                self.result.add_test("Init Incomplete Upload", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            upload_id = resp.json()["upload_id"]
-            
-            # Upload only first chunk
-            with open(pdf_path, 'rb') as f:
-                chunk_data = f.read(file_size // 2)
-                files = {'file': ('chunk.bin', chunk_data, 'application/octet-stream')}
-                resp = self.session.post(f"{BACKEND_URL}/pdf-upload/{upload_id}/chunk?chunk_index=0", 
-                                       files=files)
-            
-            if resp.status_code != 200:
-                self.result.add_test("Upload Partial Chunks", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            # Try to complete with missing chunks
-            resp = self.session.post(f"{BACKEND_URL}/pdf-upload/{upload_id}/complete")
-            if resp.status_code == 400 and "Missing chunks" in resp.text:
-                self.result.add_test("Missing Chunks Validation", "PASS", "400 status with missing chunks error")
-            else:
-                self.result.add_test("Missing Chunks Validation", "FAIL", f"Status {resp.status_code}")
-            
-            return True
-            
-        finally:
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-    
-    def test_legacy_compatibility(self):
-        """Test that legacy PDF import endpoint still works"""
-        pdf_path, file_size = self.create_test_pdf(3)
-        if not pdf_path:
-            return False
-        
-        try:
-            with open(pdf_path, 'rb') as f:
-                files = {'file': ('legacy_test.pdf', f, 'application/pdf')}
-                resp = self.session.post(f"{BACKEND_URL}/batches/{self.batch_id}/import-pdf", files=files)
-            
-            if resp.status_code != 200:
-                self.result.add_test("Legacy PDF Import", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            data = resp.json()
-            if data.get("total_pages") == 3 and data.get("imported") == 3 and data.get("failed") == 0:
-                self.result.add_test("Legacy PDF Import", "PASS", f"3 pages imported successfully")
-            else:
-                self.result.add_test("Legacy PDF Import", "FAIL", f"Expected 3/3/0, got {data.get('total_pages')}/{data.get('imported')}/{data.get('failed')}")
-            
-            return True
-            
-        finally:
-            if os.path.exists(pdf_path):
-                os.unlink(pdf_path)
-    
-    def test_normal_image_upload(self):
-        """Test that normal image upload still works"""
-        try:
-            # Create a simple test image
-            from PIL import Image
-            img = Image.new('RGB', (800, 600), color='red')
-            img_buffer = io.BytesIO()
-            img.save(img_buffer, format='JPEG')
-            img_data = img_buffer.getvalue()
-            
-            files = {'files': ('test_image.jpg', img_data, 'image/jpeg')}
-            resp = self.session.post(f"{BACKEND_URL}/batches/{self.batch_id}/upload", files=files)
-            
-            if resp.status_code != 200:
-                self.result.add_test("Normal Image Upload", "FAIL", f"Status {resp.status_code}")
-                return False
-            
-            data = resp.json()
-            if data.get("uploaded", 0) > 0:
-                self.result.add_test("Normal Image Upload", "PASS", f"Image uploaded successfully")
-            else:
-                self.result.add_test("Normal Image Upload", "FAIL", f"No images uploaded")
-            
-            return True
-            
-        except Exception as e:
-            self.result.add_test("Normal Image Upload", "FAIL", f"Error: {str(e)}")
-            return False
-    
-    def cleanup(self):
-        """Clean up test batch"""
-        if hasattr(self, 'batch_id'):
-            resp = self.session.delete(f"{BACKEND_URL}/batches/{self.batch_id}")
-            if resp.status_code == 200:
-                self.result.add_test("Cleanup Test Batch", "PASS", f"Batch {self.batch_id} deleted")
-            else:
-                self.result.add_test("Cleanup Test Batch", "FAIL", f"Status {resp.status_code}")
-    
-    def run_all_tests(self):
-        """Run complete test suite"""
-        print("=== CHUNKED PDF UPLOAD TESTING ===")
-        print(f"Backend URL: {BACKEND_URL}")
-        
-        # Authentication
-        if not self.authenticate():
-            return
-        
-        # Create test batch
-        if not self.create_test_batch():
-            return
-        
-        try:
-            # Run all tests
-            self.test_validation_errors()
-            self.test_chunked_upload_flow() 
-            self.test_missing_chunks_validation()
-            self.test_legacy_compatibility()
-            self.test_normal_image_upload()
-            
-        finally:
-            # Always cleanup
-            self.cleanup()
-        
-        # Print summary
-        passed, failed = self.result.summary()
-        
-        if failed == 0:
-            print("\n🎉 ALL TESTS PASSED! Chunked PDF upload system is working correctly.")
-        else:
-            print(f"\n⚠️  {failed} test(s) failed. Check the details above.")
-        
-        return failed == 0
+        self.admin_token = None
+        self.customer_token = None
+        self.test_results = []
 
-def main():
-    """Main test runner"""
-    tester = PDFChunkedUploadTester()
-    success = tester.run_all_tests()
-    return success
+    def log_test(self, test_name, status, message=""):
+        """Log test results"""
+        result = f"{'✅' if status else '❌'} {test_name}: {message}"
+        print(result)
+        self.test_results.append({"test": test_name, "passed": status, "message": message})
+
+    def create_test_image(self, width=400, height=500, image_type="person"):
+        """Create a test image for try-on testing"""
+        if image_type == "person":
+            # Create a simple person-like image with skin tone and clothing
+            img = Image.new('RGB', (width, height), (200, 180, 160))  # Skin tone background
+            draw = ImageDraw.Draw(img)
+            
+            # Draw head (face area)
+            draw.ellipse([150, 50, 250, 170], fill=(230, 200, 170))  # Face
+            
+            # Draw neck
+            draw.rectangle([180, 170, 220, 220], fill=(230, 200, 170))  # Neck
+            
+            # Draw body with clothing
+            draw.rectangle([130, 220, 270, 400], fill=(100, 120, 140))  # Body/shirt
+            
+        else:  # non-person image
+            img = Image.new('RGB', (width, height), (255, 0, 0))  # Red image
+            draw = ImageDraw.Draw(img)
+            draw.text((10, 10), "TEST IMAGE", fill=(255, 255, 255))
+
+        # Convert to base64
+        buf = io.BytesIO()
+        img.save(buf, 'JPEG', quality=80)
+        return base64.b64encode(buf.getvalue()).decode()
+
+    def authenticate_user(self, phone, is_admin=False):
+        """Authenticate and get JWT token"""
+        try:
+            # Send OTP (optional step)
+            otp_response = self.session.post(f"{API_URL}/api/auth/send-otp", json={"phone": phone})
+            
+            # Verify OTP
+            verify_response = self.session.post(f"{API_URL}/api/auth/verify-otp", json={
+                "phone": phone,
+                "otp": TEST_OTP
+            })
+            
+            if verify_response.status_code == 200:
+                data = verify_response.json()
+                token = data.get("token")
+                role = data.get("user", {}).get("role", "customer")
+                self.log_test(f"Authentication ({'Admin' if is_admin else 'Customer'})", True, f"Phone: {phone}, Role: {role}")
+                return token
+            else:
+                self.log_test(f"Authentication ({'Admin' if is_admin else 'Customer'})", False, f"HTTP {verify_response.status_code}")
+                return None
+        except Exception as e:
+            self.log_test(f"Authentication ({'Admin' if is_admin else 'Customer'})", False, str(e))
+            return None
+
+    def test_virtual_tryon_web_page(self):
+        """Test 1: Virtual Try-On Web Page (GET /api/virtual-try-on)"""
+        print("\n=== TEST 1: Virtual Try-On Web Page ===")
+        
+        try:
+            response = self.session.get(f"{API_URL}/api/virtual-try-on")
+            
+            if response.status_code == 200:
+                content = response.text
+                # Check for key elements in the HTML
+                required_elements = [
+                    "Virtual Try-On",
+                    "login",
+                    "product",
+                    "photo",
+                    "generate",
+                    "API_BASE"
+                ]
+                
+                missing_elements = []
+                for element in required_elements:
+                    if element.lower() not in content.lower():
+                        missing_elements.append(element)
+                
+                if not missing_elements:
+                    self.log_test("Virtual Try-On Web Page Load", True, "HTML page loaded with all required elements")
+                    
+                    # Check if it's a proper HTML page
+                    if content.strip().startswith('<!DOCTYPE html>') or content.strip().startswith('<html'):
+                        self.log_test("Virtual Try-On HTML Structure", True, "Valid HTML document structure")
+                    else:
+                        self.log_test("Virtual Try-On HTML Structure", False, "Not a valid HTML document")
+                        
+                else:
+                    self.log_test("Virtual Try-On Web Page Load", False, f"Missing elements: {missing_elements}")
+            else:
+                self.log_test("Virtual Try-On Web Page Load", False, f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Virtual Try-On Web Page Load", False, str(e))
+
+    def test_ai_tryon_backend_api(self):
+        """Test 2: AI Try-On Backend API (POST /api/ai/try-on)"""
+        print("\n=== TEST 2: AI Try-On Backend API ===")
+        
+        if not self.customer_token:
+            self.log_test("AI Try-On API", False, "No customer token available")
+            return
+            
+        try:
+            # First get a product ID
+            products_response = self.session.get(f"{API_URL}/api/products?limit=1")
+            if products_response.status_code != 200:
+                self.log_test("AI Try-On API - Get Product", False, f"Products API failed: {products_response.status_code}")
+                return
+                
+            products_data = products_response.json()
+            if not products_data.get("products"):
+                self.log_test("AI Try-On API - Get Product", False, "No products available")
+                return
+                
+            product_id = products_data["products"][0]["id"]
+            self.log_test("AI Try-On API - Get Product", True, f"Product ID: {product_id}")
+            
+            # Create test user image
+            test_image_b64 = self.create_test_image(400, 500, "person")
+            
+            # Test AI Try-On API call
+            tryon_payload = {
+                "product_id": product_id,
+                "user_photo_base64": test_image_b64,
+                "body_area": "neck",
+                "scale": 0.45,
+                "offset_x": 0.5,
+                "offset_y": 0.25
+            }
+            
+            headers = {"Authorization": f"Bearer {self.customer_token}"}
+            response = self.session.post(f"{API_URL}/api/ai/try-on", json=tryon_payload, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check required response fields
+                required_fields = ["image_url", "image_base64", "method"]
+                missing_fields = []
+                
+                for field in required_fields:
+                    if field not in data:
+                        missing_fields.append(field)
+                
+                if not missing_fields:
+                    # Verify method is exact_composite
+                    if data.get("method") == "exact_composite":
+                        self.log_test("AI Try-On API Response", True, f"All fields present, method: {data['method']}")
+                        
+                        # Test if returned image URL is accessible
+                        self.test_generated_image_url(data["image_url"])
+                        
+                    else:
+                        self.log_test("AI Try-On API Response", False, f"Expected method 'exact_composite', got '{data.get('method')}'")
+                else:
+                    self.log_test("AI Try-On API Response", False, f"Missing fields: {missing_fields}")
+            else:
+                error_msg = f"HTTP {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_msg += f": {error_data.get('detail', 'Unknown error')}"
+                except:
+                    pass
+                self.log_test("AI Try-On API Response", False, error_msg)
+                
+        except Exception as e:
+            self.log_test("AI Try-On API", False, str(e))
+
+    def test_different_body_areas(self):
+        """Test 3: Test different body areas"""
+        print("\n=== TEST 3: Different Body Areas ===")
+        
+        if not self.customer_token:
+            self.log_test("Body Areas Test", False, "No customer token available")
+            return
+            
+        try:
+            # Get a product ID
+            products_response = self.session.get(f"{API_URL}/api/products?limit=1")
+            if products_response.status_code != 200:
+                self.log_test("Body Areas Test - Get Product", False, "Products API failed")
+                return
+                
+            products_data = products_response.json()
+            product_id = products_data["products"][0]["id"]
+            
+            # Test different body areas
+            body_areas = ["neck", "ear", "wrist", "ankle", "finger", "auto"]
+            test_image_b64 = self.create_test_image(400, 500, "person")
+            headers = {"Authorization": f"Bearer {self.customer_token}"}
+            
+            for area in body_areas:
+                try:
+                    payload = {
+                        "product_id": product_id,
+                        "user_photo_base64": test_image_b64,
+                        "body_area": area,
+                        "scale": 0.4,
+                        "offset_x": 0.5,
+                        "offset_y": 0.3
+                    }
+                    
+                    response = self.session.post(f"{API_URL}/api/ai/try-on", json=payload, headers=headers)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        detected_area = data.get("body_area", area)
+                        self.log_test(f"Body Area - {area}", True, f"Detected area: {detected_area}")
+                    else:
+                        self.log_test(f"Body Area - {area}", False, f"HTTP {response.status_code}")
+                        
+                except Exception as e:
+                    self.log_test(f"Body Area - {area}", False, str(e))
+                    
+        except Exception as e:
+            self.log_test("Body Areas Test", False, str(e))
+
+    def test_error_handling(self):
+        """Test 4: Error handling"""
+        print("\n=== TEST 4: Error Handling ===")
+        
+        # Test 4a: Without auth token (should 401)
+        try:
+            payload = {
+                "product_id": "test-product-id",
+                "user_photo_base64": "invalid-base64",
+                "body_area": "neck"
+            }
+            
+            response = self.session.post(f"{API_URL}/api/ai/try-on", json=payload)
+            
+            if response.status_code == 401:
+                self.log_test("Error Handling - No Auth", True, "Correctly returned 401 Unauthorized")
+            else:
+                self.log_test("Error Handling - No Auth", False, f"Expected 401, got {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Error Handling - No Auth", False, str(e))
+        
+        if not self.customer_token:
+            self.log_test("Error Handling - Invalid Product", False, "No customer token for further tests")
+            return
+            
+        headers = {"Authorization": f"Bearer {self.customer_token}"}
+        
+        # Test 4b: Invalid product_id (should 404)
+        try:
+            payload = {
+                "product_id": "invalid-product-id-12345",
+                "user_photo_base64": self.create_test_image(400, 500, "person"),
+                "body_area": "neck"
+            }
+            
+            response = self.session.post(f"{API_URL}/api/ai/try-on", json=payload, headers=headers)
+            
+            if response.status_code == 404:
+                self.log_test("Error Handling - Invalid Product", True, "Correctly returned 404 Not Found")
+            else:
+                self.log_test("Error Handling - Invalid Product", False, f"Expected 404, got {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Error Handling - Invalid Product", False, str(e))
+        
+        # Test 4c: Missing/empty user_photo_base64
+        try:
+            # Get valid product ID
+            products_response = self.session.get(f"{API_URL}/api/products?limit=1")
+            product_id = products_response.json()["products"][0]["id"]
+            
+            payload = {
+                "product_id": product_id,
+                "user_photo_base64": "",  # Empty image
+                "body_area": "neck"
+            }
+            
+            response = self.session.post(f"{API_URL}/api/ai/try-on", json=payload, headers=headers)
+            
+            if response.status_code >= 400:
+                self.log_test("Error Handling - Empty Image", True, f"Correctly returned error {response.status_code}")
+            else:
+                self.log_test("Error Handling - Empty Image", False, f"Should have returned error, got {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Error Handling - Empty Image", False, str(e))
+
+    def test_generated_image_url(self, image_url):
+        """Test 5: Generated image URL works"""
+        print(f"\n=== TEST 5: Generated Image URL Access ===")
+        
+        try:
+            # Construct full URL if relative
+            if image_url.startswith('/'):
+                full_url = f"{API_URL}{image_url}"
+            else:
+                full_url = image_url
+                
+            response = self.session.get(full_url)
+            
+            if response.status_code == 200:
+                content_type = response.headers.get('Content-Type', '')
+                if 'image' in content_type.lower():
+                    self.log_test("Generated Image URL Access", True, f"Image accessible, Content-Type: {content_type}")
+                else:
+                    self.log_test("Generated Image URL Access", False, f"Not an image, Content-Type: {content_type}")
+            else:
+                self.log_test("Generated Image URL Access", False, f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Generated Image URL Access", False, str(e))
+
+    def test_existing_endpoints_regression(self):
+        """Test 6: Regression - Existing endpoints"""
+        print("\n=== TEST 6: Existing Endpoints Regression ===")
+        
+        # Test products endpoint
+        try:
+            response = self.session.get(f"{API_URL}/api/products?limit=5")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("products") and len(data["products"]) > 0:
+                    self.log_test("Regression - Products API", True, f"Retrieved {len(data['products'])} products")
+                else:
+                    self.log_test("Regression - Products API", False, "No products returned")
+            else:
+                self.log_test("Regression - Products API", False, f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Regression - Products API", False, str(e))
+        
+        # Test live rates endpoint
+        try:
+            response = self.session.get(f"{API_URL}/api/live-rates")
+            
+            if response.status_code == 200:
+                data = response.json()
+                required_fields = ["silver_dollar", "gold_dollar", "silver_mcx", "gold_mcx", "silver_physical", "gold_physical"]
+                
+                missing_fields = []
+                for field in required_fields:
+                    if field not in data:
+                        missing_fields.append(field)
+                
+                if not missing_fields:
+                    silver_dollar = data.get("silver_dollar", 0)
+                    if silver_dollar > 0:
+                        self.log_test("Regression - Live Rates API", True, f"All rate fields present, silver_dollar: ${silver_dollar}")
+                    else:
+                        self.log_test("Regression - Live Rates API", False, f"Invalid silver_dollar rate: {silver_dollar}")
+                else:
+                    self.log_test("Regression - Live Rates API", False, f"Missing fields: {missing_fields}")
+            else:
+                self.log_test("Regression - Live Rates API", False, f"HTTP {response.status_code}")
+                
+        except Exception as e:
+            self.log_test("Regression - Live Rates API", False, str(e))
+        
+        # Test auth/me endpoint with customer token
+        if self.customer_token:
+            try:
+                headers = {"Authorization": f"Bearer {self.customer_token}"}
+                response = self.session.get(f"{API_URL}/api/auth/me", headers=headers)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("phone") == CUSTOMER_PHONE:
+                        self.log_test("Regression - Auth Me API", True, f"User details correct: {data.get('phone')}")
+                    else:
+                        self.log_test("Regression - Auth Me API", False, f"Wrong user data: {data}")
+                else:
+                    self.log_test("Regression - Auth Me API", False, f"HTTP {response.status_code}")
+                    
+            except Exception as e:
+                self.log_test("Regression - Auth Me API", False, str(e))
+
+    def run_all_tests(self):
+        """Run comprehensive Virtual Try-On feature testing"""
+        print("=" * 80)
+        print("🎭 YASH TRADE VIRTUAL TRY-ON COMPREHENSIVE BACKEND TESTING")
+        print(f"🌐 API URL: {API_URL}")
+        print("=" * 80)
+        
+        # Authenticate users
+        print("\n🔐 AUTHENTICATION")
+        self.admin_token = self.authenticate_user(ADMIN_PHONE, is_admin=True)
+        self.customer_token = self.authenticate_user(CUSTOMER_PHONE, is_admin=False)
+        
+        # Run all test suites
+        self.test_virtual_tryon_web_page()
+        self.test_ai_tryon_backend_api()
+        self.test_different_body_areas()
+        self.test_error_handling()
+        self.test_existing_endpoints_regression()
+        
+        # Summary
+        print("\n" + "=" * 80)
+        print("📊 TEST SUMMARY")
+        print("=" * 80)
+        
+        passed_tests = [t for t in self.test_results if t["passed"]]
+        failed_tests = [t for t in self.test_results if not t["passed"]]
+        
+        print(f"✅ PASSED: {len(passed_tests)}/{len(self.test_results)} tests")
+        print(f"❌ FAILED: {len(failed_tests)}/{len(self.test_results)} tests")
+        
+        if failed_tests:
+            print("\n🔥 FAILED TESTS:")
+            for test in failed_tests:
+                print(f"   ❌ {test['test']}: {test['message']}")
+        
+        if passed_tests:
+            print(f"\n✨ SUCCESS RATE: {(len(passed_tests)/len(self.test_results)*100):.1f}%")
+        
+        print("\n" + "=" * 80)
+        
+        return len(failed_tests) == 0
+
 
 if __name__ == "__main__":
-    success = main()
+    tester = VirtualTryOnTester()
+    success = tester.run_all_tests()
     exit(0 if success else 1)

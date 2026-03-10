@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Header, File, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import jwt
 import asyncio
 import requests as http_requests
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageFilter, ImageEnhance
 from bs4 import BeautifulSoup
 import re
 import json as json_module
@@ -1538,7 +1538,6 @@ def _remove_bg_and_composite(user_img_bytes: bytes, product_img_bytes: bytes, bo
     result = result.convert('RGB')
 
     # Slight warmth/contrast enhancement
-    from PIL import ImageEnhance
     result = ImageEnhance.Contrast(result).enhance(1.05)
     result = ImageEnhance.Color(result).enhance(1.05)
 
@@ -2418,6 +2417,15 @@ async def seed_new_features():
     await db.exhibitions.create_index([("is_upcoming", -1), ("created_at", -1)])
     await db.live_rates.create_index([("type", 1)])
     await db.pdf_jobs.create_index([("upload_id", 1)], unique=True)
+
+# ===================== VIRTUAL TRY-ON WEB PAGE =====================
+
+@api_router.get("/virtual-try-on", response_class=HTMLResponse)
+async def virtual_try_on_page():
+    html_path = ROOT_DIR / "static" / "virtual-try-on.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Try-on page not found")
+    return HTMLResponse(content=html_path.read_text(), status_code=200)
 
 # ===================== APP SETUP =====================
 
