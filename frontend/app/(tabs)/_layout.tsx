@@ -1,8 +1,10 @@
-import { Tabs } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { TouchableOpacity, Linking, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, Linking, View, StyleSheet, ActivityIndicator } from 'react-native';
 import { Colors } from '../../src/theme';
 import { useLang } from '../../src/context/LanguageContext';
+import { useAuth } from '../../src/context/AuthContext';
+import { useEffect } from 'react';
 
 const TAB_LABELS: Record<string, Record<string, string>> = {
   home: { en: 'Home', hi: 'होम', pa: 'ਹੋਮ' },
@@ -20,7 +22,21 @@ const openWhatsApp = () => {
 
 export default function TabLayout() {
   const { language } = useLang();
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const label = (key: string) => TAB_LABELS[key]?.[language] || TAB_LABELS[key]?.en || key;
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/login');
+    }
+  }, [loading, user]);
+
+  if (loading) {
+    return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}><ActivityIndicator size="large" color={Colors.gold} /></View>;
+  }
+
+  if (!user) return null;
 
   return (
     <View style={{ flex: 1 }}>

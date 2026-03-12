@@ -173,13 +173,22 @@ export default function ProductDetail() {
           </TouchableOpacity>
         </View>
 
-        {/* AI Try-On button — visible on all jewellery products */}
+        {/* AI Try-On button — visible only if product has an image */}
+        {product && (product.storage_path || product.thumbnail_path || (product.images && product.images.length > 0)) ? (
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="try-on-btn" style={styles.tryOnBtn} onPress={() => router.push({ pathname: '/try-on', params: { productId: id } })}>
             <Ionicons name="sparkles" size={18} color="#fff" />
             <Text style={styles.tryOnBtnText}>AI Try-On Preview</Text>
           </TouchableOpacity>
         </View>
+        ) : (
+        <View style={styles.ctaSection}>
+          <View testID="try-on-disabled" style={[styles.tryOnBtn, { opacity: 0.4 }]}>
+            <Ionicons name="sparkles" size={18} color="#fff" />
+            <Text style={styles.tryOnBtnText}>Try-On unavailable (no image)</Text>
+          </View>
+        </View>
+        )}
 
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>

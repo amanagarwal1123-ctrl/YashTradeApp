@@ -8,7 +8,7 @@ import { api, setToken, getImageUrl, cancelUpload, getLastUploadId, clearLastUpl
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'liverates';
-type Role = 'admin' | 'executive' | null;
+type Role = 'admin' | 'executive' | 'billing_executive' | null;
 
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
 
@@ -60,7 +60,7 @@ export default function PanelScreen() {
   // Content management
   const [contentSubView, setContentSubView] = useState<ContentSubView>('menu');
   const [contentData, setContentData] = useState<any[]>([]);
-  const [contentForm, setContentForm] = useState<Record<string, string>>({});
+  const [contentForm, setContentForm] = useState<Record<string, any>>({});
 
   // Upload
   const [uploadBatchId, setUploadBatchId] = useState('');
@@ -225,11 +225,11 @@ export default function PanelScreen() {
   };
 
   const toggleBatchVisibility = async (id: string) => {
-    try { await api.patch(`/batches/${id}/visibility`); loadTab('batches'); } catch {}
+    try { await api.patch(`/batches/${id}/visibility`); loadTab('products'); } catch {}
   };
 
   const deleteBatch = (id: string, name: string) => {
-    Alert.alert('Delete', `Delete "${name}"?`, [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await api.delete(`/batches/${id}`); loadTab('batches'); } }]);
+    Alert.alert('Delete', `Delete "${name}"?`, [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await api.delete(`/batches/${id}`); loadTab('products'); } }]);
   };
 
   const pickFiles = () => {
@@ -289,7 +289,7 @@ export default function PanelScreen() {
       await api.uploadFiles(`/batches/${uploadBatchId}/upload`, selectedFiles, (d, t) => setUploadProgress({ done: d, total: t }));
       setSelectedFiles([]); setUploadBatchId('');
       Alert.alert('Success', 'Images uploaded');
-      loadTab('batches');
+      loadTab('products');
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setUploading(false); }
   };

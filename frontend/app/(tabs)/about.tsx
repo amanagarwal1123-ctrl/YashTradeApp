@@ -136,7 +136,7 @@ export default function AboutScreen() {
           <Ionicons name={icon as any} size={22} color={Colors.gold} />
           <Text style={st.locationTitle}>{title}</Text>
         </View>
-        {details.map((d, i) => (
+        {details.map((d: string, i: number) => (
           <Text key={i} style={st.locationDetail}>{d.trim()}</Text>
         ))}
       </View>

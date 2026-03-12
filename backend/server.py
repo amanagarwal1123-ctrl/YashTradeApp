@@ -33,9 +33,69 @@ db = client[os.environ.get('DB_NAME', 'jewellers_app')]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'aman-jewellers-secret-key-2024-prod-v1')
+JWT_SECRET = os.environ.get('JWT_SECRET', '')
+if not JWT_SECRET or len(JWT_SECRET) < 16:
+    JWT_SECRET = 'aman-jewellers-secret-key-2024-prod-v1'
+    print("WARNING: JWT_SECRET is weak or missing — using built-in default. Set a strong JWT_SECRET in .env for production.")
 JWT_ALGORITHM = 'HS256'
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# CORS origins from env (comma-separated), falls back to permissive for dev
+CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
+
+# ===================== OTP STORE =====================
+# In-memory OTP store with expiry and rate limiting
+# Production should replace with Redis/SMS provider
+import time as _time
+import hashlib
+
+_otp_store: Dict[str, Dict[str, Any]] = {}  # phone -> {otp, expires_at, attempts}
+_otp_rate: Dict[str, list] = {}  # phone -> [timestamp, ...]
+OTP_EXPIRY_SECONDS = 300  # 5 minutes
+OTP_MAX_ATTEMPTS = 5
+OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
+OTP_RATE_WINDOW = 600  # 10 minutes
+
+def _generate_otp() -> str:
+    """Generate a 4-digit OTP. In demo mode, always returns 1234."""
+    demo_mode = os.environ.get('OTP_DEMO_MODE', 'true').lower() == 'true'
+    if demo_mode:
+        return '1234'
+    import random
+    return str(random.randint(1000, 9999))
+
+def _check_otp_rate(phone: str) -> bool:
+    """Returns True if under rate limit."""
+    now = _time.time()
+    timestamps = _otp_rate.get(phone, [])
+    timestamps = [t for t in timestamps if now - t < OTP_RATE_WINDOW]
+    _otp_rate[phone] = timestamps
+    return len(timestamps) < OTP_RATE_LIMIT
+
+def _store_otp(phone: str, otp: str):
+    now = _time.time()
+    _otp_store[phone] = {"otp": otp, "expires_at": now + OTP_EXPIRY_SECONDS, "attempts": 0}
+    timestamps = _otp_rate.get(phone, [])
+    timestamps.append(now)
+    _otp_rate[phone] = timestamps
+
+def _verify_otp(phone: str, otp: str) -> tuple:
+    """Returns (success: bool, error_msg: str)"""
+    entry = _otp_store.get(phone)
+    if not entry:
+        return False, "OTP not found. Please request a new OTP."
+    if _time.time() > entry["expires_at"]:
+        del _otp_store[phone]
+        return False, "OTP expired. Please request a new OTP."
+    if entry["attempts"] >= OTP_MAX_ATTEMPTS:
+        del _otp_store[phone]
+        return False, "Too many failed attempts. Please request a new OTP."
+    entry["attempts"] += 1
+    if entry["otp"] != otp:
+        return False, "Invalid OTP"
+    # Success — remove used OTP
+    del _otp_store[phone]
+    return True, ""
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -164,7 +224,7 @@ class RewardConfigUpdate(BaseModel):
 
 class RewardCreditRequest(BaseModel):
     user_id: str
-    points: int
+    points: int = Field(gt=0, description="Must be a positive integer")
     reason: str = ""
 
 class RedeemRequest(BaseModel):
@@ -220,7 +280,7 @@ class BatchImageDelete(BaseModel):
 
 class CartAddRequest(BaseModel):
     product_id: str
-    quantity: int = 1
+    quantity: int = Field(1, gt=0, description="Must be a positive integer")
     notes: str = ""
 
 class CartSubmitRequest(BaseModel):
@@ -334,6 +394,8 @@ async def send_otp(req: SendOTPRequest):
     phone = req.phone.strip()
     if len(phone) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
+    if not _check_otp_rate(phone):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
     existing = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not existing:
         user_data = {
@@ -354,13 +416,18 @@ async def send_otp(req: SendOTPRequest):
             "last_login": datetime.now(timezone.utc).isoformat()
         }
         await db.users.insert_one(user_data)
-    return {"message": "OTP sent successfully", "otp_hint": "Use 1234 for demo"}
+    otp = _generate_otp()
+    _store_otp(phone, otp)
+    logger.info(f"OTP generated for {phone[-4:]}")
+    return {"message": "OTP sent successfully"}
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(req: VerifyOTPRequest):
-    if req.otp != "1234":
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-    user = await db.users.find_one({"phone": req.phone.strip()}, {"_id": 0})
+    phone = req.phone.strip()
+    success, err_msg = _verify_otp(phone, req.otp)
+    if not success:
+        raise HTTPException(status_code=400, detail=err_msg)
+    user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     is_new = user.get("is_new", False)
@@ -373,7 +440,7 @@ async def verify_otp(req: VerifyOTPRequest):
             "type": "credit", "reason": "Welcome bonus", "created_at": datetime.now(timezone.utc).isoformat()
         })
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
-    fresh_user = await db.users.find_one({"phone": req.phone.strip()}, {"_id": 0})
+    fresh_user = await db.users.find_one({"phone": phone}, {"_id": 0})
     token = create_token(fresh_user["id"], fresh_user.get("role", "customer"))
     return {"token": token, "user": {**fresh_user, "is_new": is_new}}
 
@@ -397,10 +464,22 @@ async def list_products(
     page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=100000),
     category: str = Query(""), metal_type: str = Query(""),
     search: str = Query(""), post_type: str = Query(""),
-    include_hidden: bool = Query(False)
+    include_hidden: bool = Query(False),
+    authorization: Optional[str] = Header(None)
 ):
     query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
-    if not include_hidden:
+    if include_hidden:
+        # Require admin auth for include_hidden
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Admin authentication required to view hidden products")
+        try:
+            payload = jwt.decode(authorization.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            u = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+            if not u or u.get("role") != "admin":
+                raise HTTPException(status_code=403, detail="Admin access required to view hidden products")
+        except jwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
         query["visibility"] = {"$ne": "hidden"}
     if category:
         query["category"] = category
@@ -424,10 +503,23 @@ async def list_products(
     return {"products": products, "total": total, "page": page, "pages": (total + limit - 1) // limit}
 
 @api_router.get("/products/{product_id}")
-async def get_product(product_id: str):
+async def get_product(product_id: str, authorization: Optional[str] = Header(None)):
     product = await db.products.find_one({"id": product_id}, {"_id": 0})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    # Check if product is hidden/deleted — only admin can see those
+    is_hidden = product.get("visibility") == "hidden" or product.get("is_deleted")
+    if is_hidden:
+        is_admin = False
+        if authorization and authorization.startswith("Bearer "):
+            try:
+                payload = jwt.decode(authorization.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                u = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+                is_admin = u and u.get("role") == "admin"
+            except Exception:
+                pass
+        if not is_admin:
+            raise HTTPException(status_code=404, detail="Product not found")
     await db.products.update_one({"id": product_id}, {"$inc": {"views": 1}})
     return product
 
@@ -1265,6 +1357,8 @@ async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends
     if not existing:
         raise HTTPException(status_code=404, detail="Request not found")
     normalized_status = STATUS_ALIASES.get(req.status, req.status)
+    if normalized_status not in CANONICAL_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid status '{req.status}'. Allowed: {', '.join(sorted(CANONICAL_STATUSES))}")
     updates: Dict[str, Any] = {"status": normalized_status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if req.assigned_to:
         updates["assigned_to"] = req.assigned_to
@@ -1343,6 +1437,8 @@ async def update_reward_config(req: RewardConfigUpdate, user=Depends(get_admin_u
 
 @api_router.post("/rewards/credit")
 async def credit_points(req: RewardCreditRequest, user=Depends(get_billing_or_admin)):
+    if req.points <= 0:
+        raise HTTPException(status_code=400, detail="Points must be greater than zero")
     target = await db.users.find_one({"id": req.user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -1361,6 +1457,8 @@ async def credit_points(req: RewardCreditRequest, user=Depends(get_billing_or_ad
 
 @api_router.post("/rewards/deduct")
 async def deduct_points(req: RewardCreditRequest, user=Depends(get_billing_or_admin)):
+    if req.points <= 0:
+        raise HTTPException(status_code=400, detail="Points must be greater than zero")
     target = await db.users.find_one({"id": req.user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -1690,6 +1788,10 @@ async def get_wishlist(user=Depends(get_current_user)):
 
 @api_router.post("/cart/add")
 async def cart_add(req: CartAddRequest, user=Depends(get_current_user)):
+    # Validate product exists and is visible
+    product = await db.products.find_one({"id": req.product_id}, {"_id": 0})
+    if not product or product.get("is_deleted") or product.get("visibility") == "hidden":
+        raise HTTPException(status_code=400, detail="Product not found or unavailable")
     existing = await db.cart.find_one({"user_id": user["id"], "product_id": req.product_id, "status": "active"})
     if existing:
         await db.cart.update_one({"id": existing["id"]}, {"$inc": {"quantity": req.quantity}})
@@ -2434,7 +2536,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS or ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -2456,6 +2558,13 @@ async def startup():
         logger.info("New features seeded")
     except Exception as e:
         logger.warning(f"New features seed: {e}")
+    # Cart cleanup: remove rows with quantity <= 0 or orphaned products
+    try:
+        bad_qty = await db.cart.delete_many({"quantity": {"$lte": 0}})
+        if bad_qty.deleted_count > 0:
+            logger.info(f"Cart cleanup: removed {bad_qty.deleted_count} rows with invalid quantity")
+    except Exception as e:
+        logger.warning(f"Cart cleanup: {e}")
     # Start live rate background task
     asyncio.create_task(live_rate_background_task())
 

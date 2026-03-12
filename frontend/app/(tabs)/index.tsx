@@ -35,7 +35,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [feedPage, setFeedPage] = useState(1);
-  const rateTimer = useRef<NodeJS.Timeout | null>(null);
+  const rateTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const T: Record<string, any> = {
     en: { welcome: 'Welcome back,', highlights: 'HIGHLIGHTS', latest: 'LATEST COLLECTION', seeAll: 'See All', askPrice: 'Ask Price', calc: 'Calculator', call: 'Request Call', video: 'Video Call', rewards: 'My Rewards', ai: 'AI Assistant', guide: 'Silver Guide', rateList: 'Rate List', schemes: 'Schemes', brands: 'Brands', showroom: 'Showroom', exhibition: 'Exhibition', live: 'LIVE' },
@@ -92,7 +92,7 @@ export default function HomeScreen() {
     const nextPage = feedPage + 1;
     const startIdx = (nextPage - 1) * 10;
     // Cycle through products endlessly
-    const newItems = [];
+    const newItems: Array<Product & { _key: string }> = [];
     for (let i = 0; i < 10; i++) {
       const idx = (startIdx + i) % allProducts.length;
       newItems.push({ ...allProducts[idx], _key: `${nextPage}-${i}-${allProducts[idx].id}` });

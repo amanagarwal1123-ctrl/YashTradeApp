@@ -24,37 +24,36 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 ## Implemented Features
 
 ### Core Features
-- JWT auth with mock OTP
+- JWT auth with OTP store (expiry, retry limits, rate limiting). OTP_DEMO_MODE=true for dev
 - Product catalog with feed, search, filters
 - Cart, Requests, Rewards, AI assistant, Silver Calculator, Stories, Knowledge base
+
+### Security Hardening (March 2026)
+- **Auth:** OTP store with 5-min expiry, 5 retry limit, 5/10min rate limit per phone. No otp_hint leak. JWT_SECRET validation at startup
+- **Product privacy:** include_hidden requires admin auth. Hidden/deleted products return 404 to public
+- **Cart validation:** quantity must be >0 (Pydantic Field(gt=0)). Rejects non-existent/hidden products
+- **Rewards validation:** credit/deduct reject points <=0 (schema + endpoint checks)
+- **Request status integrity:** whitelist check after alias mapping. Returns 422 for invalid statuses
+- **CORS:** env-based CORS_ORIGINS allowlist (falls back to * for dev)
+- **Auth guard:** Tab layout redirects unauthenticated users to /login
+- **Try-on guard:** Disabled when product has no image. Shows "unavailable" message
+- **TypeScript:** 0 errors on tsc --noEmit. Fixed panel.tsx, about.tsx, index.tsx
+- **Cart cleanup:** Startup migration removes rows with quantity<=0
 
 ### 9 Major Content Sections
 About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Language Support (EN/HI/PA)
 
 ### PDF Catalogue Import — Production-Grade Chunked Upload (1GB)
-- **Max: 1000MB** — 5MB chunks with 5 retries each (exponential backoff up to 15s, 90s per-chunk timeout)
-- **Resumable**: Server tracks received_chunk_indices; client skips already-uploaded chunks on retry
-- **Background processing**: PDF assembled on server, pages extracted via PyMuPDF in asyncio task
-- **Real-time progress**: Upload %, page X/Y processing, imported/failed/skipped counts
-- **Cancel/Close button** visible during upload — user can abort anytime
-- **Resume button** appears on failure — re-uploads only missing chunks
-- **Keep-awake**: expo-keep-awake prevents screen lock during upload on mobile
-- **Detailed errors**: file too large, corrupt PDF, network interruption, chunk timeout, page extraction failure
+- **Max: 1000MB** — 25MB chunks with resume capabilities
 - Endpoints: POST /api/pdf-upload/init, /chunk, /complete, GET /status
-- Legacy: POST /api/batches/{id}/import-pdf still works
-
-### Zoomable Product Images
-- Product detail page: ScrollView with maximumZoomScale=4, "Pinch to zoom" hint
-- Image viewer: ScrollView with maximumZoomScale=5, full-screen zoom support
 
 ### Virtual Try-On (Web)
-- Standalone web page at `/api/virtual-try-on` — no Expo dependency
-- Login via phone/OTP, loads real products from API
-- 3-tab workflow: Product Selection → Customer Photo Upload → Generate Preview
-- Backend compositing: Pillow-based background removal + overlay of exact product onto exact user photo
-- Features: body area selection (neck/ear/wrist/ankle/finger), scale/position adjustment, compare before/after, zoom
-- Endpoint: POST /api/ai/try-on (returns image_url + image_base64)
-- Mobile Expo app also has try-on at `/try-on` route (React Native version)
+- Standalone web page at `/api/virtual-try-on`
+- Backend compositing: Pillow-based background removal + overlay
+- Endpoint: POST /api/ai/try-on
+
+### Zoomable Product Images
+- Product detail page: ScrollView with maximumZoomScale=4
 
 ## Tech Stack
 - Frontend: Expo, React Native, TypeScript
@@ -65,15 +64,16 @@ About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Ex
 - PDF: PyMuPDF (fitz)
 
 ## Backlog / Future Tasks
-- P0: Improve feed image quality (HD thumbnails)
+- P1: Improve feed image quality (HD thumbnails)
 - P1: Global success toasts after actions
 - P1: Fix back-navigation in customer app
+- P1: Re-add expo-keep-awake with platform-specific guard
 - P2: Rate history with mini-charts
 - P2: Push notifications
 - P2: Analytics dashboard
-- P3: Real OTP integration (replace mock)
+- P3: Real OTP/SMS integration (replace mock)
 - P3: Gold calculator
 
 ## Areas Needing Refactoring
-- `backend/server.py` (~2200+ lines) — Break into modular routers
-- `frontend/app/panel.tsx` (~1430 lines) — Split into components
+- `backend/server.py` (~2500+ lines) — Break into modular routers
+- `frontend/app/panel.tsx` (~1450 lines) — Split into components
