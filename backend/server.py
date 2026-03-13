@@ -264,6 +264,12 @@ class RequestStatusUpdate(BaseModel):
     assigned_to: str = ""
     notes: str = ""
 
+class ExecutiveCreate(BaseModel):
+    name: str
+    phone: str
+    code: str
+    role: str = "executive"  # executive or billing_executive
+
 class BatchCreate(BaseModel):
     name: str
     metal_type: str = "silver"
@@ -1334,6 +1340,7 @@ async def list_requests(
     request_type: str = Query(""),
     city: str = Query(""),
     assigned_to: str = Query(""),
+    handled_by: str = Query(""),
     user=Depends(get_executive_or_admin)
 ):
     query: Dict[str, Any] = {}
@@ -1345,6 +1352,8 @@ async def list_requests(
         query["user_city"] = {"$regex": city, "$options": "i"}
     if assigned_to:
         query["assigned_to"] = assigned_to
+    if handled_by:
+        query["handled_by_id"] = handled_by
     reqs = await db.requests.find(query, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return {"requests": reqs}
 
@@ -1359,18 +1368,30 @@ async def update_request(request_id: str, req: RequestStatusUpdate, user=Depends
     normalized_status = STATUS_ALIASES.get(req.status, req.status)
     if normalized_status not in CANONICAL_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status '{req.status}'. Allowed: {', '.join(sorted(CANONICAL_STATUSES))}")
-    updates: Dict[str, Any] = {"status": normalized_status, "updated_at": datetime.now(timezone.utc).isoformat()}
+    now = datetime.now(timezone.utc).isoformat()
+    updates: Dict[str, Any] = {
+        "status": normalized_status,
+        "updated_at": now,
+        # Track which executive handled this
+        "handled_by_id": user["id"],
+        "handled_by_name": user.get("name", user.get("phone", "")),
+        "handled_by_phone": user.get("phone", ""),
+        "handled_by_code": user.get("customer_code", ""),
+        "last_action_at": now,
+    }
     if req.assigned_to:
         updates["assigned_to"] = req.assigned_to
     if req.notes:
         updates["admin_notes"] = req.notes
-        # Append to notes history
+        # Append to notes history with full executive identity
         note_entry = {
             "note": req.notes,
             "by": user.get("name", user.get("phone", "")),
             "by_id": user["id"],
-            "status": req.status,
-            "at": datetime.now(timezone.utc).isoformat()
+            "by_phone": user.get("phone", ""),
+            "by_code": user.get("customer_code", ""),
+            "status": normalized_status,
+            "at": now
         }
         await db.requests.update_one({"id": request_id}, {"$push": {"notes_history": note_entry}})
     await db.requests.update_one({"id": request_id}, {"$set": updates})
@@ -1942,6 +1963,91 @@ async def update_customer(customer_id: str, req: CustomerUpdate, user=Depends(ge
     if updates:
         await db.users.update_one({"id": customer_id}, {"$set": updates})
     return await db.users.find_one({"id": customer_id}, {"_id": 0})
+
+# ===================== EXECUTIVE MANAGEMENT =====================
+
+@api_router.post("/executives")
+async def create_executive(req: ExecutiveCreate, user=Depends(get_admin_user)):
+    """Admin creates a new executive/telecaller user."""
+    phone = req.phone.strip()
+    if len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    if req.role not in ("executive", "billing_executive"):
+        raise HTTPException(status_code=400, detail="Role must be executive or billing_executive")
+    existing = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if existing:
+        if existing.get("role") in ("executive", "billing_executive"):
+            raise HTTPException(status_code=400, detail=f"An executive with phone {phone} already exists")
+        # Upgrade existing customer to executive
+        await db.users.update_one({"phone": phone}, {"$set": {
+            "name": req.name, "customer_code": req.code, "role": req.role,
+            "customer_type": req.role, "status": "active",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }})
+        updated = await db.users.find_one({"phone": phone}, {"_id": 0})
+        return updated
+    exec_user = {
+        "id": str(uuid.uuid4()), "phone": phone, "name": req.name,
+        "city": "", "customer_code": req.code, "customer_type": req.role,
+        "role": req.role, "category_interests": [], "is_eligible_rewards": False,
+        "assigned_salesperson": "", "status": "active", "reward_points": 0,
+        "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(exec_user)
+    return {k: v for k, v in exec_user.items() if k != "_id"}
+
+@api_router.get("/executives")
+async def list_executives(user=Depends(get_admin_user)):
+    """List all executive and billing_executive users."""
+    execs = await db.users.find(
+        {"role": {"$in": ["executive", "billing_executive"]}, "status": {"$ne": "disabled"}},
+        {"_id": 0}
+    ).sort("name", 1).to_list(100)
+    return {"executives": execs}
+
+@api_router.put("/executives/{exec_id}")
+async def update_executive(exec_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    """Admin updates executive details (name, code, role, status)."""
+    existing = await db.users.find_one({"id": exec_id}, {"_id": 0})
+    if not existing or existing.get("role") not in ("executive", "billing_executive"):
+        raise HTTPException(status_code=404, detail="Executive not found")
+    allowed = {"name", "customer_code", "role", "status", "city", "phone"}
+    filtered = {k: v for k, v in updates.items() if k in allowed and v is not None}
+    if "role" in filtered and filtered["role"] not in ("executive", "billing_executive"):
+        raise HTTPException(status_code=400, detail="Role must be executive or billing_executive")
+    if filtered:
+        filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if "role" in filtered:
+            filtered["customer_type"] = filtered["role"]
+        await db.users.update_one({"id": exec_id}, {"$set": filtered})
+    return await db.users.find_one({"id": exec_id}, {"_id": 0})
+
+@api_router.delete("/executives/{exec_id}")
+async def disable_executive(exec_id: str, user=Depends(get_admin_user)):
+    """Disable an executive (soft delete)."""
+    existing = await db.users.find_one({"id": exec_id}, {"_id": 0})
+    if not existing or existing.get("role") not in ("executive", "billing_executive"):
+        raise HTTPException(status_code=404, detail="Executive not found")
+    await db.users.update_one({"id": exec_id}, {"$set": {"status": "disabled", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"message": f"Executive {existing.get('name', '')} disabled"}
+
+@api_router.get("/executives/performance")
+async def executive_performance(user=Depends(get_admin_user)):
+    """Get request handling stats per executive."""
+    execs = await db.users.find(
+        {"role": {"$in": ["executive", "billing_executive"]}, "status": {"$ne": "disabled"}},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "customer_code": 1, "role": 1}
+    ).to_list(100)
+    result = []
+    for e in execs:
+        total = await db.requests.count_documents({"handled_by_id": e["id"]})
+        resolved = await db.requests.count_documents({"handled_by_id": e["id"], "status": "resolved"})
+        result.append({
+            "id": e["id"], "name": e["name"], "phone": e["phone"], "code": e.get("customer_code", ""),
+            "role": e["role"], "total_handled": total, "resolved": resolved
+        })
+    return {"executives": result}
 
 # ===================== SEED DATA =====================
 

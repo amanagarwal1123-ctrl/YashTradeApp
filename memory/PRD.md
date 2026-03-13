@@ -28,6 +28,15 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Product catalog with feed, search, filters
 - Cart, Requests, Rewards, AI assistant, Silver Calculator, Stories, Knowledge base
 
+### Multi-Executive / Telecaller System (March 2026)
+- **Admin CRUD:** Create/edit/disable executives with name, phone, code, role (executive or billing_executive)
+- **Individual Login:** Each executive logs in with their own phone+OTP, sees their own name in panel header
+- **Action Tracking:** Every request status change stores: handled_by_name, handled_by_phone, handled_by_code, last_action_at
+- **Notes History:** Each note entry tracks who wrote it (name, phone, code, timestamp)
+- **Admin Filtering:** Filter requests by `handled_by` executive ID
+- **Performance Stats:** `/api/executives/performance` shows total_handled and resolved per executive
+- **Endpoints:** POST/GET/PUT/DELETE /api/executives, GET /api/executives/performance
+
 ### Security Hardening (March 2026)
 - **Auth:** OTP store with 5-min expiry, 5 retry limit, 5/10min rate limit per phone. No otp_hint leak. JWT_SECRET validation at startup
 - **Product privacy:** include_hidden requires admin auth. Hidden/deleted products return 404 to public

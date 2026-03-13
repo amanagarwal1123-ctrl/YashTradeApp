@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'liverates';
 type Role = 'admin' | 'executive' | 'billing_executive' | null;
@@ -35,6 +35,13 @@ export default function PanelScreen() {
   const [products, setProducts] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+
+  // Executives management
+  const [executives, setExecutives] = useState<any[]>([]);
+  const [execForm, setExecForm] = useState({ name: '', phone: '', code: '', role: 'executive' });
+  const [editingExecId, setEditingExecId] = useState('');
+  const [showExecForm, setShowExecForm] = useState(false);
+  const [execFilter, setExecFilter] = useState('');
 
   // Rates
   const [silverDollar, setSilverDollar] = useState('');
@@ -172,6 +179,7 @@ export default function PanelScreen() {
           break;
         }
         case 'customers': { const r = await api.get('/customers?limit=100'); setCustomers(r.customers || []); break; }
+        case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -369,7 +377,6 @@ export default function PanelScreen() {
             </>
           )}
           {authError ? <Text style={s.loginError}>{authError}</Text> : null}
-          <Text style={s.loginHint}>Demo OTP: 1234</Text>
         </View>
       </SafeAreaView>
     );
@@ -383,6 +390,7 @@ export default function PanelScreen() {
     { key: 'products', label: 'Products', icon: 'grid' },
     { key: 'content', label: 'Content', icon: 'document-text' },
     { key: 'customers', label: 'Customers', icon: 'people' },
+    { key: 'executives', label: 'Executives', icon: 'people-circle' },
   ];
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'requests', label: 'Requests', icon: 'call' },
@@ -498,6 +506,7 @@ export default function PanelScreen() {
                     {r.preferred_time ? <View style={s.infoRow}><Ionicons name="time" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.preferred_time}</Text></View> : null}
                     {r.notes ? <View style={s.infoRow}><Ionicons name="document-text" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.notes}</Text></View> : null}
                     {r.admin_notes ? <View style={[s.infoRow, { backgroundColor: Colors.gold + '08', padding: 6, borderRadius: 6 }]}><Ionicons name="chatbox" size={14} color={Colors.gold} /><Text style={[s.infoText, { color: Colors.gold }]}>{r.admin_notes}</Text></View> : null}
+                    {r.handled_by_name ? <View style={[s.infoRow, { backgroundColor: '#A855F708', padding: 6, borderRadius: 6 }]}><Ionicons name="person-circle" size={14} color="#A855F7" /><Text style={[s.infoText, { color: '#A855F7', fontWeight: '600' }]}>Handled by: {r.handled_by_name} ({r.handled_by_code || r.handled_by_phone}){r.last_action_at ? ` • ${new Date(r.last_action_at).toLocaleString()}` : ''}</Text></View> : null}
                   </View>
 
                   {/* Linked Products */}
@@ -1104,6 +1113,94 @@ export default function PanelScreen() {
               ))}
             </>
           )}
+
+          {/* ===== EXECUTIVES MANAGEMENT (Admin only) ===== */}
+          {tab === 'executives' && (
+            <>
+              <Text style={s.sectionTitle}>EXECUTIVE / TELECALLER MANAGEMENT</Text>
+              
+              {/* Add/Edit Executive Form */}
+              <TouchableOpacity style={[s.saveBtn, { marginBottom: Spacing.md }]} onPress={() => { setShowExecForm(!showExecForm); setEditingExecId(''); setExecForm({ name: '', phone: '', code: '', role: 'executive' }); }}>
+                <Text style={s.saveBtnText}>{showExecForm ? 'CANCEL' : '+ ADD NEW EXECUTIVE'}</Text>
+              </TouchableOpacity>
+
+              {showExecForm && (
+                <View style={s.formCard}>
+                  <Text style={s.formTitle}>{editingExecId ? 'Edit Executive' : 'Add New Executive'}</Text>
+                  <Text style={s.formLabel}>Name *</Text>
+                  <TextInput style={s.formInput} value={execForm.name} onChangeText={v => setExecForm(p => ({...p, name: v}))} placeholder="e.g. Riya Sharma" placeholderTextColor={Colors.textMuted} data-testid="exec-name-input" />
+                  <Text style={s.formLabel}>Mobile Number *</Text>
+                  <TextInput style={s.formInput} value={execForm.phone} onChangeText={v => setExecForm(p => ({...p, phone: v.replace(/\D/g, '').slice(0, 10)}))} placeholder="e.g. 9876543210" placeholderTextColor={Colors.textMuted} keyboardType="phone-pad" data-testid="exec-phone-input" />
+                  <Text style={s.formLabel}>Executive Code *</Text>
+                  <TextInput style={s.formInput} value={execForm.code} onChangeText={v => setExecForm(p => ({...p, code: v.toUpperCase()}))} placeholder="e.g. EXEC02" placeholderTextColor={Colors.textMuted} data-testid="exec-code-input" />
+                  <Text style={s.formLabel}>Role</Text>
+                  <View style={s.formRow}>
+                    {['executive', 'billing_executive'].map(r => (
+                      <TouchableOpacity key={r} style={[s.metalBtn, execForm.role === r && s.metalBtnActive]} onPress={() => setExecForm(p => ({...p, role: r}))}>
+                        <Text style={[s.metalBtnText, execForm.role === r && s.metalBtnTextActive]}>{r === 'executive' ? 'Executive / Telecaller' : 'Billing Executive'}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} data-testid="exec-save-btn" onPress={async () => {
+                    if (!execForm.name.trim() || !execForm.phone.trim() || !execForm.code.trim()) { Alert.alert('Error', 'Name, Phone and Code are required'); return; }
+                    try {
+                      if (editingExecId) {
+                        await api.put(`/executives/${editingExecId}`, { name: execForm.name, phone: execForm.phone, customer_code: execForm.code, role: execForm.role });
+                        Alert.alert('Success', 'Executive updated');
+                      } else {
+                        await api.post('/executives', { name: execForm.name, phone: execForm.phone, code: execForm.code, role: execForm.role });
+                        Alert.alert('Success', `Executive "${execForm.name}" created. They can now login with phone ${execForm.phone} and OTP.`);
+                      }
+                      setShowExecForm(false); setEditingExecId('');
+                      setExecForm({ name: '', phone: '', code: '', role: 'executive' });
+                      loadTab('executives');
+                    } catch (e: any) { Alert.alert('Error', e.message); }
+                  }}>
+                    <Text style={s.saveBtnText}>{editingExecId ? 'UPDATE EXECUTIVE' : 'CREATE EXECUTIVE'}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Executive List */}
+              {executives.length === 0 && !showExecForm && <Text style={s.emptyText}>No executives added yet. Tap above to add one.</Text>}
+              {executives.map(ex => (
+                <View key={ex.id} style={s.reqCard} data-testid={`exec-card-${ex.id}`}>
+                  <View style={s.reqTop}>
+                    <View style={[s.reqIcon, { backgroundColor: ex.role === 'billing_executive' ? '#FF980015' : '#A855F715' }]}>
+                      <Ionicons name="person-circle" size={22} color={ex.role === 'billing_executive' ? '#FF9800' : '#A855F7'} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.reqType}>{ex.name}</Text>
+                      <Text style={s.reqTime}>{ex.phone} • {ex.customer_code} • {ex.role?.replace(/_/g, ' ')}</Text>
+                    </View>
+                    <View style={[s.badge, { backgroundColor: ex.status === 'active' ? Colors.success + '20' : Colors.error + '20' }]}>
+                      <Text style={[s.badgeText, { color: ex.status === 'active' ? Colors.success : Colors.error }]}>{ex.status}</Text>
+                    </View>
+                  </View>
+                  <View style={s.actionsRow}>
+                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]} onPress={() => {
+                      setEditingExecId(ex.id); setShowExecForm(true);
+                      setExecForm({ name: ex.name, phone: ex.phone, code: ex.customer_code || '', role: ex.role });
+                    }}>
+                      <Ionicons name="create" size={12} color={Colors.gold} /><Text style={[s.actText, { color: Colors.gold }]}>Edit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.error + '15' }]} onPress={() => {
+                      Alert.alert('Disable Executive', `Disable "${ex.name}"? They won't be able to login anymore.`, [
+                        { text: 'Cancel' },
+                        { text: 'Disable', style: 'destructive', onPress: async () => { await api.delete(`/executives/${ex.id}`); loadTab('executives'); } }
+                      ]);
+                    }}>
+                      <Ionicons name="close-circle" size={12} color={Colors.error} /><Text style={[s.actText, { color: Colors.error }]}>Disable</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.info + '15' }]} onPress={() => openCall(ex.phone)}>
+                      <Ionicons name="call" size={12} color={Colors.info} /><Text style={[s.actText, { color: Colors.info }]}>Call</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
 
           {/* ===== CONTENT MANAGEMENT ===== */}
           {tab === 'content' && (
