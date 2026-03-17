@@ -72,6 +72,11 @@ About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Ex
 - Live Rates: Yahoo Finance + ExchangeRate API
 - PDF: PyMuPDF (fitz)
 
+### Scroll Performance & Category Feed Fix (March 2026)
+- **Home page:** Replaced ScrollView with virtualized FlatList for product feed. Reduced initial load from 100K to 200 products, renders 20 at a time with progressive loading
+- **Category separation:** Metal type filters (ALL/SILVER/GOLD/DIAMOND) properly filter feed — no cross-mixing. API `metal_type` parameter enforced server-side
+- **Layout stability:** Fixed image dimensions (260px height) prevent reflow. `removeClippedSubviews`, `windowSize=5`, `initialNumToRender=8` for memory efficiency
+
 ## Backlog / Future Tasks
 - P1: Improve feed image quality (HD thumbnails)
 - P1: Global success toasts after actions
