@@ -110,3 +110,8 @@ frontend/.metro-cache/
 # Environment files
 *.env
 *.env.*
+.env
+.env.*
+credentials.json
+*.key
+.credentials
