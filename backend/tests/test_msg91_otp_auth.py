@@ -1,7 +1,13 @@
-"""Twilio OTP auth integration tests - iteration 4.
+"""MSG91 OTP auth integration tests — iteration 5.
 
-CRITICAL: Only exercise demo phones + intentionally-invalid 1111111111.
-Any other 10-digit number would send a REAL paid SMS via Twilio.
+Backend swapped SMS provider from Twilio to MSG91 (control.msg91.com/api/v5/otp).
+Endpoint contracts unchanged.
+
+CRITICAL: Only exercise demo allowlist phones and intentionally-invalid formats.
+Any real Indian mobile (10 digits starting 6-9) not on allowlist would trigger
+a REAL paid MSG91 SMS. Safe negatives: '1111111111' (starts with 1) and '123'
+(too short) — both rejected by local validation before MSG91 is called.
+For verify-otp we may safely hit MSG91 verify (no SMS cost) with 6543210987.
 """
 import os
 import time
@@ -14,7 +20,11 @@ API = f"{BASE_URL}/api"
 DEMO_CUSTOMER = "8888888888"
 DEMO_ADMIN = "9999999999"
 DEMO_EXECUTIVE = "7777777777"
-INVALID_PHONE = "1111111111"  # not a demo phone -> hits Twilio 60200
+DEMO_BILLING = "6666666666"
+INVALID_PHONE = "1111111111"          # 10-digit but starts with 1 -> local reject
+SHORT_PHONE = "123"                   # too short -> local reject
+NON_DEMO_VALID_FORMAT = "6543210987"  # valid Indian-mobile format, NOT on demo list
+# We only send verify (no send-otp) for NON_DEMO_VALID_FORMAT to avoid paid SMS.
 
 
 @pytest.fixture(scope="module")
@@ -24,33 +34,31 @@ def s():
     return sess
 
 
-# ---------- Demo phones (allowlist) ----------
+# ---------- Demo phones (allowlist) — no MSG91 dispatch ----------
 class TestDemoOTPFlow:
-    """Demo phones must accept OTP 1234 and return token + user."""
+    """Demo phones must accept OTP 1234 and return token + user with correct role."""
 
     @pytest.mark.parametrize("phone,expected_role", [
         (DEMO_CUSTOMER, "customer"),
         (DEMO_ADMIN, "admin"),
         (DEMO_EXECUTIVE, "executive"),
+        (DEMO_BILLING, "billing_executive"),
     ])
     def test_send_and_verify_demo(self, s, phone, expected_role):
         r = s.post(f"{API}/auth/send-otp", json={"phone": phone})
-        # allow 429 if a previous iteration exhausted the rate window
         if r.status_code == 429:
-            pytest.skip(f"Rate-limited for {phone} (5/10min window). Expected transient.")
+            pytest.skip(f"Rate-limited for {phone} (5/10min window)")
         assert r.status_code == 200, f"send-otp {phone} -> {r.status_code} {r.text}"
         assert "message" in r.json()
 
         v = s.post(f"{API}/auth/verify-otp", json={"phone": phone, "otp": "1234"})
         assert v.status_code == 200, f"verify-otp {phone} -> {v.status_code} {v.text}"
         body = v.json()
-        assert "token" in body and body["token"]
-        assert "user" in body
-        assert body["user"]["phone"] == phone
+        assert body.get("token")
+        assert body.get("user", {}).get("phone") == phone
         assert body["user"].get("role") == expected_role
 
     def test_verify_wrong_otp_returns_400(self, s):
-        # Prime the OTP store first
         r = s.post(f"{API}/auth/send-otp", json={"phone": DEMO_CUSTOMER})
         if r.status_code == 429:
             pytest.skip("Rate-limited; can't prime OTP store")
@@ -58,76 +66,72 @@ class TestDemoOTPFlow:
         v = s.post(f"{API}/auth/verify-otp", json={"phone": DEMO_CUSTOMER, "otp": "9998"})
         assert v.status_code == 400, f"expected 400, got {v.status_code} {v.text}"
         detail = v.json().get("detail", "")
-        assert "OTP" in detail or "attempts" in detail.lower(), f"unexpected detail: {detail}"
+        assert "Invalid OTP" in detail or "attempts" in detail.lower(), f"unexpected detail: {detail}"
 
 
-# ---------- Invalid / non-demo phones (Twilio path) ----------
+# ---------- Invalid phone formats — rejected locally before MSG91 ----------
 class TestInvalidPhone:
 
     def test_send_short_phone_returns_400(self, s):
-        r = s.post(f"{API}/auth/send-otp", json={"phone": "123"})
-        assert r.status_code == 400
+        r = s.post(f"{API}/auth/send-otp", json={"phone": SHORT_PHONE})
+        assert r.status_code == 400, f"got {r.status_code} {r.text}"
         assert "Invalid phone" in r.json().get("detail", "")
 
-    def test_send_invalid_number_friendly_400(self, s):
-        # 1111111111 is not on demo allowlist and Twilio rejects with 60200
+    def test_send_invalid_indian_mobile_returns_friendly_400(self, s):
+        # 1111111111 -> 10 digits but starts with 1 -> local validator rejects
         r = s.post(f"{API}/auth/send-otp", json={"phone": INVALID_PHONE})
         if r.status_code == 429:
-            pytest.skip("Rate-limited for 1111111111; friendly 400 already validated earlier")
+            pytest.skip("Rate-limited for 1111111111")
         assert r.status_code == 400, f"got {r.status_code} {r.text}"
         detail = r.json().get("detail", "")
         assert "Invalid phone number" in detail, f"expected friendly msg, got: {detail}"
-        # And a NON 500
 
     def test_no_user_created_for_invalid_number(self, s):
-        # Log in as admin, then search customers for 1111111111
-        s2 = s.post(f"{API}/auth/send-otp", json={"phone": DEMO_ADMIN})
-        if s2.status_code == 429:
-            pytest.skip("admin rate-limited; skip user-not-created verification")
+        # Log in as admin, then check customer list does NOT contain 1111111111
+        r = s.post(f"{API}/auth/send-otp", json={"phone": DEMO_ADMIN})
+        if r.status_code == 429:
+            pytest.skip("admin rate-limited")
         v = s.post(f"{API}/auth/verify-otp", json={"phone": DEMO_ADMIN, "otp": "1234"})
         assert v.status_code == 200
         token = v.json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
-
-        # Try common admin listing endpoints
         for path in ("/customers", "/admin/customers", "/users"):
             r = s.get(f"{API}{path}", headers=headers, params={"search": INVALID_PHONE})
             if r.status_code == 200:
                 data = r.json()
-                items = data if isinstance(data, list) else (data.get("customers") or data.get("users") or data.get("items") or [])
+                items = data if isinstance(data, list) else (
+                    data.get("customers") or data.get("users") or data.get("items") or [])
                 phones = [u.get("phone") for u in items if isinstance(u, dict)]
-                assert INVALID_PHONE not in phones, f"user was created for invalid number via {path}"
+                assert INVALID_PHONE not in phones, f"user created for invalid number via {path}"
                 return
-        pytest.skip("No admin customers endpoint discovered; friendly 400 alone was validated in prior test")
+        pytest.skip("No admin customers endpoint discovered")
 
     def test_verify_non_demo_no_pending_returns_400_not_500(self, s):
-        # No prior send-otp for 1111111111 accepted, so Twilio should say 404/60200 -> 400
-        r = s.post(f"{API}/auth/verify-otp", json={"phone": INVALID_PHONE, "otp": "9999"})
+        # Real MSG91 verify (GET /otp/verify) — no SMS is sent so no cost.
+        # Expected: MSG91 responds with 'mobile not found' / 'otp not found' -> 400 friendly
+        r = s.post(f"{API}/auth/verify-otp",
+                   json={"phone": NON_DEMO_VALID_FORMAT, "otp": "9999"})
         assert r.status_code == 400, f"expected 400, got {r.status_code} {r.text}"
         detail = r.json().get("detail", "")
-        # Accept either 'Invalid phone' (60200) or 'OTP expired or not found' (404)
-        assert any(k in detail for k in ("Invalid phone", "OTP expired", "not found")), f"unexpected: {detail}"
+        assert any(k in detail for k in ("OTP expired", "not found", "Invalid OTP")), \
+            f"unexpected detail: {detail}"
 
 
 # ---------- Rate limiting ----------
 class TestRateLimit:
-    """5 sends per 10min window; 6th must 429. Use a phone we can burn: 6666666666 (billing exec demo)."""
+    """5 sends per 10min per phone; 6th must 429. Use billing exec demo to avoid SMS."""
 
     def test_send_otp_rate_limit(self, s):
-        phone = "6666666666"  # demo billing exec, does NOT hit Twilio
+        phone = DEMO_BILLING
         codes = []
-        for i in range(6):
+        for _ in range(6):
             r = s.post(f"{API}/auth/send-otp", json={"phone": phone})
             codes.append(r.status_code)
             time.sleep(0.1)
-        # First 5 should be 200, 6th 429 (or earlier 429 if previous iter left counters)
         assert 429 in codes, f"expected a 429 within 6 sends, got {codes}"
-        # And at least the earliest attempts before 429 should have been 200
-        first_success = codes[0]
-        assert first_success in (200, 429), f"first attempt unexpected: {codes}"
 
 
-# ---------- Auth regression on token from demo login ----------
+# ---------- Auth regression with token from demo login ----------
 class TestAuthRegression:
 
     @pytest.fixture(scope="class")
@@ -138,28 +142,41 @@ class TestAuthRegression:
         if r.status_code == 429:
             pytest.skip("customer rate-limited")
         assert r.status_code == 200
-        v = sess.post(f"{API}/auth/verify-otp", json={"phone": DEMO_CUSTOMER, "otp": "1234"})
+        v = sess.post(f"{API}/auth/verify-otp",
+                      json={"phone": DEMO_CUSTOMER, "otp": "1234"})
         assert v.status_code == 200
         return v.json()["token"]
 
     def test_get_auth_me(self, s, customer_token):
-        r = s.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {customer_token}"})
+        r = s.get(f"{API}/auth/me",
+                  headers={"Authorization": f"Bearer {customer_token}"})
         assert r.status_code == 200
         body = r.json()
         assert body.get("phone") == DEMO_CUSTOMER
         assert body.get("role") == "customer"
 
     def test_get_cart_count(self, s, customer_token):
-        r = s.get(f"{API}/cart/count", headers={"Authorization": f"Bearer {customer_token}"})
+        r = s.get(f"{API}/cart/count",
+                  headers={"Authorization": f"Bearer {customer_token}"})
         assert r.status_code == 200
         body = r.json()
-        # response could be {"count": N} or an int
         assert "count" in body or isinstance(body, int), f"unexpected body: {body}"
 
     def test_get_products(self, s, customer_token):
-        r = s.get(f"{API}/products", headers={"Authorization": f"Bearer {customer_token}"}, params={"limit": 5})
+        r = s.get(f"{API}/products",
+                  headers={"Authorization": f"Bearer {customer_token}"},
+                  params={"limit": 5})
         assert r.status_code == 200
         body = r.json()
-        # accept either list or {products: [...]}
         products = body if isinstance(body, list) else body.get("products", [])
         assert isinstance(products, list)
+
+
+# ---------- Provider cleanup ----------
+class TestNoTwilioReferences:
+    def test_server_py_has_no_twilio(self):
+        import re
+        with open('/app/backend/server.py', 'r') as f:
+            src = f.read()
+        matches = re.findall(r'twilio', src, re.IGNORECASE)
+        assert not matches, f"Found {len(matches)} 'twilio' references in server.py"

@@ -1,0 +1,34 @@
+{
+  "summary": "MSG91 OTP auth swap validated end-to-end. 14/14 backend pytest cases pass. Demo allowlist phones return correct roles on OTP 1234 (8888888888 customer, 9999999999 admin, 7777777777 executive, 6666666666 billing_executive); wrong OTP 9998 -> 400 'Invalid OTP'; short phone '123' -> 400; 1111111111 -> friendly 400 'Invalid phone number. Please check and try again.' with NO user record created (verified via admin /customers search); verify-otp for non-demo valid-format 6543210987 with otp 9999 hits real MSG91 verify (no SMS cost) and gets mapped to 400 friendly ('Mobile no. not found' -> 'OTP expired or not found'); 6th send within 10-min window -> 429; token from demo login works on /auth/me, /cart/count, /products?limit=5. Twilio fully removed: 0 references in server.py, package not installed, .env has no Twilio keys. No demo-restricted numbers with valid Indian-mobile format were exercised on send-otp, so no paid SMS was triggered. Deprecated packages detected: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_msg91_otp_auth.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:69 _sms_available() returns True as long as MSG91_AUTHKEY is set, so if the key is misconfigured a demo phone still gets the local 1234 path (safe fallback). Good.",
+    "server.py:439 _send() posts to /otp with params (including otp_length, otp_expiry, template_id) as query params AND an empty JSON body — this matches MSG91 v5 contract. Verified live: verify path returned 'Mobile no. not found' with proper mapping to 400.",
+    "server.py:455-458 On successful MSG91 send, the code appends an extra timestamp to _otp_rate[phone] — but _store_otp is never called for the non-demo path, so this timestamp is the ONLY record for real-SMS phones. Since demo path calls _store_otp (which already appends one), demo phones are correctly counted once per send. No bug, just noting the asymmetry.",
+    "In-memory _otp_store / _otp_rate is process-local; under multiple workers, rate limit and OTP verification could be inconsistent. Not observed here (single worker) but flagged for future scaling.",
+    "server.py:492 verify-otp uses _is_demo_phone OR not _sms_available() — same fallback path as send-otp, so MSG91-key removal downgrades gracefully to demo-only mode without breaking demo logins."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_msg91_otp_auth.py (new; renamed & MSG91-adapted from prior test_twilio_otp_auth.py)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (per request)"},
+  "seed_data_creation": "None. Tests reuse pre-seeded demo allowlist phones.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "MSG91 OTP provider swap is stable. Demo allowlist phones (9999999999, 8888888888, 7777777777, 6666666666) always accept OTP 1234 without SMS billing. Safe negative-test inputs: '1111111111' (10 digits, starts with 1 -> local 400), '123' (too short -> local 400), and verify-otp only (never send-otp) with '6543210987' -> real MSG91 verify path but no SMS cost. NEVER call send-otp with any other 10-digit number starting 6-9 - it would send a REAL paid SMS. Backend rate limit is 5/10min per phone in-memory; restart backend (sudo supervisorctl restart backend) to reset counters between test batches if needed.",
+  "rca_of_issue": "N/A - no regressions found. All Twilio->MSG91 contract mappings function as expected including error taxonomy (invalid mobile -> 400 friendly, not found/expired -> 400 friendly, everything else -> 502 with graceful message)."
+}

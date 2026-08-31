@@ -1,8 +1,8 @@
 # Test Credentials — Yash Trade
 
-Real SMS OTP is live via **Twilio Verify** (4-digit codes). The phones below are on the
+Real SMS OTP is live via **MSG91 OTP API** (4-digit codes, account default OTP template). The phones below are on the
 demo allowlist (`OTP_DEMO_PHONES` in backend/.env) and always accept OTP `1234` —
-no SMS is sent for them. Any other number receives a real SMS.
+no SMS is sent for them. Any other valid Indian mobile (starts 6-9) receives a real SMS.
 `OTP_DEMO_MODE=false` (set to `true` to mock ALL numbers).
 
 | Role | Where to log in | Phone | OTP |
@@ -12,7 +12,8 @@ no SMS is sent for them. Any other number receives a real SMS.
 | Executive | `/panel` | 7777777777 | 1234 |
 | Billing Executive | `/panel` | 6666666666 | 1234 |
 
-⚠️ Do NOT test login with arbitrary real phone numbers — it sends real paid SMS via Twilio.
+⚠️ Do NOT test login with arbitrary real phone numbers — it sends real paid SMS via MSG91.
+Safe negative-test numbers: 1111111111 (fails local validation, no SMS).
 
 Preview URL: https://yash-tryon-test.preview.emergentagent.com
 Backend API base: https://yash-tryon-test.preview.emergentagent.com/api
