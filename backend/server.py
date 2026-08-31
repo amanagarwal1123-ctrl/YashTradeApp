@@ -41,10 +41,12 @@ EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 
 # ===================== OTP STORE =====================
-# In-memory OTP store with expiry and rate limiting
-# Production should replace with Redis/SMS provider
+# OTP store with expiry and rate limiting.
+# Real OTPs are delivered via Twilio Verify; demo phones bypass Twilio and accept 1234.
 import time as _time
 import hashlib
+from twilio.rest import Client as TwilioClient
+from twilio.base.exceptions import TwilioRestException
 
 _otp_store: Dict[str, Dict[str, Any]] = {}  # phone -> {otp, expires_at, attempts}
 _otp_rate: Dict[str, list] = {}  # phone -> [timestamp, ...]
@@ -53,13 +55,31 @@ OTP_MAX_ATTEMPTS = 5
 OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
-def _generate_otp() -> str:
-    """Generate a 4-digit OTP. In demo mode, always returns 1234."""
-    demo_mode = os.environ.get('OTP_DEMO_MODE', 'true').lower() == 'true'
-    if demo_mode:
-        return '1234'
-    import random
-    return str(random.randint(1000, 9999))
+# Twilio Verify configuration
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_VERIFY_SERVICE_SID = os.environ.get('TWILIO_VERIFY_SERVICE_SID', '')
+_twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN) else None
+
+# Phones that always use the fixed demo OTP 1234 (admin/executive/test accounts)
+DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',') if p.strip()}
+
+def _is_demo_phone(phone: str) -> bool:
+    if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
+        return True
+    return phone in DEMO_PHONES
+
+def _twilio_available() -> bool:
+    return _twilio_client is not None and bool(TWILIO_VERIFY_SERVICE_SID)
+
+def _e164(phone: str) -> str:
+    """Normalize a phone number to E.164. 10-digit numbers are assumed Indian (+91)."""
+    digits = ''.join(c for c in phone if c.isdigit())
+    if len(digits) == 10:
+        return f"+91{digits}"
+    if digits.startswith('91') and len(digits) == 12:
+        return f"+{digits}"
+    return f"+{digits}"
 
 def _check_otp_rate(phone: str) -> bool:
     """Returns True if under rate limit."""
@@ -405,6 +425,33 @@ async def send_otp(req: SendOTPRequest):
         raise HTTPException(status_code=400, detail="Invalid phone number")
     if not _check_otp_rate(phone):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
+    # Demo/test accounts (and environments without Twilio) use the fixed OTP 1234
+    if _is_demo_phone(phone) or not _twilio_available():
+        _store_otp(phone, '1234')
+        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
+    else:
+        # Real SMS via Twilio Verify
+        try:
+            def _send():
+                return _twilio_client.verify.v2.services(TWILIO_VERIFY_SERVICE_SID).verifications.create(
+                    to=_e164(phone), channel="sms"
+                )
+            verification = await asyncio.to_thread(_send)
+            # Count this send against the local rate limit as well
+            timestamps = _otp_rate.get(phone, [])
+            timestamps.append(_time.time())
+            _otp_rate[phone] = timestamps
+            logger.info(f"Twilio OTP sent to ...{phone[-4:]} (status={verification.status})")
+        except TwilioRestException as e:
+            logger.error(f"Twilio send-otp error for ...{phone[-4:]}: code={e.code} msg={e.msg}")
+            if e.code == 60200:
+                raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+            if e.code == 60203:
+                raise HTTPException(status_code=429, detail="Too many OTP requests for this number. Please wait a few minutes.")
+            if e.code in (21608, 21211):
+                raise HTTPException(status_code=400, detail="This phone number cannot receive SMS. Please use a different number.")
+            raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
+    # Create the user only after the OTP was dispatched successfully
     existing = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not existing:
         user_data = {
@@ -425,17 +472,34 @@ async def send_otp(req: SendOTPRequest):
             "last_login": datetime.now(timezone.utc).isoformat()
         }
         await db.users.insert_one(user_data)
-    otp = _generate_otp()
-    _store_otp(phone, otp)
-    logger.info(f"OTP generated for {phone[-4:]}")
     return {"message": "OTP sent successfully"}
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(req: VerifyOTPRequest):
     phone = req.phone.strip()
-    success, err_msg = _verify_otp(phone, req.otp)
-    if not success:
-        raise HTTPException(status_code=400, detail=err_msg)
+    otp = req.otp.strip()
+    if _is_demo_phone(phone) or not _twilio_available():
+        success, err_msg = _verify_otp(phone, otp)
+        if not success:
+            raise HTTPException(status_code=400, detail=err_msg)
+    else:
+        try:
+            def _check():
+                return _twilio_client.verify.v2.services(TWILIO_VERIFY_SERVICE_SID).verification_checks.create(
+                    to=_e164(phone), code=otp
+                )
+            check = await asyncio.to_thread(_check)
+            if check.status != "approved":
+                raise HTTPException(status_code=400, detail="Invalid OTP")
+        except TwilioRestException as e:
+            logger.error(f"Twilio verify-otp error for ...{phone[-4:]}: code={e.code} msg={e.msg}")
+            if e.status == 404 or e.code == 20404:
+                raise HTTPException(status_code=400, detail="OTP expired or not found. Please request a new OTP.")
+            if e.code == 60200:
+                raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+            if e.code == 60202:
+                raise HTTPException(status_code=400, detail="Too many failed attempts. Please request a new OTP.")
+            raise HTTPException(status_code=502, detail="Could not verify OTP right now. Please try again.")
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

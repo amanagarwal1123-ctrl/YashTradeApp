@@ -28,6 +28,14 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Product catalog with feed, search, filters
 - Cart, Requests, Rewards, AI assistant, Silver Calculator, Stories, Knowledge base
 
+### Real SMS OTP via Twilio Verify (June 2026)
+- Programmable OTP via **Twilio Verify** (service "Yash Trade", SID in backend/.env, 4-digit codes to match the 4-box UI)
+- `/auth/send-otp`: demo-allowlisted phones (`OTP_DEMO_PHONES`) get local OTP 1234; all others get real SMS via `verifications.create` (+91 assumed for 10-digit numbers); Twilio errors mapped to friendly messages (invalid number 60200, provider rate limit 60203)
+- `/auth/verify-otp`: demo phones use in-memory check; others use Twilio `verification_checks`; user record created only after successful OTP dispatch
+- Env vars: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID, OTP_DEMO_PHONES, OTP_DEMO_MODE=false
+- Twilio calls wrapped in `asyncio.to_thread` (non-blocking); local per-phone rate limiting still applies to both paths
+- Frontend: removed all "Demo OTP 1234" hints (login + verify screens, EN/HI/PA)
+
 ### Banners + Bhav/Try-On Removal Overhaul (June 2026)
 - **Live Bhav removed completely:** `/live-rates` + `/live-rates/config` APIs, Yahoo scraping, background polling task, home rate card, 60s timers, panel Live Rates Config, DB collections `live_rates`/`live_rate_config` dropped. Admin manual Rates tab (`/rates`, `/rates/latest`, `/rates/history`) KEPT — displayed only on customer Rate List page as "Today's Rates" card (no LIVE indicators)
 - **AI Try-On removed completely:** `/ai/try-on` endpoint, Pillow compositing fns, `/api/virtual-try-on` static page + `backend/static/`, `/try-on` screen, product-detail buttons
@@ -79,6 +87,7 @@ About, Endless Feed, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Ho
 - Backend: FastAPI, Motor (async MongoDB), Pydantic
 - Storage: Emergent Object Storage
 - AI: emergentintegrations (Claude Sonnet 4.5)
+- SMS OTP: Twilio Verify
 - PDF: PyMuPDF (fitz)
 
 ### Scroll Performance & Category Feed Fix (March 2026)
@@ -93,7 +102,6 @@ About, Endless Feed, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Ho
 - P2: Rate history with mini-charts
 - P2: Push notifications
 - P2: Analytics dashboard
-- P3: Real OTP/SMS integration (replace mock)
 - P3: Gold calculator
 
 ## Areas Needing Refactoring

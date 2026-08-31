@@ -79,7 +79,7 @@ export default function VerifyOTPScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {loading && <ActivityIndicator color={Colors.gold} style={{ marginTop: Spacing.md }} />}
 
-        <Text style={styles.hint}>Demo OTP: 1234</Text>
+        <Text style={styles.hint}>OTP sent via SMS to your mobile number</Text>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
