@@ -15,27 +15,33 @@ export default function RateListScreen() {
   const { language } = useLang();
   const [slabs, setSlabs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [activeMetal, setActiveMetal] = useState('silver');
-  const [liveRates, setLiveRates] = useState<any>(null);
+  const [rates, setRates] = useState<any>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [slabRes, liveRes] = await Promise.all([api.get('/rate-list'), api.get('/live-rates')]);
-        setSlabs(slabRes.slabs || []);
-        setLiveRates(liveRes);
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    })();
-  }, []);
+  const loadData = async () => {
+    try {
+      setLoadError(false);
+      const [slabRes, rateRes] = await Promise.all([
+        api.get('/rate-list'),
+        api.get('/rates/latest').catch(() => null),
+      ]);
+      setSlabs(slabRes.slabs || []);
+      setRates(rateRes);
+    } catch (e) { console.error(e); setLoadError(true); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadData(); }, []);
 
   const T: Record<string, any> = {
-    en: { title: 'Rate List', silver: 'Silver', gold: 'Gold', diamond: 'Diamond', item: 'Item', category: 'Category', purity: 'Purity', wastage: 'Wastage', labour: 'Labour/KG', liveRate: 'Live Market Rate' },
-    hi: { title: '\u0930\u0947\u091f \u0932\u093f\u0938\u094d\u091f', silver: '\u091a\u093e\u0902\u0926\u0940', gold: '\u0938\u094b\u0928\u093e', diamond: '\u0939\u0940\u0930\u093e', item: '\u0906\u0907\u091f\u092e', category: '\u0915\u0948\u091f\u0947\u0917\u0930\u0940', purity: '\u0936\u0941\u0926\u094d\u0927\u0924\u093e', wastage: '\u0935\u0947\u0938\u094d\u091f\u0947\u091c', labour: '\u0932\u0947\u092c\u0930/KG', liveRate: '\u0932\u093e\u0907\u0935 \u092e\u093e\u0930\u094d\u0915\u0947\u091f \u0930\u0947\u091f' },
-    pa: { title: '\u0a30\u0a47\u0a1f \u0a32\u0a3f\u0a38\u0a1f', silver: '\u0a1a\u0a3e\u0a02\u0a26\u0a40', gold: '\u0a38\u0a4b\u0a28\u0a3e', diamond: '\u0a39\u0a40\u0a30\u0a3e', item: '\u0a06\u0a08\u0a1f\u0a2e', category: '\u0a15\u0a48\u0a1f\u0a47\u0a17\u0a30\u0a40', purity: '\u0a36\u0a41\u0a71\u0a27\u0a24\u0a3e', wastage: '\u0a35\u0a47\u0a38\u0a1f\u0a47\u0a1c', labour: '\u0a32\u0a47\u0a2c\u0a30/KG', liveRate: '\u0a32\u0a3e\u0a08\u0a35 \u0a2e\u0a3e\u0a30\u0a15\u0a3f\u0a1f \u0a30\u0a47\u0a1f' },
+    en: { title: 'Rate List', silver: 'Silver', gold: 'Gold', diamond: 'Diamond', item: 'Item', category: 'Category', purity: 'Purity', wastage: 'Wastage', labour: 'Labour/KG', todayRate: "Today's Rates", error: 'Could not load rate list. Please check your connection.', retry: 'Retry' },
+    hi: { title: 'रेट लिस्ट', silver: 'चांदी', gold: 'सोना', diamond: 'हीरा', item: 'आइटम', category: 'कैटेगरी', purity: 'शुद्धता', wastage: 'वेस्टेज', labour: 'लेबर/KG', todayRate: 'आज के रेट', error: 'रेट लिस्ट लोड नहीं हो सकी। कृपया कनेक्शन जांचें।', retry: 'फिर से कोशिश करें' },
+    pa: { title: 'ਰੇਟ ਲਿਸਟ', silver: 'ਚਾਂਦੀ', gold: 'ਸੋਨਾ', diamond: 'ਹੀਰਾ', item: 'ਆਈਟਮ', category: 'ਕੈਟੇਗਰੀ', purity: 'ਸ਼ੁੱਧਤਾ', wastage: 'ਵੇਸਟੇਜ', labour: 'ਲੇਬਰ/KG', todayRate: 'ਅੱਜ ਦੇ ਰੇਟ', error: 'ਰੇਟ ਲਿਸਟ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀ। ਕਿਰਪਾ ਕਰਕੇ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ।', retry: 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ' },
   };
   const t = T[language] || T.en;
   const filteredSlabs = slabs.filter(s => s.metal_type === activeMetal);
+  const hasRates = rates && ((rates.silver_physical_rate || 0) > 0 || (rates.gold_physical_rate || 0) > 0);
 
   if (loading) return <View style={st.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
 
@@ -47,19 +53,24 @@ export default function RateListScreen() {
         <View style={{ width: 22 }} />
       </View>
 
-      {/* Live Rates Banner */}
-      {liveRates && (liveRates.silver_mcx > 0 || liveRates.gold_mcx > 0) && (
-        <View style={st.liveBanner}>
-          <View style={st.liveRow}>
-            <Text style={st.liveLabel}>{t.liveRate}</Text>
-            <View style={st.liveDot} />
-            <Text style={st.liveText}>LIVE</Text>
+      {loadError && (
+        <View style={st.errorBox} data-testid="ratelist-error">
+          <Text style={st.errorText}>{t.error}</Text>
+          <TouchableOpacity style={st.retryBtn} onPress={() => { setLoading(true); loadData(); }}>
+            <Text style={st.retryBtnText}>{t.retry}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Admin-set daily rates (manual, no live feed) */}
+      {hasRates && (
+        <View style={st.ratesBanner} data-testid="today-rates">
+          <Text style={st.ratesLabel}>{t.todayRate}</Text>
+          <View style={st.ratesRow}>
+            {(rates.silver_physical_rate || 0) > 0 && <Text style={st.rateText}>{`${t.silver}: ₹${rates.silver_physical_rate?.toFixed(2)}/g`}</Text>}
+            {(rates.gold_physical_rate || 0) > 0 && <Text style={st.rateText}>{`${t.gold}: ₹${rates.gold_physical_rate?.toFixed(0)}/g`}</Text>}
           </View>
-          <View style={st.liveRatesRow}>
-            {liveRates.silver_mcx > 0 && <Text style={st.liveRate}>Silver: \u20b9{liveRates.silver_physical?.toFixed(2)}/g (MCX \u20b9{liveRates.silver_mcx?.toFixed(2)} + Premium \u20b9{liveRates.silver_premium?.toFixed(2)})</Text>}
-            {liveRates.gold_mcx > 0 && <Text style={st.liveRate}>Gold: \u20b9{liveRates.gold_physical?.toFixed(0)}/g (MCX \u20b9{liveRates.gold_mcx?.toFixed(0)} + Premium \u20b9{liveRates.gold_premium?.toFixed(0)})</Text>}
-          </View>
-          {liveRates.fetched_at && <Text style={st.liveTime}>Updated: {new Date(liveRates.fetched_at).toLocaleTimeString()}</Text>}
+          {rates.market_summary ? <Text style={st.ratesSummary}>{rates.market_summary}</Text> : null}
         </View>
       )}
 
@@ -105,14 +116,15 @@ const st = StyleSheet.create({
   loader: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },
   headerTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
-  liveBanner: { margin: Spacing.lg, backgroundColor: Colors.card, borderRadius: 14, padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderGold },
-  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  liveLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.success },
-  liveText: { fontSize: 9, color: Colors.success, fontWeight: '700', letterSpacing: 1 },
-  liveRatesRow: { gap: 4 },
-  liveRate: { fontSize: FontSize.sm, color: Colors.text, fontWeight: '500' },
-  liveTime: { fontSize: 9, color: Colors.textMuted, marginTop: 6 },
+  ratesBanner: { margin: Spacing.lg, marginBottom: 0, backgroundColor: Colors.card, borderRadius: 14, padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderGold },
+  ratesLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1, marginBottom: 8 },
+  ratesRow: { gap: 4 },
+  rateText: { fontSize: FontSize.sm, color: Colors.text, fontWeight: '500' },
+  ratesSummary: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 6, fontStyle: 'italic' },
+  errorBox: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, backgroundColor: Colors.error + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '30', alignItems: 'center', gap: 8 },
+  errorText: { fontSize: FontSize.sm, color: Colors.error, textAlign: 'center' },
+  retryBtn: { backgroundColor: Colors.error + '20', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8 },
+  retryBtnText: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.error },
   metalTabs: { flexDirection: 'row', paddingHorizontal: Spacing.lg, gap: 8, marginTop: Spacing.md },
   metalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   metalTabText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textMuted },

@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
+import { showAlert } from '../src/utils/alert';
 
 const STATUS_COLOR: Record<string, string> = {
   pending: Colors.warning,
@@ -24,7 +25,7 @@ export default function MyRequestsScreen() {
       try {
         const res = await api.get('/requests/my');
         setRequests(res.requests || []);
-      } catch {}
+      } catch (e: any) { showAlert('Error', e?.message || 'Could not load your requests. Please check your connection.'); }
       finally { setLoading(false); }
     })();
   }, []);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIndicator, FlatList, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../src/theme';
@@ -8,42 +8,49 @@ import { api, getImageUrl } from '../src/api';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 export default function ImageViewerScreen() {
-  const { productId, batchId, startIndex: startIndexStr } = useLocalSearchParams<{
-    productId?: string; batchId?: string; startIndex?: string;
+  const { productId, batchId, startIndex: startIndexStr, ids } = useLocalSearchParams<{
+    productId?: string; batchId?: string; startIndex?: string; ids?: string;
   }>();
   const router = useRouter();
   const [images, setImages] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
 
   const loadImages = useCallback(async (p: number = 1) => {
     try {
-      let res;
+      setLoadError(false);
       if (batchId) {
-        res = await api.get(`/batches/${batchId}/images?page=${p}&limit=50`);
+        const res = await api.get(`/batches/${batchId}/images?page=${p}&limit=50`);
         const newImgs = res.images || [];
         if (p === 1) setImages(newImgs);
         else setImages(prev => [...prev, ...newImgs]);
         setHasMore(p < (res.pages || 1));
+        setPage(p);
+      } else if (typeof ids === 'string' && ids.length > 0) {
+        // Stable ordered list passed from the source screen — guarantees continuity
+        const res = await api.get(`/products?ids=${encodeURIComponent(ids)}`);
+        setImages(res.products || []);
+        setHasMore(false);
+      } else if (productId) {
+        // Load the selected product directly by its ID
+        const p2 = await api.get(`/products/${productId}`);
+        setImages(p2 && p2.id ? [p2] : []);
+        setHasMore(false);
       } else {
-        res = await api.get(`/products?page=${p}&limit=50`);
-        const newImgs = res.products || [];
-        if (p === 1) setImages(newImgs);
-        else setImages(prev => [...prev, ...newImgs]);
-        setHasMore(p < (res.pages || 1));
+        setImages([]);
       }
-      setPage(p);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); setLoadError(true); }
     finally { setLoading(false); }
-  }, [batchId]);
+  }, [batchId, ids, productId]);
 
   useEffect(() => { loadImages(1); }, []);
 
   useEffect(() => {
     if (images.length === 0) return;
-    // Fix #4: prioritize productId match over startIndex
+    // Prioritize productId match over startIndex
     if (productId) {
       const idx = images.findIndex(i => i.id === productId);
       if (idx >= 0) { setCurrentIndex(idx); return; }
@@ -57,8 +64,8 @@ export default function ImageViewerScreen() {
   const goNext = () => {
     if (currentIndex < images.length - 1) {
       setCurrentIndex(currentIndex + 1);
-      // Load more when near the end
-      if (currentIndex >= images.length - 5 && hasMore) loadImages(page + 1);
+      // Batch mode only: load more when near the end
+      if (batchId && currentIndex >= images.length - 5 && hasMore) loadImages(page + 1);
     }
   };
 
@@ -68,6 +75,21 @@ export default function ImageViewerScreen() {
 
   if (loading) {
     return <View style={styles.container}><ActivityIndicator size="large" color={Colors.gold} /></View>;
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity testID="viewer-close" style={styles.closeBtn} onPress={() => router.back()}>
+          <Ionicons name="close" size={28} color="#fff" />
+        </TouchableOpacity>
+        <Ionicons name="cloud-offline-outline" size={40} color={Colors.error} />
+        <Text style={[styles.emptyText, { marginTop: 12 }]}>Could not load the product. Please check your connection.</Text>
+        <TouchableOpacity testID="viewer-retry" style={styles.retryBtn} onPress={() => { setLoading(true); loadImages(1); }}>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   const currentItem = images[currentIndex];
@@ -167,7 +189,9 @@ const styles = StyleSheet.create({
   bottomActions: { flexDirection: 'row', gap: 10 },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.gold, paddingVertical: 12, borderRadius: 10 },
   actionBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },
-  emptyText: { fontSize: FontSize.md, color: '#fff' },
+  emptyText: { fontSize: FontSize.md, color: '#fff', textAlign: 'center', paddingHorizontal: 32 },
+  retryBtn: { marginTop: 16, backgroundColor: Colors.gold, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },
   zoomHint: { position: 'absolute', top: SCREEN_H * 0.65 - 30, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   zoomHintText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600' },
 });

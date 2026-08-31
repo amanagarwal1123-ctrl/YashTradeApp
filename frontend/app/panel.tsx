@@ -1,14 +1,18 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Image, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { api, setToken, getImageUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
+import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
+import { showAlert, confirmAlert } from '../src/utils/alert';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
-type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'liverates';
+type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
 type Role = 'admin' | 'executive' | 'billing_executive' | null;
+
+const KEEP_AWAKE_TAG = 'yash-panel-upload';
 
 const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
 
@@ -41,7 +45,6 @@ export default function PanelScreen() {
   const [execForm, setExecForm] = useState({ name: '', phone: '', code: '', role: 'executive' });
   const [editingExecId, setEditingExecId] = useState('');
   const [showExecForm, setShowExecForm] = useState(false);
-  const [execFilter, setExecFilter] = useState('');
 
   // Rates
   const [silverDollar, setSilverDollar] = useState('');
@@ -68,6 +71,10 @@ export default function PanelScreen() {
   const [contentSubView, setContentSubView] = useState<ContentSubView>('menu');
   const [contentData, setContentData] = useState<any[]>([]);
   const [contentForm, setContentForm] = useState<Record<string, any>>({});
+
+  // Banners
+  const [editingBannerId, setEditingBannerId] = useState('');
+  const [bannerUploading, setBannerUploading] = useState(false);
 
   // Upload
   const [uploadBatchId, setUploadBatchId] = useState('');
@@ -188,6 +195,18 @@ export default function PanelScreen() {
   useEffect(() => { if (role) { setProductSubView('menu'); loadTab(tab); } }, [tab, role]);
   useEffect(() => { if (role && tab === 'requests') loadTab('requests'); }, [statusFilter, typeFilter]);
 
+  // Keep the mobile screen awake during long uploads (native only — expo-keep-awake breaks the web panel)
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const busy = uploading || pdfImporting || bannerUploading;
+    if (busy) {
+      activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+    } else {
+      try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {}
+    }
+    return () => { try { deactivateKeepAwake(KEEP_AWAKE_TAG); } catch {} };
+  }, [uploading, pdfImporting, bannerUploading]);
+
   // === ACTIONS ===
   const updateRates = async () => {
     try {
@@ -198,8 +217,8 @@ export default function PanelScreen() {
         gold_physical_mode: goldPhysicalMode, gold_physical_premium: parseFloat(goldPremium) || 0, gold_physical_base: 'mcx', gold_movement: goldMov,
         market_summary: marketSummary
       });
-      Alert.alert('Success', 'Rates updated');
-    } catch (e: any) { Alert.alert('Error', e.message); }
+      showAlert('Success', 'Rates updated');
+    } catch (e: any) { showAlert('Error', e.message); }
   };
 
   const updateRequestStatus = async (id: string, status: string) => {
@@ -207,7 +226,7 @@ export default function PanelScreen() {
       await api.patch(`/requests/${id}`, { status, assigned_to: user?.name || '', notes: noteText || '' });
       setEditingReqId(''); setNoteText('');
       loadTab('requests');
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { showAlert('Error', e.message); }
   };
 
   const createBatch = async () => {
@@ -218,18 +237,18 @@ export default function PanelScreen() {
       setUploadBatchId(batch.id);
       setProductSubView('batch_upload');
       loadTab('products');
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { showAlert('Error', e.message); }
   };
 
   const addProduct = async () => {
-    if (!newProdTitle.trim()) { Alert.alert('Error', 'Enter product title'); return; }
+    if (!newProdTitle.trim()) { showAlert('Error', 'Enter product title'); return; }
     try {
       await api.post('/products', { title: newProdTitle, metal_type: newProdMetal, category: newProdCat, approx_weight: newProdWeight, purity: newProdPurity, selling_touch: newProdTouch, selling_label: newProdLabel, images: newProdImageUrl ? [newProdImageUrl] : [] });
-      Alert.alert('Success', 'Product added');
+      showAlert('Success', 'Product added');
       setNewProdTitle(''); setNewProdCat(''); setNewProdWeight(''); setNewProdPurity(''); setNewProdTouch(''); setNewProdLabel(''); setNewProdImageUrl('');
       setProductSubView('list');
       loadTab('products');
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { showAlert('Error', e.message); }
   };
 
   const toggleBatchVisibility = async (id: string) => {
@@ -237,7 +256,7 @@ export default function PanelScreen() {
   };
 
   const deleteBatch = (id: string, name: string) => {
-    Alert.alert('Delete', `Delete "${name}"?`, [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: async () => { await api.delete(`/batches/${id}`); loadTab('products'); } }]);
+    confirmAlert('Delete', `Delete "${name}"?`, async () => { await api.delete(`/batches/${id}`); loadTab('products'); }, 'Delete');
   };
 
   const pickFiles = () => {
@@ -273,7 +292,7 @@ export default function PanelScreen() {
       setPdfResult(result);
       setPdfFile(null); setPdfPhase(''); setPdfStage('done');
       clearLastUploadId();
-      Alert.alert('PDF Import Complete', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
+      showAlert('PDF Import Complete', `${result.imported} pages converted to product images out of ${result.total_pages} total pages.`);
       loadTab('products');
     } catch (e: any) {
       const resumeId = getLastUploadId();
@@ -284,10 +303,7 @@ export default function PanelScreen() {
   };
 
   const cancelPdfImport = () => {
-    Alert.alert('Cancel Import?', 'Upload will stop. You can resume later from where it stopped.', [
-      { text: 'Keep Uploading', style: 'cancel' },
-      { text: 'Cancel Upload', style: 'destructive', onPress: () => { cancelUpload(); } },
-    ]);
+    confirmAlert('Cancel Import?', 'Upload will stop. You can resume later from where it stopped.', () => { cancelUpload(); }, 'Cancel Upload');
   };
 
   const startUpload = async () => {
@@ -296,17 +312,14 @@ export default function PanelScreen() {
     try {
       await api.uploadFiles(`/batches/${uploadBatchId}/upload`, selectedFiles, (d, t) => setUploadProgress({ done: d, total: t }));
       setSelectedFiles([]); setUploadBatchId('');
-      Alert.alert('Success', 'Images uploaded');
+      showAlert('Success', 'Images uploaded');
       loadTab('products');
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { showAlert('Error', e.message); }
     finally { setUploading(false); }
   };
 
   const cancelImageUpload = () => {
-    Alert.alert('Cancel Upload?', 'Image upload will stop.', [
-      { text: 'Keep Uploading', style: 'cancel' },
-      { text: 'Cancel', style: 'destructive', onPress: () => { cancelUpload(); } },
-    ]);
+    confirmAlert('Cancel Upload?', 'Image upload will stop.', () => { cancelUpload(); }, 'Cancel');
   };
 
   const openWhatsApp = (phoneNum: string) => { Linking.openURL(`https://wa.me/91${phoneNum}`); };
@@ -334,14 +347,14 @@ export default function PanelScreen() {
   };
 
   const submitRewardAction = async () => {
-    if (!selectedCust || !rewardPoints || parseInt(rewardPoints) <= 0) { Alert.alert('Error', 'Enter valid points'); return; }
+    if (!selectedCust || !rewardPoints || parseInt(rewardPoints) <= 0) { showAlert('Error', 'Enter valid points'); return; }
     try {
       const endpoint = rewardAction === 'credit' ? '/rewards/credit' : '/rewards/deduct';
       const res = await api.post(endpoint, { user_id: selectedCust.id, points: parseInt(rewardPoints), reason: rewardReason || rewardAction });
-      Alert.alert('Success', `${rewardAction === 'credit' ? 'Credited' : 'Deducted'} ${rewardPoints} points. New balance: ${res.new_balance}`);
+      showAlert('Success', `${rewardAction === 'credit' ? 'Credited' : 'Deducted'} ${rewardPoints} points. New balance: ${res.new_balance}`);
       setRewardPoints(''); setRewardReason('');
       openCustomerWallet(selectedCust);
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { showAlert('Error', e.message); }
   };
 
   const statusColor = (s: string) => {
@@ -734,7 +747,7 @@ export default function PanelScreen() {
                               setUploadBatchId(batch.id);
                               setNewBatchName('');
                               loadTab('products');
-                            } catch (e: any) { Alert.alert('Error', e.message); }
+                            } catch (e: any) { showAlert('Error', e.message); }
                           }}><Text style={s.saveBtnText}>CREATE</Text></TouchableOpacity>
                         </View>
                       </View>
@@ -869,7 +882,7 @@ export default function PanelScreen() {
                   {showBatchForm && (
                     <View style={s.formCard}>
                       <Text style={s.formTitle}>New Batch / Folder</Text>
-                      <Text style={[s.formLabel, { marginTop: 0 }]}>Give your batch a name like "New Payal Lot" or "Silver Articles Feb"</Text>
+                      <Text style={[s.formLabel, { marginTop: 0 }]}>{'Give your batch a name like "New Payal Lot" or "Silver Articles Feb"'}</Text>
                       <TextInput style={s.formInput} placeholder="Batch Name *" placeholderTextColor={Colors.textMuted} value={newBatchName} onChangeText={setNewBatchName} />
                       <Text style={s.formLabel}>Metal Type</Text>
                       <View style={s.formRow}>{['silver', 'gold', 'diamond'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, newBatchMetal === m && s.metalBtnActive]} onPress={() => setNewBatchMetal(m)}><Text style={[s.metalBtnText, newBatchMetal === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
@@ -1142,19 +1155,19 @@ export default function PanelScreen() {
                     ))}
                   </View>
                   <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} data-testid="exec-save-btn" onPress={async () => {
-                    if (!execForm.name.trim() || !execForm.phone.trim() || !execForm.code.trim()) { Alert.alert('Error', 'Name, Phone and Code are required'); return; }
+                    if (!execForm.name.trim() || !execForm.phone.trim() || !execForm.code.trim()) { showAlert('Error', 'Name, Phone and Code are required'); return; }
                     try {
                       if (editingExecId) {
                         await api.put(`/executives/${editingExecId}`, { name: execForm.name, phone: execForm.phone, customer_code: execForm.code, role: execForm.role });
-                        Alert.alert('Success', 'Executive updated');
+                        showAlert('Success', 'Executive updated');
                       } else {
                         await api.post('/executives', { name: execForm.name, phone: execForm.phone, code: execForm.code, role: execForm.role });
-                        Alert.alert('Success', `Executive "${execForm.name}" created. They can now login with phone ${execForm.phone} and OTP.`);
+                        showAlert('Success', `Executive "${execForm.name}" created. They can now login with phone ${execForm.phone} and OTP.`);
                       }
                       setShowExecForm(false); setEditingExecId('');
                       setExecForm({ name: '', phone: '', code: '', role: 'executive' });
                       loadTab('executives');
-                    } catch (e: any) { Alert.alert('Error', e.message); }
+                    } catch (e: any) { showAlert('Error', e.message); }
                   }}>
                     <Text style={s.saveBtnText}>{editingExecId ? 'UPDATE EXECUTIVE' : 'CREATE EXECUTIVE'}</Text>
                   </TouchableOpacity>
@@ -1185,10 +1198,7 @@ export default function PanelScreen() {
                       <Ionicons name="create" size={12} color={Colors.gold} /><Text style={[s.actText, { color: Colors.gold }]}>Edit</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.error + '15' }]} onPress={() => {
-                      Alert.alert('Disable Executive', `Disable "${ex.name}"? They won't be able to login anymore.`, [
-                        { text: 'Cancel' },
-                        { text: 'Disable', style: 'destructive', onPress: async () => { await api.delete(`/executives/${ex.id}`); loadTab('executives'); } }
-                      ]);
+                      confirmAlert('Disable Executive', `Disable "${ex.name}"? They won't be able to login anymore.`, async () => { await api.delete(`/executives/${ex.id}`); loadTab('executives'); }, 'Disable');
                     }}>
                       <Ionicons name="close-circle" size={12} color={Colors.error} /><Text style={[s.actText, { color: Colors.error }]}>Disable</Text>
                     </TouchableOpacity>
@@ -1222,10 +1232,12 @@ export default function PanelScreen() {
                       { key: 'brands', label: 'Brands', hint: 'Manage brand logos', icon: 'star', color: '#9C27B0' },
                       { key: 'showroom', label: 'Showroom', hint: 'Floor-wise photos & descriptions', icon: 'images', color: '#00BCD4' },
                       { key: 'exhibitions', label: 'Exhibitions', hint: 'Upcoming & past exhibitions', icon: 'calendar', color: '#795548' },
-                      { key: 'liverates', label: 'Live Rates Config', hint: 'Premium & auto-fetch settings', icon: 'pulse', color: Colors.success },
+                      { key: 'banners', label: 'Home Banners', hint: 'Manage carousel banners on Home', icon: 'albums', color: Colors.success },
                     ].map(item => (
-                      <TouchableOpacity key={item.key} style={s.menuCard} onPress={async () => {
+                      <TouchableOpacity key={item.key} testID={`content-${item.key}`} style={s.menuCard} onPress={async () => {
                         setContentSubView(item.key as ContentSubView);
+                        setContentForm({});
+                        setEditingBannerId('');
                         setLoading(true);
                         try {
                           if (item.key === 'about') { const r = await api.get('/about'); setContentData(r.raw || []); }
@@ -1234,8 +1246,8 @@ export default function PanelScreen() {
                           else if (item.key === 'brands') { const r = await api.get('/brands?active_only=false'); setContentData(r.brands || []); }
                           else if (item.key === 'showroom') { const r = await api.get('/showroom'); setContentData(r.floors || []); }
                           else if (item.key === 'exhibitions') { const r = await api.get('/exhibitions'); setContentData(r.all || []); }
-                          else if (item.key === 'liverates') { const r = await api.get('/live-rates/config'); setContentForm(r); }
-                        } catch {}
+                          else if (item.key === 'banners') { const r = await api.get('/banners/all'); setContentData(r.banners || []); }
+                        } catch (e: any) { showAlert('Error', e?.message || 'Could not load content.'); }
                         setLoading(false);
                       }}>
                         <View style={[s.menuCardIcon, { backgroundColor: item.color + '15' }]}><Ionicons name={item.icon as any} size={28} color={item.color} /></View>
@@ -1261,7 +1273,7 @@ export default function PanelScreen() {
                       <Text style={s.formLabel}>Punjabi</Text>
                       <TextInput style={[s.formInput, { minHeight: 60 }]} value={item.content_pa} onChangeText={v => setContentData(prev => prev.map(x => x.section === item.section ? { ...x, content_pa: v } : x))} multiline placeholder="Punjabi content" placeholderTextColor={Colors.textMuted} />
                       <TouchableOpacity style={s.saveBtn} onPress={async () => {
-                        try { await api.post('/about', { section: item.section, content_en: item.content_en, content_hi: item.content_hi, content_pa: item.content_pa }); Alert.alert('Saved', `${item.section} updated`); } catch (e: any) { Alert.alert('Error', e.message); }
+                        try { await api.post('/about', { section: item.section, content_en: item.content_en, content_hi: item.content_hi, content_pa: item.content_pa }); showAlert('Saved', `${item.section} updated`); } catch (e: any) { showAlert('Error', e.message); }
                       }}><Text style={s.saveBtnText}>SAVE</Text></TouchableOpacity>
                     </View>
                   ))}
@@ -1296,8 +1308,8 @@ export default function PanelScreen() {
                     <TouchableOpacity style={s.saveBtn} onPress={async () => {
                       try {
                         const res = await api.post('/rate-list', { metal_type: contentForm.metal_type || 'silver', item_name: contentForm.item_name || '', category: contentForm.category || '', subcategory: contentForm.subcategory || '', purity: contentForm.purity || '', wastage: contentForm.wastage || '', labour_kg: contentForm.labour_kg || '', order: contentData.length + 1 });
-                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
-                      } catch (e: any) { Alert.alert('Error', e.message); }
+                        setContentData(prev => [...prev, res]); setContentForm({}); showAlert('Added');
+                      } catch (e: any) { showAlert('Error', e.message); }
                     }}><Text style={s.saveBtnText}>ADD ENTRY</Text></TouchableOpacity>
                   </View>
                 </>
@@ -1324,8 +1336,8 @@ export default function PanelScreen() {
                     <TouchableOpacity style={s.saveBtn} onPress={async () => {
                       try {
                         const res = await api.post('/schemes', { title: contentForm.title || '', description: contentForm.description || '', poster_url: contentForm.poster_url || '', is_active: true, order: contentData.length });
-                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
-                      } catch (e: any) { Alert.alert('Error', e.message); }
+                        setContentData(prev => [...prev, res]); setContentForm({}); showAlert('Added');
+                      } catch (e: any) { showAlert('Error', e.message); }
                     }}><Text style={s.saveBtnText}>ADD SCHEME</Text></TouchableOpacity>
                   </View>
                 </>
@@ -1349,8 +1361,8 @@ export default function PanelScreen() {
                     <TouchableOpacity style={s.saveBtn} onPress={async () => {
                       try {
                         const res = await api.post('/brands', { name: contentForm.name || '', logo_url: contentForm.logo_url || '', description: contentForm.desc || '', is_active: true, order: contentData.length });
-                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
-                      } catch (e: any) { Alert.alert('Error', e.message); }
+                        setContentData(prev => [...prev, res]); setContentForm({}); showAlert('Added');
+                      } catch (e: any) { showAlert('Error', e.message); }
                     }}><Text style={s.saveBtnText}>ADD BRAND</Text></TouchableOpacity>
                   </View>
                 </>
@@ -1376,8 +1388,8 @@ export default function PanelScreen() {
                       try {
                         const photos = (contentForm.photos || '').split(',').map((u: string) => u.trim()).filter(Boolean);
                         const res = await api.post('/showroom', { floor_name: contentForm.floor_name || '', description: contentForm.description || '', products_available: contentForm.products_available || '', photos, order: contentData.length });
-                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
-                      } catch (e: any) { Alert.alert('Error', e.message); }
+                        setContentData(prev => [...prev, res]); setContentForm({}); showAlert('Added');
+                      } catch (e: any) { showAlert('Error', e.message); }
                     }}><Text style={s.saveBtnText}>ADD FLOOR</Text></TouchableOpacity>
                   </View>
                 </>
@@ -1410,36 +1422,167 @@ export default function PanelScreen() {
                     <TouchableOpacity style={s.saveBtn} onPress={async () => {
                       try {
                         const res = await api.post('/exhibitions', { title: contentForm.title || '', date: contentForm.date || '', location: contentForm.location || '', description: contentForm.desc || '', poster_url: contentForm.poster_url || '', is_upcoming: contentForm.is_upcoming !== 'false', is_active: true });
-                        setContentData(prev => [...prev, res]); setContentForm({}); Alert.alert('Added');
-                      } catch (e: any) { Alert.alert('Error', e.message); }
+                        setContentData(prev => [...prev, res]); setContentForm({}); showAlert('Added');
+                      } catch (e: any) { showAlert('Error', e.message); }
                     }}><Text style={s.saveBtnText}>ADD EXHIBITION</Text></TouchableOpacity>
                   </View>
                 </>
               )}
 
-              {/* Live Rates Config */}
-              {contentSubView === 'liverates' && (
-                <View style={s.formCard}>
-                  <Text style={s.formTitle}>Live Rate Configuration</Text>
-                  <Text style={[s.formLabel, { marginTop: 0 }]}>Physical Rate = Live Market Rate + Fixed Premium</Text>
-                  <Text style={s.formLabel}>Silver Premium (₹/gram)</Text>
-                  <TextInput style={s.formInput} value={String(contentForm.silver_premium || 0)} onChangeText={v => setContentForm(p => ({...p, silver_premium: v}))} keyboardType="decimal-pad" placeholder="0.70" placeholderTextColor={Colors.textMuted} />
-                  <Text style={s.formLabel}>Gold Premium (₹/gram)</Text>
-                  <TextInput style={s.formInput} value={String(contentForm.gold_premium || 0)} onChangeText={v => setContentForm(p => ({...p, gold_premium: v}))} keyboardType="decimal-pad" placeholder="70" placeholderTextColor={Colors.textMuted} />
-                  <Text style={s.formLabel}>Auto-Fetch Enabled</Text>
-                  <View style={s.formRow}>
-                    <TouchableOpacity style={[s.metalBtn, contentForm.auto_fetch_enabled !== false && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, auto_fetch_enabled: true as any}))}><Text style={[s.metalBtnText, contentForm.auto_fetch_enabled !== false && s.metalBtnTextActive]}>Yes</Text></TouchableOpacity>
-                    <TouchableOpacity style={[s.metalBtn, contentForm.auto_fetch_enabled === false && s.metalBtnActive]} onPress={() => setContentForm(p => ({...p, auto_fetch_enabled: false as any}))}><Text style={[s.metalBtnText, contentForm.auto_fetch_enabled === false && s.metalBtnTextActive]}>No</Text></TouchableOpacity>
+              {/* Home Banners Editor */}
+              {contentSubView === 'banners' && (
+                <>
+                  <Text style={s.sectionTitle}>HOME BANNERS ({contentData.length})</Text>
+                  {contentData.map(bn => (
+                    <View key={bn.id} style={s.formCard} data-testid={`banner-row-${bn.id}`}>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        {bn.image_url ? (
+                          <Image source={{ uri: resolveFileUrl(bn.image_url) }} style={{ width: 88, height: 44, borderRadius: 8, backgroundColor: Colors.surface }} />
+                        ) : (
+                          <View style={{ width: 88, height: 44, borderRadius: 8, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name="image-outline" size={18} color={Colors.textMuted} />
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.listTitle}>{bn.title}</Text>
+                          <Text style={s.listMeta}>
+                            Order: {bn.order ?? 0} • {bn.is_active ? 'Active' : 'Inactive'}
+                            {bn.cta_type && bn.cta_type !== 'none' ? ` • CTA: ${bn.cta_type}` : ''}
+                            {bn.start_date || bn.end_date ? ` • ${bn.start_date || '...'} → ${bn.end_date || '...'}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={s.actionsRow}>
+                        <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]} onPress={() => {
+                          setEditingBannerId(bn.id);
+                          setContentForm({ title: bn.title || '', subtitle: bn.subtitle || '', image_url: bn.image_url || '', cta_label: bn.cta_label || '', cta_type: bn.cta_type || 'none', cta_target: bn.cta_target || '', order: String(bn.order ?? 0), is_active: bn.is_active !== false, start_date: bn.start_date || '', end_date: bn.end_date || '' });
+                        }}>
+                          <Ionicons name="create" size={12} color={Colors.gold} /><Text style={[s.actText, { color: Colors.gold }]}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[s.actBtn, { backgroundColor: (bn.is_active ? Colors.warning : Colors.success) + '15' }]} onPress={async () => {
+                          try {
+                            const updated = await api.put(`/banners/${bn.id}`, { is_active: !bn.is_active });
+                            setContentData(prev => prev.map(x => x.id === bn.id ? updated : x));
+                          } catch (e: any) { showAlert('Error', e?.message || 'Could not update banner.'); }
+                        }}>
+                          <Text style={[s.actText, { color: bn.is_active ? Colors.warning : Colors.success }]}>{bn.is_active ? 'Deactivate' : 'Activate'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.error + '15' }]} onPress={() => {
+                          confirmAlert('Delete Banner', `Delete "${bn.title}"?`, async () => {
+                            try { await api.delete(`/banners/${bn.id}`); setContentData(prev => prev.filter(x => x.id !== bn.id)); }
+                            catch (e: any) { showAlert('Error', e?.message || 'Could not delete banner.'); }
+                          }, 'Delete');
+                        }}>
+                          <Ionicons name="trash-outline" size={12} color={Colors.error} /><Text style={[s.actText, { color: Colors.error }]}>Delete</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                  {contentData.length === 0 && <Text style={s.emptyText}>No banners yet. Add your first banner below.</Text>}
+
+                  <View style={s.formCard} data-testid="banner-form">
+                    <Text style={s.formTitle}>{editingBannerId ? 'Edit Banner' : 'Add Banner'}</Text>
+                    <TextInput testID="banner-title" style={s.formInput} placeholder="Title *" placeholderTextColor={Colors.textMuted} value={contentForm.title || ''} onChangeText={v => setContentForm(p => ({ ...p, title: v }))} />
+                    <TextInput testID="banner-subtitle" style={s.formInput} placeholder="Subtitle (optional)" placeholderTextColor={Colors.textMuted} value={contentForm.subtitle || ''} onChangeText={v => setContentForm(p => ({ ...p, subtitle: v }))} />
+
+                    <Text style={s.formLabel}>Banner Image</Text>
+                    {contentForm.image_url ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: Spacing.sm }}>
+                        <Image source={{ uri: resolveFileUrl(contentForm.image_url) }} style={{ width: 132, height: 60, borderRadius: 8, backgroundColor: Colors.surface }} />
+                        <TouchableOpacity onPress={() => setContentForm(p => ({ ...p, image_url: '' }))}>
+                          <Ionicons name="close-circle" size={22} color={Colors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                    <TouchableOpacity testID="banner-upload-btn" style={[s.pickBtn, { paddingVertical: Spacing.md }]} disabled={bannerUploading} onPress={() => {
+                      if (Platform.OS === 'web') {
+                        const input = document.createElement('input');
+                        input.type = 'file'; input.accept = 'image/*'; input.multiple = false;
+                        input.onchange = async (e: any) => {
+                          const f = e.target.files?.[0] as File | undefined;
+                          if (!f) return;
+                          setBannerUploading(true);
+                          try {
+                            const res = await api.uploadSingle('/banners/upload', f);
+                            setContentForm(p => ({ ...p, image_url: res.image_url }));
+                          } catch (err: any) { showAlert('Error', err?.message || 'Image upload failed.'); }
+                          finally { setBannerUploading(false); }
+                        };
+                        input.click();
+                      }
+                    }}>
+                      {bannerUploading ? <ActivityIndicator color={Colors.gold} /> : (
+                        <>
+                          <Ionicons name="cloud-upload" size={24} color={Colors.gold} />
+                          <Text style={{ color: Colors.text, marginTop: 6, fontSize: FontSize.sm, fontWeight: '600' }}>{contentForm.image_url ? 'Replace image' : 'Upload banner image'}</Text>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 }}>Recommended ~2.2:1 (e.g. 1320x600) — JPG/PNG, max 10MB</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+
+                    <TextInput style={s.formInput} placeholder="CTA Label (optional, e.g. Shop Now)" placeholderTextColor={Colors.textMuted} value={contentForm.cta_label || ''} onChangeText={v => setContentForm(p => ({ ...p, cta_label: v }))} />
+                    <Text style={s.formLabel}>CTA Destination</Text>
+                    <View style={s.formRow}>{['none', 'feed', 'product', 'url'].map(ct => (
+                      <TouchableOpacity key={ct} style={[s.metalBtn, (contentForm.cta_type || 'none') === ct && s.metalBtnActive]} onPress={() => setContentForm(p => ({ ...p, cta_type: ct }))}>
+                        <Text style={[s.metalBtnText, (contentForm.cta_type || 'none') === ct && s.metalBtnTextActive]}>{ct}</Text>
+                      </TouchableOpacity>
+                    ))}</View>
+                    {(contentForm.cta_type && contentForm.cta_type !== 'none') ? (
+                      <TextInput style={s.formInput} placeholder={contentForm.cta_type === 'product' ? 'Product ID' : contentForm.cta_type === 'feed' ? 'Metal (silver/gold/diamond) or category (optional)' : 'https:// link'} placeholderTextColor={Colors.textMuted} value={contentForm.cta_target || ''} onChangeText={v => setContentForm(p => ({ ...p, cta_target: v }))} />
+                    ) : null}
+
+                    <View style={s.formRow}>
+                      <View style={{ flex: 1 }}><Text style={s.formLabel}>Display Order</Text><TextInput style={s.formInput} keyboardType="number-pad" placeholder="0" placeholderTextColor={Colors.textMuted} value={String(contentForm.order ?? '')} onChangeText={v => setContentForm(p => ({ ...p, order: v }))} /></View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.formLabel}>Status</Text>
+                        <View style={s.formRow}>
+                          <TouchableOpacity style={[s.metalBtn, contentForm.is_active !== false && s.metalBtnActive]} onPress={() => setContentForm(p => ({ ...p, is_active: true }))}><Text style={[s.metalBtnText, contentForm.is_active !== false && s.metalBtnTextActive]}>Active</Text></TouchableOpacity>
+                          <TouchableOpacity style={[s.metalBtn, contentForm.is_active === false && s.metalBtnActive]} onPress={() => setContentForm(p => ({ ...p, is_active: false }))}><Text style={[s.metalBtnText, contentForm.is_active === false && s.metalBtnTextActive]}>Inactive</Text></TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                    <View style={s.formRow}>
+                      <View style={{ flex: 1 }}><Text style={s.formLabel}>Start Date (optional)</Text><TextInput style={s.formInput} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textMuted} value={contentForm.start_date || ''} onChangeText={v => setContentForm(p => ({ ...p, start_date: v }))} /></View>
+                      <View style={{ flex: 1 }}><Text style={s.formLabel}>End Date (optional)</Text><TextInput style={s.formInput} placeholder="YYYY-MM-DD" placeholderTextColor={Colors.textMuted} value={contentForm.end_date || ''} onChangeText={v => setContentForm(p => ({ ...p, end_date: v }))} /></View>
+                    </View>
+
+                    <TouchableOpacity testID="banner-save-btn" style={s.saveBtn} onPress={async () => {
+                      if (!(contentForm.title || '').trim()) { showAlert('Error', 'Banner title is required'); return; }
+                      const dateOk = (d: string) => !d || /^\d{4}-\d{2}-\d{2}$/.test(d);
+                      if (!dateOk(contentForm.start_date || '') || !dateOk(contentForm.end_date || '')) { showAlert('Error', 'Dates must be in YYYY-MM-DD format'); return; }
+                      const payload = {
+                        title: (contentForm.title || '').trim(),
+                        subtitle: contentForm.subtitle || '',
+                        image_url: contentForm.image_url || '',
+                        cta_label: contentForm.cta_label || '',
+                        cta_type: contentForm.cta_type || 'none',
+                        cta_target: contentForm.cta_target || '',
+                        order: parseInt(String(contentForm.order)) || 0,
+                        is_active: contentForm.is_active !== false,
+                        start_date: contentForm.start_date || '',
+                        end_date: contentForm.end_date || '',
+                      };
+                      try {
+                        if (editingBannerId) {
+                          const updated = await api.put(`/banners/${editingBannerId}`, payload);
+                          setContentData(prev => prev.map(x => x.id === editingBannerId ? updated : x).sort((a, b) => (a.order || 0) - (b.order || 0)));
+                          showAlert('Saved', 'Banner updated');
+                        } else {
+                          const created = await api.post('/banners', payload);
+                          setContentData(prev => [...prev, created].sort((a, b) => (a.order || 0) - (b.order || 0)));
+                          showAlert('Added', 'Banner created');
+                        }
+                        setContentForm({});
+                        setEditingBannerId('');
+                      } catch (e: any) { showAlert('Error', e?.message || 'Could not save banner.'); }
+                    }}><Text style={s.saveBtnText}>{editingBannerId ? 'SAVE CHANGES' : 'ADD BANNER'}</Text></TouchableOpacity>
+                    {editingBannerId ? (
+                      <TouchableOpacity style={{ alignItems: 'center', marginTop: Spacing.sm }} onPress={() => { setEditingBannerId(''); setContentForm({}); }}>
+                        <Text style={{ color: Colors.textMuted, fontSize: FontSize.sm }}>Cancel editing</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
-                  <Text style={s.formLabel}>Fetch Interval (seconds)</Text>
-                  <TextInput style={s.formInput} value={String(contentForm.fetch_interval_seconds || 60)} onChangeText={v => setContentForm(p => ({...p, fetch_interval_seconds: v}))} keyboardType="number-pad" placeholder="60" placeholderTextColor={Colors.textMuted} />
-                  <TouchableOpacity style={s.saveBtn} onPress={async () => {
-                    try {
-                      await api.post('/live-rates/config', { silver_premium: parseFloat(String(contentForm.silver_premium)) || 0, gold_premium: parseFloat(String(contentForm.gold_premium)) || 0, auto_fetch_enabled: contentForm.auto_fetch_enabled !== false, fetch_interval_seconds: parseInt(String(contentForm.fetch_interval_seconds)) || 60 });
-                      Alert.alert('Saved', 'Live rate config updated');
-                    } catch (e: any) { Alert.alert('Error', e.message); }
-                  }}><Text style={s.saveBtnText}>SAVE CONFIG</Text></TouchableOpacity>
-                </View>
+                </>
               )}
             </>
           )}

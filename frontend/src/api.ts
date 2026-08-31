@@ -41,8 +41,21 @@ export const api = {
   patch: (path: string, body?: any) => request(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
   delete: (path: string) => request(path, { method: 'DELETE' }),
 
-  uploadFiles: async (path: string, files: File[], onProgress?: (done: number, total: number) => void) => {
-    _uploadAbortController = new AbortController();
+  // Single-file multipart upload (field name: "file")
+  uploadSingle: async (path: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers: Record<string, string> = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || `Error ${res.status}`);
+    }
+    return res.json();
+  },
+
+  uploadFiles: async (path: string, files: File[], onProgress?: (done: number, total: number) => void) => {    _uploadAbortController = new AbortController();
     const signal = _uploadAbortController.signal;
     const CHUNK = 3;
     const allResults: any[] = [];
@@ -337,4 +350,11 @@ export const getImageUrl = (product: any, thumbnail = true): string => {
   if (thumbnail && product?.thumbnail_path) return `${API_BASE}/files/${product.thumbnail_path}`;
   if (product?.storage_path) return `${API_BASE}/files/${product.storage_path}`;
   return product?.images?.[0] || '';
+};
+
+// Resolve a server-relative URL (e.g. "/api/files/...") to an absolute URL
+export const resolveFileUrl = (url: string): string => {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  return `${BACKEND_URL}${url}`;
 };

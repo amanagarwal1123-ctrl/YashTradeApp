@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, getImageUrl } from '../src/api';
+import { showAlert } from '../src/utils/alert';
 
 export default function WishlistScreen() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export default function WishlistScreen() {
       try {
         const res = await api.get('/wishlist');
         setProducts(res.products || []);
-      } catch {}
+      } catch (e: any) { showAlert('Error', e?.message || 'Could not load your wishlist. Please check your connection.'); }
       finally { setLoading(false); }
     })();
   }, []);
@@ -25,7 +26,7 @@ export default function WishlistScreen() {
     try {
       await api.post(`/wishlist/toggle?product_id=${productId}`);
       setProducts(prev => prev.filter(p => p.id !== productId));
-    } catch {}
+    } catch (e: any) { showAlert('Error', e?.message || 'Could not update wishlist. Please try again.'); }
   };
 
   return (

@@ -21,6 +21,7 @@ export default function RootLayout() {
           <Stack.Screen name="knowledge" options={{ presentation: 'modal' }} />
           <Stack.Screen name="image-viewer" options={{ presentation: 'modal', animation: 'fade' }} />
           <Stack.Screen name="my-requests" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="my-orders" options={{ presentation: 'modal' }} />
           <Stack.Screen name="wishlist" options={{ presentation: 'modal' }} />
           <Stack.Screen name="cart" options={{ presentation: 'modal' }} />
           <Stack.Screen name="panel" options={{ presentation: 'modal' }} />
@@ -29,7 +30,6 @@ export default function RootLayout() {
           <Stack.Screen name="brands" options={{ presentation: 'modal' }} />
           <Stack.Screen name="showroom" options={{ presentation: 'modal' }} />
           <Stack.Screen name="exhibition" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="try-on" options={{ presentation: 'modal' }} />
         </Stack>
       </LanguageProvider>
     </AuthProvider>

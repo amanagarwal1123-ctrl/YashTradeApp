@@ -1,0 +1,72 @@
+{
+  "iteration": 3,
+  "timestamp": "2026-01-31T12:30:00Z",
+  "summary": "Backend + frontend verification of major overhaul: banners CRUD, live-rates removed, try-on removed, AI chat kept, product ids ordering, metal_type filter, cart/orders, my-orders nav, banner carousel, silver/gold toggle, admin panel keep-awake fix. Backend: 28/28 pytest tests pass. Frontend: Home carousel, metal toggle, see-all -> feed metal filter, feed product tap -> image-viewer product continuity, no LIVE/no Try-On UI, admin panel Content > Home Banners card visible with NO Live Rates Config card. Panel does not crash (keep-awake web guard OK).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "NotificationBell", "issue": "testID is 'notifications-btn' but review_request expected 'notification-bell'. Update testID to notification-bell OR update spec.", "testID": "notifications-btn", "priority": "LOW"},
+      {"component": "Product seed data", "issue": "Product titled 'Plain Gold Jewellery #4' is tagged as SILVER in Home 'Latest Collection' - seed data inconsistency, not a functional bug.", "testID": "product-card-*", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Rate List", "issues": ["'Today's Rates' card with ₹ symbol was not observed on scroll-into-view of Rate List (screen shows only slab tabs Silver/Gold/Diamond). Main agent should verify the Today's Rates card is rendered above the slabs section when GET /api/rates/latest returns valid rates."]}
+    ],
+    "react_native_issues": []
+  },
+  "features_verified": [
+    "GET /api/banners returns 2+ active banners sorted by order (public, no auth)",
+    "Admin banner CRUD: create/list-all/update/delete + 422 for empty title + 403 for non-admin",
+    "Banner date-window filtering: end_date in past excluded from public /banners but present in /banners/all",
+    "POST /api/banners/upload accepts JPEG and returns /api/files/ URL; rejects non-image with 400; requires admin",
+    "GET /api/live-rates returns 404; /api/live-rates/config GET/POST return 404/405",
+    "POST /api/ai/try-on returns 404/405; GET /api/virtual-try-on returns 404/405",
+    "POST /api/ai/chat still works with customer auth (returns non-empty response)",
+    "GET /api/rates/latest returns silver_rate + gold_rate; POST /api/rates works with admin auth",
+    "GET /api/products?ids=id3,id1,id2 preserves requested order",
+    "GET /api/products?metal_type=silver returns only silver; metal_type=gold only gold",
+    "GET /api/cart/orders returns orders list for customer",
+    "Auth regression: send-otp + verify-otp OK; cart add/list/count/submit OK; wishlist toggle OK; requests create + /my OK; /api/rate-list OK",
+    "Home banner-carousel testID present with dot indicators; NO 'LIVE' text anywhere on Home",
+    "metal-toggle-silver / metal-toggle-gold testIDs present; Silver is default; tapping Gold shows only GOLD-badge products (8 GOLD, 0 SILVER counted)",
+    "see-all-btn opens /feed?metal=gold with GOLD filter chip active",
+    "Feed products load with feed-item-* testIDs (20 items visible); tapping first item opens /image-viewer?productId=<same>&startIndex=0&ids=<ordered-list> and viewer shows the same product title (product continuity confirmed)",
+    "Image viewer has NO Try-On button/text; 1/20 pagination + next arrow visible",
+    "Admin panel /panel loads without crash (keep-awake web guard OK); Content tab shows Home Banners card; NO 'Live Rates Config' card; Rates tab still present in top nav",
+    "Rate List page has NO 'LIVE' text and NO literal '\\u20b9'"
+  ],
+  "features_not_directly_verified_ui": [
+    "Profile > My Orders navigation (blocked by OTP rate-limit after multiple customer logins during testing). Backend /api/cart/orders passes.",
+    "Notification bell alert dialog 'No new notifications yet' (blocked by same rate-limit). Bell button is visible with testID notifications-btn.",
+    "Product detail page (opened via Home product card) Try-On absence — verified in image-viewer and in backend endpoints; direct /product/[id] visit not run.",
+    "Bottom tab bar layout at 360x800 viewport (only 390x844 tested). All 5 tabs and WhatsApp FAB confirmed on 390x844.",
+    "Panel banner-manager create/edit/delete flow was not clicked into (Home Banners card visible on Content tab)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3_features.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "Optional: Rename notification bell testID to 'notification-bell' for spec alignment (currently 'notifications-btn'). Or update spec to reflect current testID.",
+    "Fix seed data: product 'Plain Gold Jewellery #4' is showing under SILVER filter — either rename or reclassify metal_type.",
+    "Verify Rate List 'Today's Rates' card actually renders when GET /api/rates/latest returns rates; card was not observed above rate slabs at initial scroll position.",
+    "Consider raising OTP rate-limit window in dev, or exposing a demo token endpoint so testing agents don't hit 429 on repeat logins."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2465 lines — recommend splitting into modules (auth, banners, products, cart, admin) for maintainability.",
+    "Random $sample used for product listing on page=1 without search — good for variety, but callers relying on stable order across pagination must pass ids= (which is what the image-viewer flow correctly uses).",
+    "Wishlist toggle uses query params (product_id in URL) instead of JSON body — inconsistent with other POST endpoints that use JSON. Consider standardizing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3_features.py"
+  ],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "~90% (core flows verified; a few UI checks blocked by OTP rate-limit)"},
+  "seed_data_creation": "Test file creates and deletes temporary TEST_ banners; no permanent DB changes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Customer OTP endpoint has an aggressive rate-limit (429 after ~5 attempts, minutes-long lockout). Prefer reusing a single customer token across tests rather than re-logging in. Panel login form uses testIDs 'panel-phone' and 'panel-otp' and buttons say 'GET OTP' (not 'Send OTP'). Home has these testIDs: banner-carousel, banner-<id>, metal-toggle-silver, metal-toggle-gold, see-all-btn, notifications-btn (bell), cart-btn, plus product-card-<id>, and quick-action buttons like ratelist-quick-btn. Feed page uses feed-item-<id>.",
+  "rca_of_issue": "N/A - no functional bugs found. Only two minor items: notification bell testID naming mismatch with spec, and one mislabeled product in seed data."
+}

@@ -1,41 +1,44 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api, getImageUrl } from '../../src/api';
-
-const { width: SCREEN_W } = Dimensions.get('window');
+import { showAlert } from '../../src/utils/alert';
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [currentImage, setCurrentImage] = useState(0);
   const [wishlisted, setWishlisted] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
 
-  useEffect(() => {
-    (async () => {
+  const loadProduct = async () => {
+    try {
+      setLoadError(false);
+      const p = await api.get(`/products/${id}`);
+      setProduct(p);
+      // Check wishlist status (non-critical)
       try {
-        const p = await api.get(`/products/${id}`);
-        setProduct(p);
-        // Check wishlist status
-        try {
-          const wl = await api.get('/wishlist');
-          setWishlisted((wl.products || []).some((w: any) => w.id === id));
-        } catch {}
-      } catch {} finally { setLoading(false); }
-    })();
-  }, [id]);
+        const wl = await api.get('/wishlist');
+        setWishlisted((wl.products || []).some((w: any) => w.id === id));
+      } catch {}
+    } catch { setLoadError(true); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadProduct(); }, [id]);
 
   const toggleWishlist = async () => {
     try {
       const r = await api.post(`/wishlist/toggle?product_id=${id}`);
       setWishlisted(r.wishlisted);
-    } catch {}
+    } catch (e: any) {
+      showAlert('Error', e?.message || 'Could not update wishlist. Please try again.');
+    }
   };
 
   const addToCart = async () => {
@@ -43,10 +46,26 @@ export default function ProductDetail() {
       await api.post('/cart/add', { product_id: id });
       setAddedToCart(true);
       setTimeout(() => setAddedToCart(false), 3000);
-    } catch {}
+    } catch (e: any) {
+      showAlert('Error', e?.message || 'Could not add to cart. Please try again.');
+    }
   };
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
+  if (loadError) {
+    return (
+      <View style={styles.loader}>
+        <Ionicons name="cloud-offline-outline" size={40} color={Colors.error} />
+        <Text style={[styles.errorText, { marginTop: 12, textAlign: 'center', paddingHorizontal: 32 }]}>Could not load this product. Please check your connection.</Text>
+        <TouchableOpacity testID="product-retry" style={styles.retryBtn} onPress={() => { setLoading(true); loadProduct(); }}>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
+          <Text style={{ color: Colors.textMuted, fontSize: FontSize.sm }}>Go back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   if (!product) return <View style={styles.loader}><Text style={styles.errorText}>Product not found</Text></View>;
 
   const images = product.images || [];
@@ -156,7 +175,7 @@ export default function ProductDetail() {
 
           {product.tags?.length > 0 && (
             <View style={styles.tagsRow}>
-              {product.tags.map((t: string) => <View key={t} style={styles.tag}><Text style={styles.tagText}>#{t}</Text></View>)}
+              {[...new Set(product.tags as string[])].map((tg: string) => <View key={tg} style={styles.tag}><Text style={styles.tagText}>#{tg}</Text></View>)}
             </View>
           )}
         </View>
@@ -172,23 +191,6 @@ export default function ProductDetail() {
             <Text style={styles.ctaSecondaryText}>Ask Price</Text>
           </TouchableOpacity>
         </View>
-
-        {/* AI Try-On button — visible only if product has an image */}
-        {product && (product.storage_path || product.thumbnail_path || (product.images && product.images.length > 0)) ? (
-        <View style={styles.ctaSection}>
-          <TouchableOpacity testID="try-on-btn" style={styles.tryOnBtn} onPress={() => router.push({ pathname: '/try-on', params: { productId: id } })}>
-            <Ionicons name="sparkles" size={18} color="#fff" />
-            <Text style={styles.tryOnBtnText}>AI Try-On Preview</Text>
-          </TouchableOpacity>
-        </View>
-        ) : (
-        <View style={styles.ctaSection}>
-          <View testID="try-on-disabled" style={[styles.tryOnBtn, { opacity: 0.4 }]}>
-            <Ionicons name="sparkles" size={18} color="#fff" />
-            <Text style={styles.tryOnBtnText}>Try-On unavailable (no image)</Text>
-          </View>
-        </View>
-        )}
 
         <View style={styles.ctaSection}>
           <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
@@ -242,6 +244,6 @@ const styles = StyleSheet.create({
   ctaSecondaryText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.gold },
   ctaOutline: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: Colors.border },
   ctaOutlineText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.textSecondary },
-  tryOnBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.pastelPurple, paddingVertical: 14, borderRadius: 12 },
-  tryOnBtnText: { fontSize: FontSize.md, fontWeight: '700', color: '#fff' },
+  retryBtn: { marginTop: 16, backgroundColor: Colors.gold, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },
 });

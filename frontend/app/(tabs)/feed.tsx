@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api, getImageUrl } from '../../src/api';
+import { showAlert } from '../../src/utils/alert';
 import { useLang } from '../../src/context/LanguageContext';
 
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
@@ -14,28 +15,37 @@ const METALS = ['All', 'silver', 'gold', 'diamond'];
 export default function FeedScreen() {
   const router = useRouter();
   const { t } = useLang();
+  const params = useLocalSearchParams<{ category?: string; metal?: string }>();
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [category, setCategory] = useState('');
-  const [metal, setMetal] = useState('');
+  const [category, setCategory] = useState(typeof params.category === 'string' ? params.category : '');
+  const [metal, setMetal] = useState(typeof params.metal === 'string' ? params.metal : '');
   const [search, setSearch] = useState('');
   const [hasMore, setHasMore] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const [cartAdded, setCartAdded] = useState<string | null>(null);
+
+  // Apply route params (e.g. Home "See All" with selected metal, story category links)
+  useEffect(() => {
+    if (typeof params.metal === 'string' && params.metal !== metal) setMetal(params.metal);
+    if (typeof params.category === 'string' && params.category !== category) setCategory(params.category);
+  }, [params.metal, params.category]);
 
   const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false) => {
     if (loadingMore && p > 1) return;
     try {
+      setLoadError(false);
       if (p === 1) setLoading(true); else setLoadingMore(true);
-      const params = new URLSearchParams({ page: String(p), limit: '20' });
-      if (category) params.set('category', category);
-      if (metal) params.set('metal_type', metal);
-      if (search) params.set('search', search);
-      const res = await api.get(`/products?${params}`);
+      const qs = new URLSearchParams({ page: String(p), limit: '20' });
+      if (category) qs.set('category', category);
+      if (metal) qs.set('metal_type', metal);
+      if (search) qs.set('search', search);
+      const res = await api.get(`/products?${qs}`);
       const newProducts = res.products || [];
       if (refresh || p === 1) {
         setProducts(newProducts);
@@ -45,7 +55,7 @@ export default function FeedScreen() {
       setTotalPages(res.pages || 1);
       setPage(p);
       setHasMore(p < (res.pages || 1));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); if (p === 1) setLoadError(true); }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false); }
   }, [category, metal, search, loadingMore]);
 
@@ -60,13 +70,17 @@ export default function FeedScreen() {
       await api.post('/cart/add', { product_id: productId });
       setCartAdded(productId);
       setTimeout(() => setCartAdded(null), 2500);
-    } catch {}
+    } catch (e: any) {
+      showAlert('Error', e?.message || 'Could not add to cart. Please try again.');
+    }
   };
 
   const openViewer = (index: number) => {
     const item = products[index];
     if (item) {
-      router.push({ pathname: '/image-viewer', params: { productId: item.id, startIndex: String(index) } });
+      // Pass a stable ordered list of IDs so the viewer shows exactly the tapped product
+      const ids = products.slice(0, 300).map(p => p.id).join(',');
+      router.push({ pathname: '/image-viewer', params: { productId: item.id, startIndex: String(index), ids } });
     }
   };
 
@@ -142,7 +156,15 @@ export default function FeedScreen() {
         )}
       />
 
-      {loading ? <ActivityIndicator color={Colors.gold} style={{ marginTop: 40 }} /> : (
+      {loading ? <ActivityIndicator color={Colors.gold} style={{ marginTop: 40 }} /> : loadError ? (
+        <View style={styles.errorBox} testID="feed-error">
+          <Ionicons name="cloud-offline-outline" size={36} color={Colors.error} />
+          <Text style={styles.errorText}>Could not load products. Please check your connection.</Text>
+          <TouchableOpacity testID="feed-retry" style={styles.retryBtn} onPress={() => fetchProducts(1, true)}>
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
         <FlatList
           ref={flatListRef}
           testID="feed-list"
@@ -159,7 +181,7 @@ export default function FeedScreen() {
           maxToRenderPerBatch={10}
           windowSize={7}
           removeClippedSubviews={true}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={Colors.gold} style={{ padding: 20 }} /> : hasMore ? null : products.length > 0 ? <Text style={styles.endText}>You've seen all products</Text> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={Colors.gold} style={{ padding: 20 }} /> : hasMore ? null : products.length > 0 ? <Text style={styles.endText}>{"You've seen all products"}</Text> : null}
           ListEmptyComponent={<Text style={styles.emptyText}>{t('no_products')}</Text>}
         />
       )}
@@ -202,4 +224,8 @@ const styles = StyleSheet.create({
   cartAddedText: { color: '#fff', fontWeight: '700', fontSize: FontSize.sm, marginTop: 4 },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', marginTop: 40 },
   endText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', paddingVertical: 20 },
+  errorBox: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: Spacing.xl, gap: 10 },
+  errorText: { fontSize: FontSize.sm, color: Colors.error, textAlign: 'center' },
+  retryBtn: { backgroundColor: Colors.error + '20', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
+  retryBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.error },
 });

@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Header, File, UploadFile
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -14,10 +14,7 @@ from datetime import datetime, timezone
 import jwt
 import asyncio
 import requests as http_requests
-from PIL import Image as PILImage, ImageFilter, ImageEnhance
-from bs4 import BeautifulSoup
-import re
-import json as json_module
+from PIL import Image as PILImage
 import fitz  # PyMuPDF for PDF processing
 import shutil
 import tempfile
@@ -353,11 +350,17 @@ class ExhibitionCreate(BaseModel):
     is_upcoming: bool = True
     is_active: bool = True
 
-class LiveRateConfig(BaseModel):
-    silver_premium: float = 0
-    gold_premium: float = 0
-    auto_fetch_enabled: bool = True
-    fetch_interval_seconds: int = 60
+class BannerCreate(BaseModel):
+    title: str
+    subtitle: str = ""
+    image_url: str = ""
+    cta_label: str = ""
+    cta_type: str = "none"  # none | feed | product | url
+    cta_target: str = ""
+    order: int = 0
+    is_active: bool = True
+    start_date: str = ""  # YYYY-MM-DD (optional)
+    end_date: str = ""    # YYYY-MM-DD (optional)
 
 # ===================== AUTH HELPERS =====================
 
@@ -471,8 +474,19 @@ async def list_products(
     category: str = Query(""), metal_type: str = Query(""),
     search: str = Query(""), post_type: str = Query(""),
     include_hidden: bool = Query(False),
+    ids: str = Query(""),
     authorization: Optional[str] = Header(None)
 ):
+    # Stable ordered fetch by explicit ID list (used by image viewer for product continuity)
+    if ids:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()][:300]
+        docs = await db.products.find(
+            {"id": {"$in": id_list}, "is_deleted": {"$ne": True}, "visibility": {"$ne": "hidden"}},
+            {"_id": 0}
+        ).to_list(len(id_list))
+        doc_map = {d["id"]: d for d in docs}
+        ordered = [doc_map[i] for i in id_list if i in doc_map]
+        return {"products": ordered, "total": len(ordered), "page": 1, "pages": 1}
     query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
     if include_hidden:
         # Require admin auth for include_hidden
@@ -1578,155 +1592,6 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         logger.error(f"AI chat error: {e}")
         return {"response": "I'm having trouble connecting right now. Please try again.", "session_id": req.session_id or "", "error": True}
 
-# ===================== AI TRY-ON ENDPOINT =====================
-
-class TryOnRequest(BaseModel):
-    product_id: str
-    user_photo_base64: str
-    body_area: str = "auto"
-    scale: float = 0.4
-    offset_x: float = 0.5
-    offset_y: float = 0.3
-
-def _remove_bg_and_composite(user_img_bytes: bytes, product_img_bytes: bytes, body_area: str, scale: float, ox: float, oy: float) -> bytes:
-    """Composite exact product image onto exact user photo with background removal and blending."""
-    import numpy as np
-
-    user_img = PILImage.open(io.BytesIO(user_img_bytes)).convert('RGB')
-    prod_img = PILImage.open(io.BytesIO(product_img_bytes)).convert('RGBA')
-
-    # --- Step 1: Remove product background ---
-    prod_np = np.array(prod_img)
-    # Sample corners to detect background color
-    h, w = prod_np.shape[:2]
-    corners = [prod_np[0,0,:3], prod_np[0,w-1,:3], prod_np[h-1,0,:3], prod_np[h-1,w-1,:3]]
-    bg_color = np.median(corners, axis=0).astype(int)
-
-    # Create alpha mask: pixels similar to background become transparent
-    rgb = prod_np[:,:,:3].astype(int)
-    diff = np.sqrt(np.sum((rgb - bg_color) ** 2, axis=2))
-    threshold = 60
-    alpha = np.where(diff < threshold, 0, 255).astype(np.uint8)
-
-    # Smooth edges
-    alpha_img = PILImage.fromarray(alpha, 'L').filter(ImageFilter.GaussianBlur(radius=2))
-    alpha = np.array(alpha_img)
-    alpha = np.where(alpha < 128, 0, 255).astype(np.uint8)
-
-    prod_np[:,:,3] = alpha
-    prod_cutout = PILImage.fromarray(prod_np, 'RGBA')
-
-    # Crop to non-transparent bounding box
-    bbox = prod_cutout.getbbox()
-    if bbox:
-        prod_cutout = prod_cutout.crop(bbox)
-
-    # --- Step 2: Resize user image to standard size ---
-    canvas_size = 1024
-    user_img = user_img.resize((canvas_size, canvas_size), PILImage.Resampling.LANCZOS)
-
-    # --- Step 3: Scale and position product ---
-    prod_w = int(canvas_size * scale)
-    prod_h = int(prod_cutout.height * (prod_w / prod_cutout.width))
-    prod_cutout = prod_cutout.resize((prod_w, prod_h), PILImage.Resampling.LANCZOS)
-
-    # Position based on body area
-    pos_x = int((ox * canvas_size) - prod_w / 2)
-    pos_y = int(oy * canvas_size)
-
-    # Clamp to canvas
-    pos_x = max(0, min(canvas_size - prod_w, pos_x))
-    pos_y = max(0, min(canvas_size - prod_h, pos_y))
-
-    # --- Step 4: Create shadow ---
-    shadow = PILImage.new('RGBA', (prod_w, prod_h), (0, 0, 0, 0))
-    shadow_np = np.array(prod_cutout)
-    shadow_alpha = (shadow_np[:,:,3].astype(float) * 0.3).astype(np.uint8)
-    shadow_layer = np.zeros_like(shadow_np)
-    shadow_layer[:,:,3] = shadow_alpha
-    shadow = PILImage.fromarray(shadow_layer, 'RGBA').filter(ImageFilter.GaussianBlur(radius=4))
-
-    # --- Step 5: Composite ---
-    result = user_img.convert('RGBA')
-    # Paste shadow offset
-    result.paste(shadow, (pos_x + 3, pos_y + 3), shadow)
-    # Paste product
-    result.paste(prod_cutout, (pos_x, pos_y), prod_cutout)
-
-    # --- Step 6: Light blend at edges ---
-    result = result.convert('RGB')
-
-    # Slight warmth/contrast enhancement
-    result = ImageEnhance.Contrast(result).enhance(1.05)
-    result = ImageEnhance.Color(result).enhance(1.05)
-
-    buf = io.BytesIO()
-    result.save(buf, format='JPEG', quality=92)
-    return buf.getvalue()
-
-@api_router.post("/ai/try-on")
-async def ai_try_on(req: TryOnRequest, user=Depends(get_current_user)):
-    """AI Try-On: Composite exact product onto exact user photo with smart background removal."""
-    import base64
-
-    product = await db.products.find_one({"id": req.product_id}, {"_id": 0})
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    category = (product.get("category", "") or "").lower()
-
-    # Auto-detect body area and default positioning
-    body_area = req.body_area
-    scale = req.scale
-    ox, oy = req.offset_x, req.offset_y
-
-    if body_area == "auto":
-        if category in ("necklace", "chain", "pendant"):
-            body_area, oy, scale = "neck", 0.2, 0.45
-        elif category in ("bracelet", "kadaa", "bangles"):
-            body_area, oy, scale = "wrist", 0.35, 0.4
-        elif category in ("earrings", "nose_ring"):
-            body_area, oy, scale = "ear", 0.15, 0.25
-        elif category in ("ring", "toe_rings"):
-            body_area, oy, scale = "finger", 0.4, 0.2
-        elif category == "payal":
-            body_area, oy, scale = "ankle", 0.5, 0.45
-        else:
-            body_area, oy, scale = "neck", 0.25, 0.45
-
-    try:
-        # Get user photo
-        user_photo_bytes = base64.b64decode(req.user_photo_base64)
-
-        # Get exact product image from storage
-        product_path = product.get("storage_path") or product.get("thumbnail_path")
-        if not product_path:
-            raise HTTPException(status_code=400, detail="Product has no image")
-        product_img_bytes, _ = get_object(product_path)
-
-        # Composite
-        result_bytes = _remove_bg_and_composite(user_photo_bytes, product_img_bytes, body_area, scale, ox, oy)
-
-        # Save to storage
-        file_id = str(uuid.uuid4())
-        tryon_path = f"{APP_NAME}/tryon/{file_id}.jpg"
-        put_object(tryon_path, result_bytes, "image/jpeg")
-
-        result_b64 = base64.b64encode(result_bytes).decode('utf-8')
-
-        return {
-            "image_base64": result_b64,
-            "image_url": f"/api/files/{tryon_path}",
-            "product_id": req.product_id,
-            "body_area": body_area,
-            "method": "exact_composite",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"AI Try-On error: {e}")
-        raise HTTPException(status_code=500, detail=f"Try-on processing failed: {str(e)}")
-
 @api_router.get("/ai/suggestions")
 async def ai_suggestions():
     suggestions = [
@@ -2290,133 +2155,6 @@ async def delete_about_section(section: str, user=Depends(get_admin_user)):
     await db.about_content.delete_one({"section": section})
     return {"message": "Deleted"}
 
-# ===================== LIVE RATES SCRAPING =====================
-
-async def fetch_live_rates_from_web():
-    """Try to scrape live silver/gold rates from MoneyControl and other sources"""
-    silver_data = {"dollar": 0, "mcx": 0}
-    gold_data = {"dollar": 0, "mcx": 0}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-    loop = asyncio.get_event_loop()
-
-    def _fetch_sync():
-        sd = {"dollar": 0, "mcx": 0}
-        gd = {"dollar": 0, "mcx": 0}
-        # Use Yahoo Finance for commodity prices
-        try:
-            resp = http_requests.get('https://query1.finance.yahoo.com/v8/finance/chart/SI=F?interval=1d&range=1d', headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                meta = data.get('chart', {}).get('result', [{}])[0].get('meta', {})
-                sd["dollar"] = meta.get("regularMarketPrice", 0)
-        except Exception as e:
-            logger.warning(f"Yahoo silver: {e}")
-
-        try:
-            resp = http_requests.get('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=1d', headers=headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                meta = data.get('chart', {}).get('result', [{}])[0].get('meta', {})
-                gd["dollar"] = meta.get("regularMarketPrice", 0)
-        except Exception as e:
-            logger.warning(f"Yahoo gold: {e}")
-
-        # Get USD to INR rate
-        usd_inr = 83.0
-        try:
-            resp = http_requests.get('https://api.exchangerate-api.com/v4/latest/USD', headers=headers, timeout=10)
-            if resp.status_code == 200:
-                rates = resp.json().get('rates', {})
-                usd_inr = rates.get('INR', 83.0)
-        except:
-            pass
-
-        # Convert dollar/oz to INR/gram
-        if sd["dollar"] > 0:
-            sd["mcx"] = round((sd["dollar"] / 31.1035) * usd_inr, 2)
-        if gd["dollar"] > 0:
-            gd["mcx"] = round((gd["dollar"] / 31.1035) * usd_inr, 0)
-
-        return sd, gd
-
-    try:
-        silver_data, gold_data = await loop.run_in_executor(None, _fetch_sync)
-    except Exception as e:
-        logger.error(f"Live rate fetch error: {e}")
-
-    return silver_data, gold_data
-
-live_rates_cache = {"silver": {"dollar": 0, "mcx": 0}, "gold": {"dollar": 0, "mcx": 0}, "last_fetch": None}
-
-async def live_rate_background_task():
-    """Background task to fetch live rates every 60 seconds"""
-    await asyncio.sleep(5)  # Wait for app to start
-    while True:
-        try:
-            config = await db.live_rate_config.find_one({}, {"_id": 0})
-            if not config or config.get("auto_fetch_enabled", True):
-                silver, gold = await fetch_live_rates_from_web()
-
-                if silver["dollar"] > 0 or silver["mcx"] > 0 or gold["dollar"] > 0 or gold["mcx"] > 0:
-                    now = datetime.now(timezone.utc).isoformat()
-                    premium_config = config or {}
-                    silver_premium = premium_config.get("silver_premium", 0)
-                    gold_premium = premium_config.get("gold_premium", 0)
-
-                    await db.live_rates.update_one(
-                        {"type": "latest"},
-                        {"$set": {
-                            "silver_dollar": silver["dollar"],
-                            "silver_mcx": silver["mcx"],
-                            "silver_physical": round(silver["mcx"] + silver_premium, 2) if silver["mcx"] > 0 else 0,
-                            "gold_dollar": gold["dollar"],
-                            "gold_mcx": gold["mcx"],
-                            "gold_physical": round(gold["mcx"] + gold_premium, 2) if gold["mcx"] > 0 else 0,
-                            "silver_premium": silver_premium,
-                            "gold_premium": gold_premium,
-                            "fetched_at": now,
-                        }},
-                        upsert=True
-                    )
-                    logger.info(f"Live rates updated: Silver ${silver['dollar']:.2f}/MCX ₹{silver['mcx']:.2f}, Gold ${gold['dollar']:.2f}/MCX ₹{gold['mcx']:.2f}")
-        except Exception as e:
-            logger.error(f"Live rate task error: {e}")
-
-        interval = 60
-        try:
-            config = await db.live_rate_config.find_one({}, {"_id": 0})
-            if config:
-                interval = config.get("fetch_interval_seconds", 60)
-        except:
-            pass
-        await asyncio.sleep(interval)
-
-@api_router.get("/live-rates")
-async def get_live_rates():
-    cached = await db.live_rates.find_one({"type": "latest"}, {"_id": 0})
-    config = await db.live_rate_config.find_one({}, {"_id": 0})
-    premium = config or {"silver_premium": 0, "gold_premium": 0}
-    if cached:
-        cached["silver_premium"] = premium.get("silver_premium", 0)
-        cached["gold_premium"] = premium.get("gold_premium", 0)
-        if cached.get("silver_mcx", 0) > 0:
-            cached["silver_physical"] = cached["silver_mcx"] + premium.get("silver_premium", 0)
-        if cached.get("gold_mcx", 0) > 0:
-            cached["gold_physical"] = cached["gold_mcx"] + premium.get("gold_premium", 0)
-        return cached
-    return {"silver_dollar": 0, "silver_mcx": 0, "silver_physical": 0, "gold_dollar": 0, "gold_mcx": 0, "gold_physical": 0, "silver_premium": 0, "gold_premium": 0, "fetched_at": None}
-
-@api_router.get("/live-rates/config")
-async def get_live_rate_config(user=Depends(get_admin_user)):
-    config = await db.live_rate_config.find_one({}, {"_id": 0})
-    return config or {"silver_premium": 0, "gold_premium": 0, "auto_fetch_enabled": True, "fetch_interval_seconds": 60}
-
-@api_router.post("/live-rates/config")
-async def update_live_rate_config(req: LiveRateConfig, user=Depends(get_admin_user)):
-    await db.live_rate_config.update_one({}, {"$set": req.dict()}, upsert=True)
-    return req.dict()
-
 # ===================== RATE LIST MANAGEMENT =====================
 
 @api_router.get("/rate-list")
@@ -2563,6 +2301,69 @@ async def delete_exhibition(exhb_id: str, user=Depends(get_admin_user)):
     await db.exhibitions.delete_one({"id": exhb_id})
     return {"message": "Deleted"}
 
+# ===================== BANNERS MANAGEMENT =====================
+
+@api_router.get("/banners")
+async def get_banners():
+    """Public: active banners in display order, within date window if set."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    banners = await db.banners.find({"is_active": True}, {"_id": 0}).sort("order", 1).to_list(50)
+    visible = [
+        b for b in banners
+        if (not b.get("start_date") or b["start_date"][:10] <= today)
+        and (not b.get("end_date") or b["end_date"][:10] >= today)
+    ]
+    return {"banners": visible}
+
+@api_router.get("/banners/all")
+async def get_all_banners(user=Depends(get_admin_user)):
+    banners = await db.banners.find({}, {"_id": 0}).sort("order", 1).to_list(100)
+    return {"banners": banners}
+
+@api_router.post("/banners")
+async def create_banner(req: BannerCreate, user=Depends(get_admin_user)):
+    if not req.title.strip():
+        raise HTTPException(status_code=422, detail="Banner title is required")
+    now = datetime.now(timezone.utc).isoformat()
+    banner = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
+    await db.banners.insert_one(banner)
+    return {k: v for k, v in banner.items() if k != "_id"}
+
+@api_router.put("/banners/{banner_id}")
+async def update_banner(banner_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+    existing = await db.banners.find_one({"id": banner_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    updates.pop("_id", None)
+    updates.pop("id", None)
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.banners.update_one({"id": banner_id}, {"$set": updates})
+    return await db.banners.find_one({"id": banner_id}, {"_id": 0})
+
+@api_router.delete("/banners/{banner_id}")
+async def delete_banner(banner_id: str, user=Depends(get_admin_user)):
+    result = await db.banners.delete_one({"id": banner_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    return {"message": "Deleted"}
+
+@api_router.post("/banners/upload")
+async def upload_banner_image(file: UploadFile = File(...), user=Depends(get_admin_user)):
+    """Upload a banner image to object storage. Returns the served URL."""
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
+    if len(data) < 100:
+        raise HTTPException(status_code=400, detail="File is empty or too small")
+    try:
+        processed = process_image(data, max_size=1600, quality=85)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image file. Use JPG, PNG or WebP.")
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/banners/{file_id}.jpg"
+    put_object(path, processed, "image/jpeg")
+    return {"image_url": f"/api/files/{path}", "storage_path": path}
+
 # ===================== SEED ABOUT/DEMO DATA =====================
 
 async def seed_new_features():
@@ -2611,11 +2412,6 @@ async def seed_new_features():
             sl["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.rate_slabs.insert_many(slabs)
 
-    # Live rate config
-    config_exists = await db.live_rate_config.count_documents({})
-    if config_exists == 0:
-        await db.live_rate_config.insert_one({"silver_premium": 0.70, "gold_premium": 70.00, "auto_fetch_enabled": True, "fetch_interval_seconds": 60})
-
     # Create indexes for new collections
     await db.about_content.create_index([("section", 1)], unique=True)
     await db.rate_slabs.create_index([("metal_type", 1), ("order", 1)])
@@ -2623,17 +2419,8 @@ async def seed_new_features():
     await db.brands.create_index([("order", 1)])
     await db.showroom_floors.create_index([("order", 1)])
     await db.exhibitions.create_index([("is_upcoming", -1), ("created_at", -1)])
-    await db.live_rates.create_index([("type", 1)])
+    await db.banners.create_index([("order", 1)])
     await db.pdf_jobs.create_index([("upload_id", 1)], unique=True)
-
-# ===================== VIRTUAL TRY-ON WEB PAGE =====================
-
-@api_router.get("/virtual-try-on", response_class=HTMLResponse)
-async def virtual_try_on_page():
-    html_path = ROOT_DIR / "static" / "virtual-try-on.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Try-on page not found")
-    return HTMLResponse(content=html_path.read_text(), status_code=200)
 
 # ===================== APP SETUP =====================
 
@@ -2671,8 +2458,6 @@ async def startup():
             logger.info(f"Cart cleanup: removed {bad_qty.deleted_count} rows with invalid quantity")
     except Exception as e:
         logger.warning(f"Cart cleanup: {e}")
-    # Start live rate background task
-    asyncio.create_task(live_rate_background_task())
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

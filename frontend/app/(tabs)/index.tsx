@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,10 +7,14 @@ import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api, getImageUrl } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
+import { showAlert } from '../../src/utils/alert';
+import BannerCarousel from '../../src/components/BannerCarousel';
 
-interface Rate { silver_dollar_rate: number; silver_mcx_rate: number; silver_physical_rate: number; gold_dollar_rate: number; gold_mcx_rate: number; gold_physical_rate: number; silver_movement: string; gold_movement: string; market_summary: string; created_at?: string; }
 interface Story { id: string; title: string; image_url: string; category: string; link_type: string; link_id: string; }
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
+
+type MetalTab = 'silver' | 'gold';
+const PAGE_SIZE = 20;
 
 const QuickAction = ({ icon, label, color, onPress, testID }: any) => (
   <TouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}>
@@ -25,63 +29,55 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { language } = useLang();
   const router = useRouter();
-  const [rates, setRates] = useState<Rate | null>(null);
-  const [liveRates, setLiveRates] = useState<any>(null);
   const [stories, setStories] = useState<Story[]>([]);
-  const [allProducts, setAllProducts] = useState<Product[]>([]);
-  const [displayProducts, setDisplayProducts] = useState<Product[]>([]);
+  const [silverProducts, setSilverProducts] = useState<Product[]>([]);
+  const [goldProducts, setGoldProducts] = useState<Product[]>([]);
+  // Silver is the default on every fresh app launch (not persisted)
+  const [metal, setMetal] = useState<MetalTab>('silver');
+  const [visibleCount, setVisibleCount] = useState<Record<MetalTab, number>>({ silver: PAGE_SIZE, gold: PAGE_SIZE });
   const [cartCount, setCartCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const rateTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   const T: Record<string, any> = {
-    en: { welcome: 'Welcome back,', highlights: 'HIGHLIGHTS', latest: 'LATEST COLLECTION', seeAll: 'See All', calc: 'Calculator', call: 'Request Call', video: 'Video Call', rewards: 'My Rewards', ai: 'AI Assistant', guide: 'Silver Guide', rateList: 'Rate List', schemes: 'Schemes', brands: 'Brands', showroom: 'Showroom', exhibition: 'Exhibition', live: 'LIVE' },
-    hi: { welcome: 'वापस स्वागत है,', highlights: 'हाइलाइट्स', latest: 'नवीनतम संग्रह', seeAll: 'सभी देखें', calc: 'कैलकुलेटर', call: 'कॉल अनुरोध', video: 'वीडियो कॉल', rewards: 'मेरे रिवॉर्ड्स', ai: 'AI सहायक', guide: 'चांदी गाइड', rateList: 'रेट लिस्ट', schemes: 'स्कीम्स', brands: 'ब्रांड', showroom: 'शोरूम', exhibition: 'प्रदर्शनी', live: 'लाइव' },
-    pa: { welcome: 'ਵਾਪਸ ਸਵਾਗਤ ਹੈ,', highlights: 'ਹਾਈਲਾਈਟਸ', latest: 'ਨਵੀਨਤਮ ਸੰਗ੍ਰਹਿ', seeAll: 'ਸਭ ਵੇਖੋ', calc: 'ਕੈਲਕੁਲੇਟਰ', call: 'ਕਾਲ ਬੇਨਤੀ', video: 'ਵੀਡੀਓ ਕਾਲ', rewards: 'ਮੇਰੇ ਇਨਾਮ', ai: 'AI ਸਹਾਇਕ', guide: 'ਚਾਂਦੀ ਗਾਈਡ', rateList: 'ਰੇਟ ਲਿਸਟ', schemes: 'ਸਕੀਮਾਂ', brands: 'ਬ੍ਰਾਂਡ', showroom: 'ਸ਼ੋਅਰੂਮ', exhibition: 'ਪ੍ਰਦਰਸ਼ਨੀ', live: 'ਲਾਈਵ' },
+    en: { welcome: 'Welcome back,', highlights: 'HIGHLIGHTS', latest: 'LATEST COLLECTION', seeAll: 'See All', calc: 'Calculator', call: 'Request Call', video: 'Video Call', rewards: 'My Rewards', ai: 'AI Assistant', guide: 'Silver Guide', rateList: 'Rate List', schemes: 'Schemes', brands: 'Brands', showroom: 'Showroom', exhibition: 'Exhibition', silver: 'Silver', gold: 'Gold', emptySilver: 'No silver products available yet', emptyGold: 'No gold products available yet', loadFailed: 'Could not load data. Please check your connection.', retry: 'Retry', notifTitle: 'Notifications', notifEmpty: 'No new notifications yet.', addedCart: 'Added to Cart', addedCartMsg: 'Item has been added to your selection.', error: 'Error', cartFail: 'Could not add to cart. Please try again.', wishUpdated: 'Wishlist updated', wishFail: 'Could not update wishlist. Please try again.' },
+    hi: { welcome: 'वापस स्वागत है,', highlights: 'हाइलाइट्स', latest: 'नवीनतम संग्रह', seeAll: 'सभी देखें', calc: 'कैलकुलेटर', call: 'कॉल अनुरोध', video: 'वीडियो कॉल', rewards: 'मेरे रिवॉर्ड्स', ai: 'AI सहायक', guide: 'चांदी गाइड', rateList: 'रेट लिस्ट', schemes: 'स्कीम्स', brands: 'ब्रांड', showroom: 'शोरूम', exhibition: 'प्रदर्शनी', silver: 'चांदी', gold: 'सोना', emptySilver: 'अभी कोई चांदी के उत्पाद उपलब्ध नहीं', emptyGold: 'अभी कोई सोने के उत्पाद उपलब्ध नहीं', loadFailed: 'डेटा लोड नहीं हो सका। कृपया कनेक्शन जांचें।', retry: 'फिर से कोशिश करें', notifTitle: 'सूचनाएं', notifEmpty: 'अभी कोई नई सूचना नहीं है।', addedCart: 'कार्ट में जोड़ा गया', addedCartMsg: 'आइटम आपके चयन में जोड़ दिया गया है।', error: 'त्रुटि', cartFail: 'कार्ट में नहीं जोड़ा जा सका। फिर से कोशिश करें।', wishUpdated: 'विशलिस्ट अपडेट हुई', wishFail: 'विशलिस्ट अपडेट नहीं हो सकी। फिर से कोशिश करें।' },
+    pa: { welcome: 'ਵਾਪਸ ਸਵਾਗਤ ਹੈ,', highlights: 'ਹਾਈਲਾਈਟਸ', latest: 'ਨਵੀਨਤਮ ਸੰਗ੍ਰਹਿ', seeAll: 'ਸਭ ਵੇਖੋ', calc: 'ਕੈਲਕੁਲੇਟਰ', call: 'ਕਾਲ ਬੇਨਤੀ', video: 'ਵੀਡੀਓ ਕਾਲ', rewards: 'ਮੇਰੇ ਇਨਾਮ', ai: 'AI ਸਹਾਇਕ', guide: 'ਚਾਂਦੀ ਗਾਈਡ', rateList: 'ਰੇਟ ਲਿਸਟ', schemes: 'ਸਕੀਮਾਂ', brands: 'ਬ੍ਰਾਂਡ', showroom: 'ਸ਼ੋਅਰੂਮ', exhibition: 'ਪ੍ਰਦਰਸ਼ਨੀ', silver: 'ਚਾਂਦੀ', gold: 'ਸੋਨਾ', emptySilver: 'ਹਾਲੇ ਕੋਈ ਚਾਂਦੀ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', emptyGold: 'ਹਾਲੇ ਕੋਈ ਸੋਨੇ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', loadFailed: 'ਡਾਟਾ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ।', retry: 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ', notifTitle: 'ਸੂਚਨਾਵਾਂ', notifEmpty: 'ਹਾਲੇ ਕੋਈ ਨਵੀਂ ਸੂਚਨਾ ਨਹੀਂ ਹੈ।', addedCart: 'ਕਾਰਟ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ', addedCartMsg: 'ਆਈਟਮ ਤੁਹਾਡੀ ਚੋਣ ਵਿੱਚ ਜੋੜ ਦਿੱਤੀ ਗਈ ਹੈ।', error: 'ਗਲਤੀ', cartFail: 'ਕਾਰਟ ਵਿੱਚ ਨਹੀਂ ਜੋੜਿਆ ਜਾ ਸਕਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।', wishUpdated: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਹੋਈ', wishFail: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋ ਸਕੀ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।' },
   };
   const t = T[language] || T.en;
 
   const loadData = useCallback(async () => {
     try {
-      const [rateRes, storyRes, prodRes, cartRes, liveRes] = await Promise.all([
-        api.get('/rates/latest'),
-        api.get('/stories'),
-        api.get('/products?limit=200'),
+      setLoadError(false);
+      const [storyRes, silverRes, goldRes, cartRes] = await Promise.all([
+        api.get('/stories').catch(() => ({ stories: [] })),
+        api.get('/products?metal_type=silver&limit=100'),
+        api.get('/products?metal_type=gold&limit=100'),
         api.get('/cart/count').catch(() => ({ count: 0 })),
-        api.get('/live-rates').catch(() => null),
       ]);
-      setRates(rateRes);
       setStories(storyRes.stories || []);
-      const prods: Product[] = prodRes.products || [];
-      setAllProducts(prods);
-      setDisplayProducts(prods.slice(0, 20));
+      setSilverProducts(silverRes.products || []);
+      setGoldProducts(goldRes.products || []);
       setCartCount(cartRes.count || 0);
-      if (liveRes) setLiveRates(liveRes);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); setLoadError(true); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useEffect(() => {
-    loadData();
-    rateTimer.current = setInterval(async () => {
-      try {
-        const [rateRes, liveRes] = await Promise.all([api.get('/rates/latest'), api.get('/live-rates').catch(() => null)]);
-        setRates(rateRes);
-        if (liveRes) setLiveRates(liveRes);
-      } catch {}
-    }, 60000);
-    return () => { if (rateTimer.current) clearInterval(rateTimer.current); };
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const onRefresh = () => { setRefreshing(true); loadData(); };
-  const movementIcon = (m: string) => m === 'up' ? 'trending-up' : m === 'down' ? 'trending-down' : 'remove';
-  const movementColor = (m: string) => m === 'up' ? Colors.success : m === 'down' ? Colors.error : Colors.textSecondary;
+
+  const allProducts = metal === 'silver' ? silverProducts : goldProducts;
+  const displayProducts = allProducts.slice(0, visibleCount[metal]);
 
   const loadMoreProducts = useCallback(() => {
-    if (allProducts.length === 0 || displayProducts.length >= allProducts.length) return;
-    setDisplayProducts(prev => allProducts.slice(0, prev.length + 20));
-  }, [allProducts, displayProducts.length]);
+    setVisibleCount(prev => {
+      const total = metal === 'silver' ? silverProducts.length : goldProducts.length;
+      if (total === 0 || prev[metal] >= total) return prev;
+      return { ...prev, [metal]: Math.min(prev[metal] + PAGE_SIZE, total) };
+    });
+  }, [metal, silverProducts.length, goldProducts.length]);
 
   const handleStoryPress = (story: Story) => {
     if (story.link_type === 'category' && story.link_id) {
@@ -92,7 +88,22 @@ export default function HomeScreen() {
   };
 
   const addToCart = async (productId: string) => {
-    try { await api.post('/cart/add', { product_id: productId }); setCartCount(prev => prev + 1); } catch {}
+    try {
+      await api.post('/cart/add', { product_id: productId });
+      setCartCount(prev => prev + 1);
+      showAlert(t.addedCart, t.addedCartMsg);
+    } catch (e: any) {
+      showAlert(t.error, e?.message || t.cartFail);
+    }
+  };
+
+  const toggleWishlist = async (productId: string) => {
+    try {
+      await api.post(`/wishlist/toggle?product_id=${productId}`);
+      showAlert(t.wishUpdated);
+    } catch (e: any) {
+      showAlert(t.error, e?.message || t.wishFail);
+    }
   };
 
   const renderProduct = useCallback(({ item: p }: { item: Product }) => (
@@ -115,13 +126,13 @@ export default function HomeScreen() {
           </View>
         )}
         <View style={styles.productActions}>
-          <TouchableOpacity style={styles.askPriceBtn} onPress={() => { addToCart(p.id); Alert.alert('Product added to the cart', 'Item has been added to your selection.'); }}><Text style={styles.askPriceText}>Add to Cart</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.askPriceBtn} onPress={() => addToCart(p.id)}><Text style={styles.askPriceText}>Add to Cart</Text></TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: p.id } })}><Ionicons name="pricetag-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={async () => { try { await api.post(`/wishlist/toggle?product_id=${p.id}`); } catch {} }}><Ionicons name="heart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => toggleWishlist(p.id)}><Ionicons name="heart-outline" size={18} color={Colors.textSecondary} /></TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
-  ), []);
+  ), [t]);
 
   const headerComponent = useCallback(() => (
     <>
@@ -135,37 +146,13 @@ export default function HomeScreen() {
             <Ionicons name="cart-outline" size={22} color={Colors.text} />
             {cartCount > 0 && <View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View>}
           </TouchableOpacity>
-          <TouchableOpacity testID="notifications-btn" style={styles.headerIcon}><Ionicons name="notifications-outline" size={22} color={Colors.text} /></TouchableOpacity>
+          <TouchableOpacity testID="notifications-btn" style={styles.headerIcon} onPress={() => showAlert(t.notifTitle, t.notifEmpty)}>
+            <Ionicons name="notifications-outline" size={22} color={Colors.text} />
+          </TouchableOpacity>
         </View>
       </View>
-      {rates && (
-        <View testID="rate-ticker" style={styles.rateCard}>
-          {liveRates?.fetched_at && <View style={styles.liveIndicator}><View style={styles.liveDot} /><Text style={styles.liveText}>{t.live}</Text></View>}
-          <View style={styles.metalSection}>
-            <View style={styles.metalHeader}><Text style={styles.rateLabel}>SILVER</Text><Ionicons name={movementIcon(rates.silver_movement)} size={14} color={movementColor(rates.silver_movement)} /></View>
-            <View style={styles.threeRates}>
-              <View style={styles.rateCell}><Text style={styles.rateCellLabel}>Dollar</Text><Text style={styles.rateCellValue}>${rates.silver_dollar_rate?.toFixed(2)}</Text></View>
-              <View style={styles.rateCellDivider} />
-              <View style={styles.rateCell}><Text style={styles.rateCellLabel}>MCX</Text><Text style={styles.rateCellValue}>₹{rates.silver_mcx_rate?.toFixed(2)}</Text></View>
-              <View style={styles.rateCellDivider} />
-              <View style={styles.rateCell}><Text style={[styles.rateCellLabel, { color: Colors.gold }]}>Physical</Text><Text style={[styles.rateCellValue, { color: Colors.gold }]}>₹{rates.silver_physical_rate?.toFixed(2)}</Text></View>
-            </View>
-          </View>
-          <View style={styles.metalDivider} />
-          <View style={styles.metalSection}>
-            <View style={styles.metalHeader}><Text style={styles.rateLabel}>GOLD</Text><Ionicons name={movementIcon(rates.gold_movement)} size={14} color={movementColor(rates.gold_movement)} /></View>
-            <View style={styles.threeRates}>
-              <View style={styles.rateCell}><Text style={styles.rateCellLabel}>Dollar</Text><Text style={styles.rateCellValue}>${rates.gold_dollar_rate?.toFixed(0)}</Text></View>
-              <View style={styles.rateCellDivider} />
-              <View style={styles.rateCell}><Text style={styles.rateCellLabel}>MCX</Text><Text style={styles.rateCellValue}>₹{rates.gold_mcx_rate?.toFixed(0)}</Text></View>
-              <View style={styles.rateCellDivider} />
-              <View style={styles.rateCell}><Text style={[styles.rateCellLabel, { color: Colors.gold }]}>Physical</Text><Text style={[styles.rateCellValue, { color: Colors.gold }]}>₹{rates.gold_physical_rate?.toFixed(0)}</Text></View>
-            </View>
-          </View>
-          {rates.market_summary ? <Text style={styles.marketSummary}>{rates.market_summary}</Text> : null}
-          {rates.created_at ? <Text style={styles.rateTime}>Updated: {new Date(rates.created_at).toLocaleTimeString()}</Text> : null}
-        </View>
-      )}
+      {/* Admin-managed banner carousel (replaces the old live-rate card) */}
+      <BannerCarousel />
       <View style={styles.quickActions}>
         <QuickAction testID="calc-quick-btn" icon="calculator" label={t.calc} color={Colors.gold} onPress={() => router.push('/(tabs)/calculator')} />
         <QuickAction testID="call-quick-btn" icon="call" label={t.call} color={Colors.success} onPress={() => router.push('/request-call')} />
@@ -194,11 +181,41 @@ export default function HomeScreen() {
       <View style={[styles.section, { marginBottom: 0 }]}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{t.latest}</Text>
-          <TouchableOpacity testID="see-all-btn" onPress={() => router.push('/(tabs)/feed')}><Text style={styles.seeAll}>{t.seeAll}</Text></TouchableOpacity>
+          <TouchableOpacity testID="see-all-btn" onPress={() => router.push({ pathname: '/(tabs)/feed', params: { metal } })}><Text style={styles.seeAll}>{t.seeAll}</Text></TouchableOpacity>
         </View>
+        {/* Silver / Gold segmented toggle — Silver default on launch */}
+        <View style={styles.metalToggle}>
+          {(['silver', 'gold'] as MetalTab[]).map(m => {
+            const active = metal === m;
+            const activeColor = m === 'gold' ? Colors.gold : Colors.silver;
+            return (
+              <TouchableOpacity
+                key={m}
+                testID={`metal-toggle-${m}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Show ${m} collection`}
+                style={[styles.metalToggleBtn, active && { backgroundColor: activeColor + '18', borderColor: activeColor }]}
+                onPress={() => setMetal(m)}
+              >
+                <Ionicons name={m === 'gold' ? 'sunny' : 'ellipse'} size={13} color={active ? activeColor : Colors.textMuted} />
+                <Text style={[styles.metalToggleText, active && { color: activeColor }]}>{t[m]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {loadError && (
+          <View style={styles.errorBox} testID="home-error">
+            <Ionicons name="cloud-offline-outline" size={18} color={Colors.error} />
+            <Text style={styles.errorBoxText}>{t.loadFailed}</Text>
+            <TouchableOpacity testID="home-retry" style={styles.retryBtn} onPress={() => { setLoading(true); loadData(); }}>
+              <Text style={styles.retryBtnText}>{t.retry}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </>
-  ), [rates, liveRates, stories, cartCount, user, t]);
+  ), [stories, cartCount, user, t, metal, loadError]);
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
 
@@ -206,7 +223,8 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
         data={displayProducts}
-        keyExtractor={(item, index) => `${item.id}-${index}`}
+        extraData={metal}
+        keyExtractor={(item) => `${metal}-${item.id}`}
         renderItem={renderProduct}
         ListHeaderComponent={headerComponent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
@@ -218,7 +236,13 @@ export default function HomeScreen() {
         removeClippedSubviews={true}
         contentContainerStyle={{ paddingHorizontal: Spacing.lg, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
-        ListFooterComponent={displayProducts.length < allProducts.length ? <ActivityIndicator color={Colors.gold} style={{ paddingVertical: 20 }} /> : null}
+        ListEmptyComponent={!loadError ? (
+          <View style={styles.emptyBox} testID="home-empty">
+            <Ionicons name="cube-outline" size={36} color={Colors.textMuted} />
+            <Text style={styles.emptyBoxText}>{metal === 'silver' ? t.emptySilver : t.emptyGold}</Text>
+          </View>
+        ) : null}
+        ListFooterComponent={displayProducts.length > 0 && displayProducts.length < allProducts.length ? <ActivityIndicator color={Colors.gold} style={{ paddingVertical: 20 }} /> : null}
       />
     </SafeAreaView>
   );
@@ -234,21 +258,15 @@ const styles = StyleSheet.create({
   headerIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
   cartBadge: { position: 'absolute', top: 2, right: 2, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: Colors.error, alignItems: 'center', justifyContent: 'center' },
   cartBadgeText: { fontSize: 9, color: '#fff', fontWeight: '700' },
-  rateCard: { marginTop: Spacing.md, backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderGold },
-  liveIndicator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 6 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.success },
-  liveText: { fontSize: 9, color: Colors.success, fontWeight: '700', letterSpacing: 1 },
-  metalSection: { paddingVertical: 8 },
-  metalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8 },
-  rateLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 2, fontWeight: '600' },
-  threeRates: { flexDirection: 'row', alignItems: 'center' },
-  rateCell: { flex: 1, alignItems: 'center' },
-  rateCellLabel: { fontSize: 9, color: Colors.textMuted, letterSpacing: 1, fontWeight: '500', marginBottom: 2 },
-  rateCellValue: { fontSize: FontSize.md, fontWeight: '700', color: Colors.text },
-  rateCellDivider: { width: 1, height: 28, backgroundColor: Colors.border },
-  metalDivider: { height: 1, backgroundColor: Colors.border, marginVertical: 4 },
-  marketSummary: { fontSize: FontSize.xs, color: Colors.textSecondary, textAlign: 'center', marginTop: Spacing.sm, fontStyle: 'italic' },
-  rateTime: { fontSize: 9, color: Colors.textMuted, textAlign: 'center', marginTop: 4 },
+  metalToggle: { flexDirection: 'row', gap: 8, marginBottom: Spacing.md },
+  metalToggleBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: 10, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+  metalToggleText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1 },
+  errorBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.error + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '30', marginBottom: Spacing.sm },
+  errorBoxText: { flex: 1, fontSize: FontSize.sm, color: Colors.error },
+  retryBtn: { backgroundColor: Colors.error + '20', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  retryBtnText: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.error },
+  emptyBox: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyBoxText: { fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center' },
   quickActions: { flexDirection: 'row', flexWrap: 'wrap', marginTop: Spacing.lg, gap: 2 },
   quickAction: { width: '24%', alignItems: 'center', paddingVertical: Spacing.sm, marginBottom: Spacing.xs },
   quickIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },

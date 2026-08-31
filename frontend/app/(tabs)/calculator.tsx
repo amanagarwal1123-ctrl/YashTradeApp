@@ -35,7 +35,7 @@ function ItemSelector({ value, onChange, testID }: { value: string; onChange: (v
             )} ListEmptyComponent={search.length > 0 ? (
               <TouchableOpacity style={styles.modalItem} onPress={() => { onChange(search); setShow(false); setSearch(''); }}>
                 <Ionicons name="add" size={16} color={Colors.success} />
-                <Text style={[styles.modalItemText, { color: Colors.success }]}>Use "{search}"</Text>
+                <Text style={[styles.modalItemText, { color: Colors.success }]}>{`Use "${search}"`}</Text>
               </TouchableOpacity>
             ) : null} />
           </View>

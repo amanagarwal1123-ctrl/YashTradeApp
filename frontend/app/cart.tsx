@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, getImageUrl } from '../src/api';
+import { showAlert, confirmAlert } from '../src/utils/alert';
 
 export default function CartScreen() {
   const router = useRouter();
@@ -17,7 +18,7 @@ export default function CartScreen() {
     try {
       const res = await api.get('/cart');
       setItems(res.items || []);
-    } catch {}
+    } catch (e: any) { showAlert('Error', e?.message || 'Could not load your cart. Please check your connection.'); }
     finally { setLoading(false); }
   };
 
@@ -27,22 +28,19 @@ export default function CartScreen() {
     try {
       await api.delete(`/cart/${itemId}`);
       setItems(prev => prev.filter(i => i.id !== itemId));
-    } catch {}
+    } catch (e: any) { showAlert('Error', e?.message || 'Could not remove the item. Please try again.'); }
   };
 
   const submitCart = () => {
     if (items.length === 0) return;
-    Alert.alert('Submit Selection', `Send ${items.length} item(s) to our team? We will prepare a bill and contact you.`, [
-      { text: 'Cancel' },
-      { text: 'Submit', onPress: async () => {
-        setSubmitting(true);
-        try {
-          await api.post('/cart/submit', { notes: '' });
-          setSubmitted(true);
-        } catch (e: any) { Alert.alert('Error', e.message); }
-        finally { setSubmitting(false); }
-      }}
-    ]);
+    confirmAlert('Submit Selection', `Send ${items.length} item(s) to our team? We will prepare a bill and contact you.`, async () => {
+      setSubmitting(true);
+      try {
+        await api.post('/cart/submit', { notes: '' });
+        setSubmitted(true);
+      } catch (e: any) { showAlert('Error', e.message); }
+      finally { setSubmitting(false); }
+    }, 'Submit');
   };
 
   return (

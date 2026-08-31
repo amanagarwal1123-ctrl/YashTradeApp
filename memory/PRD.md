@@ -28,6 +28,18 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Product catalog with feed, search, filters
 - Cart, Requests, Rewards, AI assistant, Silver Calculator, Stories, Knowledge base
 
+### Banners + Bhav/Try-On Removal Overhaul (June 2026)
+- **Live Bhav removed completely:** `/live-rates` + `/live-rates/config` APIs, Yahoo scraping, background polling task, home rate card, 60s timers, panel Live Rates Config, DB collections `live_rates`/`live_rate_config` dropped. Admin manual Rates tab (`/rates`, `/rates/latest`, `/rates/history`) KEPT — displayed only on customer Rate List page as "Today's Rates" card (no LIVE indicators)
+- **AI Try-On removed completely:** `/ai/try-on` endpoint, Pillow compositing fns, `/api/virtual-try-on` static page + `backend/static/`, `/try-on` screen, product-detail buttons
+- **Home banner carousel (admin-managed):** `banners` collection; public GET `/api/banners` (active, ordered, date-windowed); admin GET `/api/banners/all`, POST/PUT/DELETE `/api/banners`, POST `/api/banners/upload` (object storage). Frontend `src/components/BannerCarousel.tsx`: auto-rotate 4.5s, manual swipe, dot indicators, loading skeleton, image-error fallback, hidden when empty. Panel → Content → "Home Banners" CRUD with image upload, CTA (none/feed/product/url), order, active, start/end dates
+- **Silver/Gold Latest Collection toggle:** Home fetches silver+gold lists separately; segmented toggle (Silver default each launch); instant switch; per-metal empty states; "See All" passes `metal` param to Feed which reads `metal`/`category` route params
+- **Product continuity fix:** `/products?ids=a,b,c` returns products in requested order; Feed passes stable ordered ID list to image-viewer; viewer no longer refetches randomized pages; direct productId load fallback
+- **Safe-area bottom nav:** tab bar = 56 + `insets.bottom` via useSafeAreaInsets, tabBarHideOnKeyboard, 44px items, WhatsApp FAB at tabBarHeight+16, Android nav bar buttons set light via expo-navigation-bar
+- **My Orders screen:** `/my-orders` (from `/cart/orders`), wired from Profile row; multilingual (EN/HI/PA)
+- **Error handling:** user-facing alerts/retry states replace silent catch{} for cart, wishlist, product, requests, feed, home, profile, rate-list, orders
+- **Keep-awake fix (P1 regression):** `activateKeepAwakeAsync`/`deactivateKeepAwake` during panel uploads, guarded `Platform.OS !== 'web'`
+- **Misc:** deduped product tags (unique keys), literal `\u20b9` text fixed, notification bell kept (shows "No new notifications yet")
+
 ### Multi-Executive / Telecaller System (March 2026)
 - **Admin CRUD:** Create/edit/disable executives with name, phone, code, role (executive or billing_executive)
 - **Individual Login:** Each executive logs in with their own phone+OTP, sees their own name in panel header
@@ -50,16 +62,14 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - **Cart cleanup:** Startup migration removes rows with quantity<=0
 
 ### 9 Major Content Sections
-About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Language Support (EN/HI/PA)
+About, Endless Feed, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Home Banners, Language Support (EN/HI/PA)
 
 ### PDF Catalogue Import — Production-Grade Chunked Upload (1GB)
 - **Max: 1000MB** — 25MB chunks with resume capabilities
 - Endpoints: POST /api/pdf-upload/init, /chunk, /complete, GET /status
 
-### Virtual Try-On (Web)
-- Standalone web page at `/api/virtual-try-on`
-- Backend compositing: Pillow-based background removal + overlay
-- Endpoint: POST /api/ai/try-on
+### Virtual Try-On (Removed June 2026)
+- Feature fully removed (backend endpoint, compositing, static page, mobile screen)
 
 ### Zoomable Product Images
 - Product detail page: ScrollView with maximumZoomScale=4
@@ -69,7 +79,6 @@ About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Ex
 - Backend: FastAPI, Motor (async MongoDB), Pydantic
 - Storage: Emergent Object Storage
 - AI: emergentintegrations (Claude Sonnet 4.5)
-- Live Rates: Yahoo Finance + ExchangeRate API
 - PDF: PyMuPDF (fitz)
 
 ### Scroll Performance & Category Feed Fix (March 2026)
@@ -81,7 +90,6 @@ About, Endless Feed, Live Rates, Rate List, Schemes, Brands, Showroom Photos, Ex
 - P1: Improve feed image quality (HD thumbnails)
 - P1: Global success toasts after actions
 - P1: Fix back-navigation in customer app
-- P1: Re-add expo-keep-awake with platform-specific guard
 - P2: Rate history with mini-charts
 - P2: Push notifications
 - P2: Analytics dashboard

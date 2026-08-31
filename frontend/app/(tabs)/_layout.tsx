@@ -1,6 +1,8 @@
 import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { TouchableOpacity, Linking, View, StyleSheet, ActivityIndicator } from 'react-native';
+import { TouchableOpacity, Linking, View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 import { Colors } from '../../src/theme';
 import { useLang } from '../../src/context/LanguageContext';
 import { useAuth } from '../../src/context/AuthContext';
@@ -24,13 +26,27 @@ export default function TabLayout() {
   const { language } = useLang();
   const { user, loading } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const label = (key: string) => TAB_LABELS[key]?.[language] || TAB_LABELS[key]?.en || key;
+
+  // Tab bar sizing: content height + actual device bottom inset.
+  // Works with Android 3-button nav, Android gesture nav (edge-to-edge) and the iOS home indicator.
+  const TAB_CONTENT_HEIGHT = 56;
+  const bottomInset = insets.bottom;
+  const tabBarHeight = TAB_CONTENT_HEIGHT + bottomInset;
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace('/login');
     }
   }, [loading, user]);
+
+  // Match Android navigation bar buttons to the dark theme (edge-to-edge safe)
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setButtonStyleAsync('light').catch(() => {});
+    }
+  }, []);
 
   if (loading) {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}><ActivityIndicator size="large" color={Colors.gold} /></View>;
@@ -42,10 +58,20 @@ export default function TabLayout() {
     <View style={{ flex: 1 }}>
       <Tabs screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: Colors.surface, borderTopColor: Colors.border, borderTopWidth: 0.5, height: 60, paddingBottom: 8, paddingTop: 8 },
+        tabBarHideOnKeyboard: true,
+        tabBarStyle: {
+          backgroundColor: Colors.surface,
+          borderTopColor: Colors.border,
+          borderTopWidth: 0.5,
+          height: tabBarHeight,
+          paddingBottom: Math.max(bottomInset, 6),
+          paddingTop: 6,
+        },
         tabBarActiveTintColor: Colors.gold,
         tabBarInactiveTintColor: Colors.textMuted,
-        tabBarLabelStyle: { fontSize: 9, fontWeight: '600', letterSpacing: 0.3 },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarItemStyle: { minHeight: 44, paddingVertical: 2 },
+        tabBarAllowFontScaling: false,
       }}>
         <Tabs.Screen name="index" options={{ title: label('home'), tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
         <Tabs.Screen name="feed" options={{ title: label('feed'), tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} /> }} />
@@ -54,10 +80,10 @@ export default function TabLayout() {
         <Tabs.Screen name="profile" options={{ title: label('profile'), tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} /> }} />
       </Tabs>
 
-      {/* POINT 6: Permanent floating WhatsApp icon */}
+      {/* Permanent floating WhatsApp icon — positioned above tab bar + system nav */}
       <TouchableOpacity
         data-testid="whatsapp-fab"
-        style={fabStyles.whatsappFab}
+        style={[fabStyles.whatsappFab, { bottom: tabBarHeight + 16 }]}
         onPress={openWhatsApp}
         activeOpacity={0.8}
       >
@@ -70,7 +96,6 @@ export default function TabLayout() {
 const fabStyles = StyleSheet.create({
   whatsappFab: {
     position: 'absolute',
-    bottom: 75,
     right: 16,
     width: 56,
     height: 56,

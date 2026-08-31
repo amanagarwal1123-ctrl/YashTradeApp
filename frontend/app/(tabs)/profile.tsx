@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { api } from '../../src/api';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS } from '../../src/i18n';
+import { confirmAlert } from '../../src/utils/alert';
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
@@ -16,26 +17,25 @@ export default function ProfileScreen() {
   const [requests, setRequests] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        await refreshUser();
-        const [reqRes, orderRes] = await Promise.all([
-          api.get('/requests/my'),
-          api.get('/cart/orders').catch(() => ({ orders: [] })),
-        ]);
-        setRequests(reqRes.requests || []);
-        setOrders(orderRes.orders || []);
-      } catch {} finally { setLoading(false); }
-    })();
-  }, []);
+  const loadProfileData = async () => {
+    try {
+      setLoadError(false);
+      await refreshUser();
+      const [reqRes, orderRes] = await Promise.all([
+        api.get('/requests/my'),
+        api.get('/cart/orders').catch(() => ({ orders: [] })),
+      ]);
+      setRequests(reqRes.requests || []);
+      setOrders(orderRes.orders || []);
+    } catch { setLoadError(true); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { loadProfileData(); }, []);
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: () => { logout(); router.replace('/login'); } },
-    ]);
+    confirmAlert('Logout', 'Are you sure?', () => { logout(); router.replace('/login'); }, 'Logout');
   };
 
   const MenuItem = ({ icon, label, value, onPress, testID }: any) => (
@@ -87,11 +87,20 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
 
+        {loadError && (
+          <View style={styles.errorBox} testID="profile-error">
+            <Text style={styles.errorBoxText}>Could not load your data. Please check your connection.</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); loadProfileData(); }}>
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Menu Items */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>ACCOUNT</Text>
-          <MenuItem testID="my-orders-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => router.push('/my-requests')} />
-          <MenuItem testID="my-orders-history" icon="bag-check" label="My Orders" value={`${orders.length}`} onPress={() => {}} />
+          <MenuItem testID="my-requests-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => router.push('/my-requests')} />
+          <MenuItem testID="my-orders-btn" icon="bag-check" label="My Orders" value={`${orders.length}`} onPress={() => router.push('/my-orders')} />
           <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => router.push('/wishlist')} />
           <MenuItem testID="rewards-btn" icon="gift" label="Rewards History" onPress={() => router.push('/rewards')} />
         </View>
@@ -133,8 +142,13 @@ export default function ProfileScreen() {
         {/* My Orders Section */}
         {orders.length > 0 && (
           <View style={styles.recentSection}>
-            <Text style={styles.menuSectionTitle}>MY ORDERS</Text>
-            {orders.map((o: any, idx: number) => (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.menuSectionTitle}>MY ORDERS</Text>
+              <TouchableOpacity testID="see-all-orders" onPress={() => router.push('/my-orders')}>
+                <Text style={{ fontSize: FontSize.xs, color: Colors.gold, fontWeight: '600' }}>See All</Text>
+              </TouchableOpacity>
+            </View>
+            {orders.slice(0, 3).map((o: any, idx: number) => (
               <View key={o.id || idx} style={styles.requestItem}>
                 <View style={styles.requestLeft}>
                   <Ionicons name="bag-check" size={16} color={Colors.pastelGreen} />
@@ -220,4 +234,8 @@ const styles = StyleSheet.create({
   requestDate: { fontSize: FontSize.xs, color: Colors.textMuted },
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   statusText: { fontSize: FontSize.xs, fontWeight: '600', textTransform: 'uppercase' },
+  errorBox: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, backgroundColor: Colors.error + '10', borderRadius: 12, padding: Spacing.md, borderWidth: 1, borderColor: Colors.error + '30', alignItems: 'center', gap: 8 },
+  errorBoxText: { fontSize: FontSize.sm, color: Colors.error, textAlign: 'center' },
+  retryBtn: { backgroundColor: Colors.error + '20', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8 },
+  retryBtnText: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.error },
 });
