@@ -38,7 +38,11 @@ export default function VerifyOTPScreen() {
     try {
       const res = await api.post('/auth/verify-otp', { phone, otp: code });
       await login(res.token, res.user);
-      router.replace('/(tabs)');
+      // Role-based routing — the backend-verified role decides the experience
+      const role = res.user?.role || 'customer';
+      if (role === 'executive') router.replace('/telecaller');
+      else if (role === 'admin' || role === 'billing_executive') router.replace('/panel');
+      else router.replace('/(tabs)');
     } catch (e: any) {
       setError(e.message || 'Invalid OTP');
       setOtp(['', '', '', '']);

@@ -29,7 +29,9 @@ async function request(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(err.detail || `Error ${res.status}`);
+    const error: any = new Error(err.detail || `Error ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }

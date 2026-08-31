@@ -57,7 +57,7 @@ export default function ProfileScreen() {
           <Text style={styles.headerTitle}>Profile</Text>
         </View>
 
-        {/* Profile Card */}
+        {/* Profile Card — website-registered details */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{(user?.name || user?.phone || '?')[0].toUpperCase()}</Text>
@@ -65,11 +65,18 @@ export default function ProfileScreen() {
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user?.name || 'Jeweller'}</Text>
             <Text style={styles.profilePhone}>+91 {user?.phone}</Text>
-            <View style={styles.profileBadges}>
-              <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>{user?.customer_type?.toUpperCase()}</Text></View>
-              {user?.customer_code && <Text style={styles.codeText}>Code: {user.customer_code}</Text>}
+            <View style={styles.profileDetailRow}>
+              <Ionicons name="storefront-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.profileDetailText}>{user?.shop_name || 'Shop name not set'}</Text>
+            </View>
+            <View style={styles.profileDetailRow}>
+              <Ionicons name="location-outline" size={13} color={Colors.textSecondary} />
+              <Text style={styles.profileDetailText}>{user?.location || user?.city || 'Location not set'}</Text>
             </View>
           </View>
+          <TouchableOpacity testID="edit-profile-btn" style={styles.editBtn} onPress={() => router.push('/edit-profile')}>
+            <Ionicons name="create-outline" size={18} color={Colors.gold} />
+          </TouchableOpacity>
         </View>
 
         {/* Wallet Summary */}
@@ -99,6 +106,7 @@ export default function ProfileScreen() {
         {/* Menu Items */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>ACCOUNT</Text>
+          <MenuItem testID="edit-profile-menu" icon="create" label="Edit Profile" onPress={() => router.push('/edit-profile')} />
           <MenuItem testID="my-requests-btn" icon="receipt" label="My Requests" value={`${requests.length}`} onPress={() => router.push('/my-requests')} />
           <MenuItem testID="my-orders-btn" icon="bag-check" label="My Orders" value={`${orders.length}`} onPress={() => router.push('/my-orders')} />
           <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => router.push('/wishlist')} />
@@ -207,6 +215,9 @@ const styles = StyleSheet.create({
   typeBadge: { backgroundColor: Colors.gold + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
   typeBadgeText: { fontSize: 9, fontWeight: '700', color: Colors.gold, letterSpacing: 1 },
   codeText: { fontSize: FontSize.xs, color: Colors.textMuted },
+  profileDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
+  profileDetailText: { fontSize: FontSize.xs, color: Colors.textSecondary },
+  editBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.gold + '15', alignItems: 'center', justifyContent: 'center' },
   walletCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.lg, backgroundColor: Colors.card, borderRadius: 16, borderWidth: 1, borderColor: Colors.borderGold },
   walletLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   walletLabel: { fontSize: FontSize.xs, color: Colors.textSecondary },

@@ -28,6 +28,16 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - Product catalog with feed, search, filters
 - Cart, Requests, Rewards, AI assistant, Silver Calculator, Stories, Knowledge base
 
+### Unified Login, Website Parity & Telecaller CRM (June 2026)
+- **Registered numbers only**: send-otp no longer auto-creates users; unknown numbers → 404 + "Registration Required" UI with enroll button (EXPO_PUBLIC_ENROLLMENT_URL, placeholder https://enroll.yashornaments.com); inactive accounts blocked at send/verify/get_current_user (403)
+- **Unified role-based login**: one phone+OTP screen for all; after verify the backend role routes: customer→tabs, executive→/telecaller, admin/billing_executive→/panel; guards in (tabs)/_layout, telecaller.tsx, panel (auto-login from app session via AuthContext, customers redirected out); session restore lands directly in the right flow; panel logout = app logout → /login
+- **Website-parity user schema**: shop_name, location, phone_verified, onboarding_status, has_logged_in, account_status (mirrored with legacy status), registration_source, registered_at, first_login_at, last_login_at; one-time backfill migration in seed; /auth/me returns all; profile card shows Name/Phone/Shop/Location
+- **Profile editing**: /edit-profile screen (name, shop_name, location→city synced) via PUT /auth/profile (whitelisted); protected phone-change flow: POST /auth/phone-change/request (duplicate check 409, OTP to NEW number) + /verify (OTP recheck, dup recheck) with in-memory pending store
+- **Login tracking**: has_logged_in/first_login_at/last_login_at set only on successful verify; panel customers tab shows ACTIVE/INACTIVE + NEVER LOGGED IN/LAST LOGIN badges, registration_source, telecaller assignment
+- **Telecaller CRM**: mobile dashboard /telecaller — summary cards (assigned/follow-ups due/actions today/status counts), search+status filters, customer cards with Call/WhatsApp (auto-logged), detail modal (status grid: new/contacted/interested/follow_up_required/converted/not_interested/unable_to_reach, follow-up date+time, notes, activity history). APIs: GET /telecaller/customers (assigned-only for execs; admin sees all), POST /telecaller/customers/{id}/action (records telecaller_id, customer_id, action, notes, prev/new status, timestamp in telecaller_activity), GET .../activity, GET /telecaller/summary. Admin assigns telecallers in panel customers tab (PATCH /customers/{id} assigned_salesperson)
+- **Security**: SecureStore token storage on devices (AsyncStorage on web, with migration); demo OTP only for OTP_DEMO_PHONES allowlist; api.ts errors carry HTTP status
+- **Demo data (dev)**: website customer 8888800001 (Suresh Verma/Verma Jewellers/Ludhiana), inactive 8888800002; DEMO_LOGIN_CREDENTIALS.txt at /app
+
 ### Real SMS OTP via MSG91 (June 2026 — replaced Twilio per user request)
 - OTP send/verify via **MSG91 OTP API v5** (`control.msg91.com/api/v5/otp` + `/otp/verify`), authkey in backend/.env, 4-digit codes, account default OTP template (MSG91_TEMPLATE_ID env optional)
 - `/auth/send-otp`: demo-allowlisted phones (`OTP_DEMO_PHONES`) get local OTP 1234; other numbers validated locally (10 digits, starts 6-9) then MSG91 send (mobile format `91XXXXXXXXXX`); errors mapped to friendly messages

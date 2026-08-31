@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 6 unified-role login + Telecaller CRM + registered-numbers-only + profile edit + role guards fully validated. Backend: 21/21 pytest cases pass (test_iteration6_unified_login.py) — unregistered 9876501234 -> 404 with no user auto-created (verified via admin /customers?search); inactive 8888800002 -> 403 at send-otp AND verify-otp; 8888800001 login returns full website-parity user (name='Suresh Verma Jr', shop_name='Verma & Sons', location='Ludhiana West', role=customer, has_logged_in=true, first_login_at set, last_login_at updated, registration_source='website', account_status='active'); /auth/me returns all 10 website fields (shop_name, location, phone_verified, onboarding_status, has_logged_in, account_status, registration_source, registered_at, first_login_at, last_login_at); PUT /auth/profile syncs city<-location, ignores role/phone attempts; phone-change/request 8888888888 -> 409 duplicate, 1234567890 -> 400 invalid (no real phone change completed); executive 7777777777 sees only assigned customers (8888800001 + 8888888888), /telecaller/summary returns total_customers/by_status/follow_ups_due/actions_today; status_change to 'interested' records activity with previous_status+new_status+telecaller_id, activity endpoint returns history, invalid status 'foo' -> 422; role guards enforced (customer -> /telecaller 403, customer -> /customers 403, executive -> /customers 403, executive action on unassigned customer -> 403); admin /customers exposes account_status/has_logged_in/shop_name, PATCH assigned_salesperson works, deactivate blocks that customer's future send-otp with 403, reactivate restores. Frontend (390x844): unregistered 9876501234 -> 'Registration Required' box with 'ENROLL ON WEBSITE' button, no navigation; customer 8888800001 lands on Home with 'Welcome back, Suresh Verma Jr'; Profile tab shows name, +91 8888800001, 'Verma & Sons', 'Ludhiana West' + edit pencil; /edit-profile has CUSTOMER NAME + SHOP NAME + LOCATION inputs + SAVE CHANGES + read-only phone with 'Change Number (OTP verification required)'; admin 9999999999 auto-routes to /panel (no second login) with tabs Dashboard/Requests/Rates/Products/Content/Customers/Executives; Customers tab shows ACTIVE/INACTIVE + NEVER LOGGED IN/LAST LOGIN badges + 'TC: Pujan Executive'/'TC: Unassigned' + Assign Telecaller + Deactivate/Activate chips; telecaller 7777777777 lands directly on /telecaller with 2 Assigned / 1 Follow-ups Due / 2 Actions Today summary + search + filter chips (All/New/Contacted/Interested/Follow-up/Converted/Not Interested/Unreachable) + customer list with Call/WhatsApp; tapping Suresh Verma Jr opens modal with Call, WhatsApp, STATUS chips, FOLLOW-UP date/time, NOTES, SAVE UPDATE, ACTIVITY HISTORY (shows 'Contacted -> Interested — TEST_iter6 Note'); role guards work — customer navigating to /telecaller redirects to '/', telecaller navigating to '/' redirects to /telecaller; logout from /panel (testID panel-logout) and /telecaller (testID tc-logout via window.confirm) both return to /login. Regression: banners carousel ('Festive Gold Collection', 'Silver Payal Mega Range'), Silver/Gold toggle, and product cart buttons all render on Home. Deprecated packages detected: none. React Native warnings unchanged from iter4 ('shadow*' -> boxShadow, props.pointerEvents -> style.pointerEvents) — low priority.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "RN-web console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' (already noted in iter4). Reference: multiple screens use shadowColor/shadowOffset/shadowOpacity/shadowRadius — migrate to boxShadow for RN-web parity."},
+      {"component": "props.pointerEvents", "issue": "RN-web console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' (already noted in iter4)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6_unified_login.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:527 send-otp registered-only check is correctly the FIRST gate (before OTP is sent) — this prevents any MSG91 dispatch for unknown numbers. Verified via /customers?search=9876501234 -> not in list.",
+    "server.py:572 update_profile whitelist ('name','city','shop_name','location') correctly rejects attempts to set role/phone. Verified.",
+    "server.py:588 phone-change/request rejects new_phone whose first digit is not 6-9 with a friendly 400; and 409 for already-registered numbers. Correct.",
+    "server.py:2063 telecaller_action correctly denies non-admin executives when customer.assigned_salesperson != user.id -> 403.",
+    "server.py:2011 TELECALLER_STATUSES is the canonical list; invalid status returns 422 with the allowed set spelled out. Good.",
+    "server.py file is 2816 lines — beyond the 700-line guideline. Consider splitting into routers (auth, telecaller, admin, products, rewards, requests). Not blocking.",
+    "In-memory _phone_change_store and _otp_rate are process-local; multi-worker deployment could cause OTP verification inconsistency. Flagged in iter4/5 as well.",
+    "panel-logout works synchronously with router.replace('/login'); tc-logout uses confirmAlert -> window.confirm on web (verified: dialog appears with 'Logout / Are you sure?' then navigates away). Both flows land on /login."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration6_unified_login.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Test wrote 1 telecaller_activity record (action=status_change, notes='TEST_iter6 note') on customer 8888800001 by executive; customer's lead_status is now 'interested'. Profile edit test snapshots and restores shop_name/location for 8888800001. Deactivation test toggles 8888800001 to inactive then reactivates it (verified end-state active).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iter6 backend endpoints stable and frontend flows verified end-to-end. Demo phones + fixed OTP 1234: customer 8888888888/8888800001, INACTIVE 8888800002, telecaller 7777777777, admin 9999999999, billing 6666666666. Safe negative inputs: 9876501234 (unregistered -> 404), 1234567890 (invalid format -> 400). NEVER call send-otp with any other valid Indian mobile (6-9 prefix, 10 digits) — triggers paid MSG91 SMS. Rate limit is 5 sends / 10 min per phone in-memory; sudo supervisorctl restart backend to reset. Telecaller confirmAlert on logout renders window.confirm on web — attach page.on('dialog', lambda d: d.accept()) BEFORE clicking [data-testid='tc-logout']. Customer OTP screen = 4 boxes; click otp-input-0 then keyboard.type('1234'). Admin login from main / auto-routes to /panel (no second login). ExecutiveId used for assignments = the exec user's id from /auth/me. Test data left on 8888800001: lead_status='interested', 1+ telecaller_activity entries with notes containing 'TEST_iter6'.",
+  "rca_of_issue": "N/A — no regressions found across all 8 backend flows and 7 frontend flows."
+}

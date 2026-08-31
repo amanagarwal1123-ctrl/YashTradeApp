@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
+import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives';
@@ -76,6 +78,9 @@ export default function PanelScreen() {
   const [editingBannerId, setEditingBannerId] = useState('');
   const [bannerUploading, setBannerUploading] = useState(false);
 
+  // Customer management
+  const [assigningCustId, setAssigningCustId] = useState('');
+
   // Upload
   const [uploadBatchId, setUploadBatchId] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -117,6 +122,23 @@ export default function PanelScreen() {
   const REASON_TYPES = ['Purchase reward', 'Special reward', 'Adjustment', 'Redemption', 'Correction'];
 
   // === AUTH ===
+  const router = useRouter();
+  const { user: appUser, loading: appAuthLoading, logout: appLogout, login: appLogin } = useAuth();
+
+  // Unified login: reuse the app session when a staff member is already authenticated
+  useEffect(() => {
+    if (appAuthLoading || authStep === 'done') return;
+    if (appUser) {
+      if (appUser.role === 'customer') { router.replace('/(tabs)'); return; }
+      if (['admin', 'executive', 'billing_executive'].includes(appUser.role)) {
+        setUser(appUser);
+        setRole(appUser.role as Role);
+        setTab(appUser.role === 'billing_executive' ? 'rewards' : appUser.role === 'executive' ? 'requests' : 'dashboard');
+        setAuthStep('done');
+      }
+    }
+  }, [appUser, appAuthLoading]);
+
   const sendOtp = async () => {
     if (phone.length < 10) { setAuthError('Enter valid 10-digit number'); return; }
     setAuthLoading(true); setAuthError('');
@@ -137,7 +159,7 @@ export default function PanelScreen() {
         setToken(null);
         return;
       }
-      setToken(res.token);
+      await appLogin(res.token, u);
       setUser(u);
       setRole(u.role);
       setTab(u.role === 'billing_executive' ? 'rewards' : u.role === 'executive' ? 'requests' : 'dashboard');
@@ -146,9 +168,11 @@ export default function PanelScreen() {
     finally { setAuthLoading(false); }
   };
 
-  const panelLogout = () => {
-    setToken(null); setUser(null); setRole(null);
+  const panelLogout = async () => {
+    await appLogout();
+    setUser(null); setRole(null);
     setAuthStep('phone'); setPhone(''); setOtp('');
+    router.replace('/login');
   };
 
   // === DATA LOADING ===
@@ -185,7 +209,12 @@ export default function PanelScreen() {
           setBatches(batchRes.batches || []);
           break;
         }
-        case 'customers': { const r = await api.get('/customers?limit=100'); setCustomers(r.customers || []); break; }
+        case 'customers': {
+          const r = await api.get('/customers?limit=100');
+          setCustomers(r.customers || []);
+          try { const e = await api.get('/executives'); setExecutives(e.executives || []); } catch {}
+          break;
+        }
         case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
       }
     } catch (e) { console.error(e); }
@@ -1112,18 +1141,97 @@ export default function PanelScreen() {
           {tab === 'customers' && (
             <>
               <Text style={s.sectionTitle}>ALL CUSTOMERS ({customers.length})</Text>
-              {customers.map(c => (
-                <View key={c.id} style={s.listItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.listTitle}>{c.name || c.phone}</Text>
-                    <Text style={s.listMeta}>{c.customer_type} • {c.city || 'No city'} • {c.customer_code} • {c.reward_points} pts</Text>
+              {customers.map(c => {
+                const acct = c.account_status || c.status || 'active';
+                const isActive = acct === 'active';
+                const telecaller = executives.find(e => e.id === c.assigned_salesperson);
+                return (
+                  <View key={c.id} style={[s.listItem, { flexDirection: 'column', alignItems: 'stretch' }]} data-testid={`customer-row-${c.id}`}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.listTitle}>{c.name || c.phone}</Text>
+                        <Text style={s.listMeta}>
+                          {c.shop_name ? `${c.shop_name} • ` : ''}{c.location || c.city || 'No location'} • {c.phone}
+                        </Text>
+                        <Text style={s.listMeta}>
+                          {c.customer_code} • {c.reward_points || 0} pts • via {c.registration_source || 'app'}
+                        </Text>
+                      </View>
+                      <View style={s.contactRow}>
+                        <TouchableOpacity onPress={() => openWhatsApp(c.phone)}><Ionicons name="logo-whatsapp" size={18} color="#25D366" /></TouchableOpacity>
+                        <TouchableOpacity onPress={() => openCall(c.phone)}><Ionicons name="call" size={18} color={Colors.success} /></TouchableOpacity>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                      <View style={[s.custBadge, { backgroundColor: (isActive ? Colors.success : Colors.error) + '18' }]}>
+                        <Text style={[s.custBadgeText, { color: isActive ? Colors.success : Colors.error }]}>{acct.toUpperCase()}</Text>
+                      </View>
+                      <View style={[s.custBadge, { backgroundColor: (c.has_logged_in ? Colors.info : Colors.warning) + '18' }]}>
+                        <Text style={[s.custBadgeText, { color: c.has_logged_in ? Colors.info : Colors.warning }]}>
+                          {c.has_logged_in ? `LAST LOGIN: ${c.last_login_at ? new Date(c.last_login_at).toLocaleDateString() : '-'}` : 'NEVER LOGGED IN'}
+                        </Text>
+                      </View>
+                      <View style={[s.custBadge, { backgroundColor: Colors.gold + '15' }]}>
+                        <Text style={[s.custBadgeText, { color: Colors.gold }]}>TC: {telecaller ? telecaller.name : 'Unassigned'}</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                      <TouchableOpacity
+                        data-testid={`assign-btn-${c.id}`}
+                        style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]}
+                        onPress={() => setAssigningCustId(assigningCustId === c.id ? '' : c.id)}
+                      >
+                        <Ionicons name="person-add" size={12} color={Colors.gold} />
+                        <Text style={[s.actText, { color: Colors.gold }]}>Assign Telecaller</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        data-testid={`toggle-active-${c.id}`}
+                        style={[s.actBtn, { backgroundColor: (isActive ? Colors.error : Colors.success) + '15' }]}
+                        onPress={async () => {
+                          try {
+                            const updated = await api.patch(`/customers/${c.id}`, { account_status: isActive ? 'inactive' : 'active' });
+                            setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
+                          } catch (e: any) { showAlert('Error', e?.message || 'Could not update customer.'); }
+                        }}
+                      >
+                        <Text style={[s.actText, { color: isActive ? Colors.error : Colors.success }]}>{isActive ? 'Deactivate' : 'Activate'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {assigningCustId === c.id && (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                        <TouchableOpacity
+                          style={[s.metalBtn, !c.assigned_salesperson && s.metalBtnActive]}
+                          onPress={async () => {
+                            try {
+                              const updated = await api.patch(`/customers/${c.id}`, { assigned_salesperson: '' });
+                              setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
+                              setAssigningCustId('');
+                            } catch (e: any) { showAlert('Error', e?.message || 'Could not update.'); }
+                          }}
+                        >
+                          <Text style={s.metalBtnText}>Unassigned</Text>
+                        </TouchableOpacity>
+                        {executives.filter(e => e.role === 'executive').map(e => (
+                          <TouchableOpacity
+                            key={e.id}
+                            data-testid={`assign-exec-${e.id}`}
+                            style={[s.metalBtn, c.assigned_salesperson === e.id && s.metalBtnActive]}
+                            onPress={async () => {
+                              try {
+                                const updated = await api.patch(`/customers/${c.id}`, { assigned_salesperson: e.id });
+                                setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
+                                setAssigningCustId('');
+                              } catch (err: any) { showAlert('Error', err?.message || 'Could not assign.'); }
+                            }}
+                          >
+                            <Text style={[s.metalBtnText, c.assigned_salesperson === e.id && s.metalBtnTextActive]}>{e.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
                   </View>
-                  <View style={s.contactRow}>
-                    <TouchableOpacity onPress={() => openWhatsApp(c.phone)}><Ionicons name="logo-whatsapp" size={18} color="#25D366" /></TouchableOpacity>
-                    <TouchableOpacity onPress={() => openCall(c.phone)}><Ionicons name="call" size={18} color={Colors.success} /></TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </>
           )}
 
@@ -1657,6 +1765,8 @@ const s = StyleSheet.create({
   actionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: Spacing.sm },
   actBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   actText: { fontSize: FontSize.xs, fontWeight: '600' },
+  custBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  custBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
   // Forms
   formCard: { backgroundColor: Colors.card, borderRadius: 16, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.cardBorder },
   formTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text, marginBottom: Spacing.md },

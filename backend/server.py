@@ -81,6 +81,81 @@ def _msg91_mobile(phone: str) -> str:
 def _msg91_headers() -> Dict[str, str]:
     return {"authkey": MSG91_AUTHKEY, "Accept": "application/json", "Content-Type": "application/json"}
 
+async def _send_sms_otp(phone: str):
+    """Dispatch an OTP to a phone (demo store or real MSG91 SMS). Raises HTTPException on failure."""
+    if _is_demo_phone(phone) or not _sms_available():
+        _store_otp(phone, '1234')
+        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
+        return
+    # MSG91 accepts almost any 12-digit number, so validate Indian mobiles locally first
+    digits = ''.join(c for c in phone if c.isdigit())[-10:]
+    if len(digits) != 10 or digits[0] not in '6789':
+        raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+    try:
+        def _send():
+            params = {"mobile": _msg91_mobile(phone), "otp_length": 4, "otp_expiry": 5}
+            if MSG91_TEMPLATE_ID:
+                params["template_id"] = MSG91_TEMPLATE_ID
+            return http_requests.post(f"{MSG91_BASE_URL}/otp", params=params, headers=_msg91_headers(), json={}, timeout=15)
+        resp = await asyncio.to_thread(_send)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if resp.status_code >= 300 or str(body.get("type", "")).lower() == "error":
+            msg = str(body.get("message", "")).lower()
+            logger.error(f"MSG91 send-otp error for ...{phone[-4:]}: status={resp.status_code} msg={body.get('message')}")
+            if 'mobile' in msg or 'invalid' in msg:
+                raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+            raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
+        # Count this send against the local rate limit as well
+        timestamps = _otp_rate.get(phone, [])
+        timestamps.append(_time.time())
+        _otp_rate[phone] = timestamps
+        logger.info(f"MSG91 OTP sent to ...{phone[-4:]} (request_id={body.get('request_id')})")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"MSG91 send-otp failure for ...{phone[-4:]}: {e}")
+        raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
+
+async def _check_sms_otp(phone: str, otp: str):
+    """Verify an OTP (demo store or MSG91). Raises HTTPException if invalid."""
+    if _is_demo_phone(phone) or not _sms_available():
+        success, err_msg = _verify_otp(phone, otp)
+        if not success:
+            raise HTTPException(status_code=400, detail=err_msg)
+        return
+    try:
+        def _check():
+            return http_requests.get(f"{MSG91_BASE_URL}/otp/verify",
+                                params={"mobile": _msg91_mobile(phone), "otp": otp},
+                                headers=_msg91_headers(), timeout=15)
+        resp = await asyncio.to_thread(_check)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if str(body.get("type", "")).lower() != "success":
+            msg = str(body.get("message", "")).lower()
+            logger.warning(f"MSG91 verify-otp rejected for ...{phone[-4:]}: {body.get('message')}")
+            if 'not match' in msg or 'invalid' in msg:
+                raise HTTPException(status_code=400, detail="Invalid OTP")
+            if 'expire' in msg or 'not found' in msg or 'already verified' in msg:
+                raise HTTPException(status_code=400, detail="OTP expired or not found. Please request a new OTP.")
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"MSG91 verify-otp failure for ...{phone[-4:]}: {e}")
+        raise HTTPException(status_code=502, detail="Could not verify OTP right now. Please try again.")
+
+# Pending phone-change requests: user_id -> {new_phone, expires_at}
+_phone_change_store: Dict[str, Dict[str, Any]] = {}
+
+def _account_status(user: Dict[str, Any]) -> str:
+    return user.get("account_status", user.get("status", "active"))
+
 def _check_otp_rate(phone: str) -> bool:
     """Returns True if under rate limit."""
     now = _time.time()
@@ -269,12 +344,29 @@ class StoryCreate(BaseModel):
     category: str = ""
 
 class CustomerUpdate(BaseModel):
+    name: str = ""
+    shop_name: str = ""
+    location: str = ""
     customer_type: str = ""
     city: str = ""
     category_interests: List[str] = []
     is_eligible_rewards: bool = True
-    assigned_salesperson: str = ""
-    status: str = "active"
+    assigned_salesperson: Optional[str] = None
+    status: str = ""
+    account_status: str = ""
+
+class PhoneChangeRequest(BaseModel):
+    new_phone: str
+
+class PhoneChangeVerify(BaseModel):
+    new_phone: str
+    otp: str
+
+class TelecallerAction(BaseModel):
+    action: str = "note"  # status_change | note | call | whatsapp | follow_up
+    new_status: str = ""
+    notes: str = ""
+    follow_up_at: str = ""
 
 class RequestStatusUpdate(BaseModel):
     status: str
@@ -395,9 +487,13 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("account_status", user.get("status", "active")) != "active":
+            raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -425,101 +521,25 @@ async def send_otp(req: SendOTPRequest):
         raise HTTPException(status_code=400, detail="Invalid phone number")
     if not _check_otp_rate(phone):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
-    # Demo/test accounts (and environments without MSG91) use the fixed OTP 1234
-    if _is_demo_phone(phone) or not _sms_available():
-        _store_otp(phone, '1234')
-        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
-    else:
-        # MSG91 accepts almost any 12-digit number, so validate Indian mobiles locally first
-        digits = ''.join(c for c in phone if c.isdigit())[-10:]
-        if len(digits) != 10 or digits[0] not in '6789':
-            raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
-        # Real SMS via MSG91 OTP API
-        try:
-            def _send():
-                params = {"mobile": _msg91_mobile(phone), "otp_length": 4, "otp_expiry": 5}
-                if MSG91_TEMPLATE_ID:
-                    params["template_id"] = MSG91_TEMPLATE_ID
-                return http_requests.post(f"{MSG91_BASE_URL}/otp", params=params, headers=_msg91_headers(), json={}, timeout=15)
-            resp = await asyncio.to_thread(_send)
-            try:
-                body = resp.json()
-            except ValueError:
-                body = {}
-            if resp.status_code >= 300 or str(body.get("type", "")).lower() == "error":
-                msg = str(body.get("message", "")).lower()
-                logger.error(f"MSG91 send-otp error for ...{phone[-4:]}: status={resp.status_code} msg={body.get('message')}")
-                if 'mobile' in msg or 'invalid' in msg:
-                    raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
-                raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
-            # Count this send against the local rate limit as well
-            timestamps = _otp_rate.get(phone, [])
-            timestamps.append(_time.time())
-            _otp_rate[phone] = timestamps
-            logger.info(f"MSG91 OTP sent to ...{phone[-4:]} (request_id={body.get('request_id')})")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"MSG91 send-otp failure for ...{phone[-4:]}: {e}")
-            raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
-    # Create the user only after the OTP was dispatched successfully
-    existing = await db.users.find_one({"phone": phone}, {"_id": 0})
-    if not existing:
-        user_data = {
-            "id": str(uuid.uuid4()),
-            "phone": phone,
-            "name": "",
-            "city": "",
-            "customer_code": f"AA{phone[-4:]}",
-            "customer_type": "retailer",
-            "role": "customer",
-            "category_interests": [],
-            "is_eligible_rewards": True,
-            "assigned_salesperson": "",
-            "status": "active",
-            "reward_points": 0,
-            "is_new": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat()
-        }
-        await db.users.insert_one(user_data)
+    # Registered numbers only — enrollment happens on the Yash Ornaments website
+    user = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="This number is not registered. Please enroll on the Yash Ornaments website first.")
+    if _account_status(user) != "active":
+        raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
+    await _send_sms_otp(phone)
     return {"message": "OTP sent successfully"}
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(req: VerifyOTPRequest):
     phone = req.phone.strip()
     otp = req.otp.strip()
-    if _is_demo_phone(phone) or not _sms_available():
-        success, err_msg = _verify_otp(phone, otp)
-        if not success:
-            raise HTTPException(status_code=400, detail=err_msg)
-    else:
-        try:
-            def _check():
-                return http_requests.get(f"{MSG91_BASE_URL}/otp/verify",
-                                    params={"mobile": _msg91_mobile(phone), "otp": otp},
-                                    headers=_msg91_headers(), timeout=15)
-            resp = await asyncio.to_thread(_check)
-            try:
-                body = resp.json()
-            except ValueError:
-                body = {}
-            if str(body.get("type", "")).lower() != "success":
-                msg = str(body.get("message", "")).lower()
-                logger.warning(f"MSG91 verify-otp rejected for ...{phone[-4:]}: {body.get('message')}")
-                if 'not match' in msg or 'invalid' in msg:
-                    raise HTTPException(status_code=400, detail="Invalid OTP")
-                if 'expire' in msg or 'not found' in msg or 'already verified' in msg:
-                    raise HTTPException(status_code=400, detail="OTP expired or not found. Please request a new OTP.")
-                raise HTTPException(status_code=400, detail="Invalid OTP")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"MSG91 verify-otp failure for ...{phone[-4:]}: {e}")
-            raise HTTPException(status_code=502, detail="Could not verify OTP right now. Please try again.")
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="This number is not registered. Please enroll on the Yash Ornaments website first.")
+    if _account_status(user) != "active":
+        raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
+    await _check_sms_otp(phone, otp)
     is_new = user.get("is_new", False)
     if is_new:
         welcome_config = await db.reward_config.find_one({}, {"_id": 0})
@@ -529,7 +549,17 @@ async def verify_otp(req: VerifyOTPRequest):
             "id": str(uuid.uuid4()), "user_id": user["id"], "points": bonus,
             "type": "credit", "reason": "Welcome bonus", "created_at": datetime.now(timezone.utc).isoformat()
         })
-    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
+    # Login tracking — only on successful OTP verification
+    now = datetime.now(timezone.utc).isoformat()
+    login_updates = {
+        "last_login": now,
+        "last_login_at": now,
+        "has_logged_in": True,
+        "phone_verified": True,
+    }
+    if not user.get("first_login_at"):
+        login_updates["first_login_at"] = now
+    await db.users.update_one({"id": user["id"]}, {"$set": login_updates})
     fresh_user = await db.users.find_one({"phone": phone}, {"_id": 0})
     token = create_token(fresh_user["id"], fresh_user.get("role", "customer"))
     return {"token": token, "user": {**fresh_user, "is_new": is_new}}
@@ -541,10 +571,53 @@ async def get_me(user=Depends(get_current_user)):
 
 @api_router.put("/auth/profile")
 async def update_profile(updates: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"name", "city"}
-    filtered = {k: v for k, v in updates.items() if k in allowed}
+    allowed = {"name", "city", "shop_name", "location"}
+    filtered = {k: str(v).strip() for k, v in updates.items() if k in allowed and isinstance(v, (str, int, float))}
+    if "location" in filtered and "city" not in filtered:
+        filtered["city"] = filtered["location"]  # keep legacy city field in sync
     if filtered:
+        filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.users.update_one({"id": user["id"]}, {"$set": filtered})
+    return await db.users.find_one({"id": user["id"]}, {"_id": 0})
+
+@api_router.post("/auth/phone-change/request")
+async def phone_change_request(req: PhoneChangeRequest, user=Depends(get_current_user)):
+    """Start a verified phone-number change: OTP is sent to the NEW number."""
+    digits = ''.join(c for c in req.new_phone.strip() if c.isdigit())[-10:]
+    if len(digits) != 10 or digits[0] not in '6789':
+        raise HTTPException(status_code=400, detail="Please enter a valid 10-digit mobile number.")
+    if digits == user["phone"]:
+        raise HTTPException(status_code=400, detail="This is already your registered number.")
+    existing = await db.users.find_one({"phone": digits}, {"_id": 0, "id": 1})
+    if existing:
+        raise HTTPException(status_code=409, detail="This number is already registered to another account.")
+    if not _check_otp_rate(digits):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
+    await _send_sms_otp(digits)
+    _phone_change_store[user["id"]] = {"new_phone": digits, "expires_at": _time.time() + OTP_EXPIRY_SECONDS}
+    return {"message": "OTP sent to the new number"}
+
+@api_router.post("/auth/phone-change/verify")
+async def phone_change_verify(req: PhoneChangeVerify, user=Depends(get_current_user)):
+    """Complete the phone change after OTP re-verification on the new number."""
+    new_phone = ''.join(c for c in req.new_phone.strip() if c.isdigit())[-10:]
+    pending = _phone_change_store.get(user["id"])
+    if not pending or pending["new_phone"] != new_phone:
+        raise HTTPException(status_code=400, detail="No pending phone change for this number. Please request an OTP first.")
+    if _time.time() > pending["expires_at"]:
+        _phone_change_store.pop(user["id"], None)
+        raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+    await _check_sms_otp(new_phone, req.otp.strip())
+    # Re-check duplicates in case the number registered in the meantime
+    existing = await db.users.find_one({"phone": new_phone}, {"_id": 0, "id": 1})
+    if existing and existing["id"] != user["id"]:
+        raise HTTPException(status_code=409, detail="This number is already registered to another account.")
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "phone": new_phone, "phone_verified": True,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }})
+    _phone_change_store.pop(user["id"], None)
+    logger.info(f"Phone changed for user {user['id']} to ...{new_phone[-4:]}")
     return await db.users.find_one({"id": user["id"]}, {"_id": 0})
 
 # ===================== PRODUCT ENDPOINTS =====================
@@ -1878,18 +1951,30 @@ async def analytics_dashboard(user=Depends(get_admin_user)):
 async def list_customers(
     page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
     customer_type: str = Query(""), city: str = Query(""),
-    search: str = Query(""), user=Depends(get_admin_user)
+    search: str = Query(""), account_status: str = Query(""),
+    login_state: str = Query(""), assigned_to: str = Query(""),
+    user=Depends(get_admin_user)
 ):
-    query = {"role": "customer"}
+    query: Dict[str, Any] = {"role": "customer"}
     if customer_type:
         query["customer_type"] = customer_type
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
+    if account_status:
+        query["account_status"] = account_status
+    if login_state == "never":
+        query["has_logged_in"] = {"$ne": True}
+    elif login_state == "logged_in":
+        query["has_logged_in"] = True
+    if assigned_to:
+        query["assigned_salesperson"] = assigned_to
     if search:
         query["$or"] = [
             {"phone": {"$regex": search, "$options": "i"}},
             {"name": {"$regex": search, "$options": "i"}},
-            {"customer_code": {"$regex": search, "$options": "i"}}
+            {"customer_code": {"$regex": search, "$options": "i"}},
+            {"shop_name": {"$regex": search, "$options": "i"}},
+            {"location": {"$regex": search, "$options": "i"}}
         ]
     skip = (page - 1) * limit
     total = await db.users.count_documents(query)
@@ -1905,10 +1990,142 @@ async def get_customer(customer_id: str, user=Depends(get_admin_user)):
 
 @api_router.patch("/customers/{customer_id}")
 async def update_customer(customer_id: str, req: CustomerUpdate, user=Depends(get_admin_user)):
-    updates = {k: v for k, v in req.dict().items() if v or isinstance(v, bool)}
+    updates = {k: v for k, v in req.dict().items() if (v or isinstance(v, bool)) and v is not None}
+    # assigned_salesperson may legitimately be cleared with an empty string
+    if req.assigned_salesperson is not None:
+        updates["assigned_salesperson"] = req.assigned_salesperson
+    # Keep legacy `status` and canonical `account_status` in sync
+    if updates.get("account_status"):
+        updates["status"] = updates["account_status"]
+    elif updates.get("status"):
+        updates["account_status"] = updates["status"]
+    if updates.get("location") and not updates.get("city"):
+        updates["city"] = updates["location"]
     if updates:
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.users.update_one({"id": customer_id}, {"$set": updates})
     return await db.users.find_one({"id": customer_id}, {"_id": 0})
+
+# ===================== TELECALLER CRM =====================
+
+TELECALLER_STATUSES = ["new", "contacted", "interested", "follow_up_required", "converted", "not_interested", "unable_to_reach"]
+
+async def get_telecaller_user(user=Depends(get_current_user)):
+    if user.get("role") not in ("executive", "admin"):
+        raise HTTPException(status_code=403, detail="Telecaller access required")
+    return user
+
+def _telecaller_scope(user: Dict[str, Any]) -> Dict[str, Any]:
+    """Telecallers only see customers assigned to them; admins see all."""
+    query: Dict[str, Any] = {"role": "customer"}
+    if user.get("role") != "admin":
+        query["assigned_salesperson"] = user["id"]
+    return query
+
+@api_router.get("/telecaller/customers")
+async def telecaller_customers(
+    page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
+    search: str = Query(""), lead_status: str = Query(""),
+    user=Depends(get_telecaller_user)
+):
+    query = _telecaller_scope(user)
+    if lead_status:
+        if lead_status == "new":
+            query["$and"] = [{"$or": [{"lead_status": "new"}, {"lead_status": {"$exists": False}}]}]
+        else:
+            query["lead_status"] = lead_status
+    if search:
+        search_or = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"shop_name": {"$regex": search, "$options": "i"}},
+            {"location": {"$regex": search, "$options": "i"}}
+        ]
+        if "$and" in query:
+            query["$and"].append({"$or": search_or})
+        else:
+            query["$or"] = search_or
+    skip = (page - 1) * limit
+    total = await db.users.count_documents(query)
+    customers = await db.users.find(
+        query,
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "shop_name": 1, "location": 1, "city": 1,
+         "lead_status": 1, "follow_up_at": 1, "telecaller_last_note": 1, "lead_updated_at": 1,
+         "has_logged_in": 1, "last_login_at": 1, "account_status": 1, "customer_code": 1}
+    ).sort([("lead_updated_at", -1), ("created_at", -1)]).skip(skip).limit(limit).to_list(limit)
+    return {"customers": customers, "total": total, "page": page, "pages": (total + limit - 1) // limit}
+
+@api_router.post("/telecaller/customers/{customer_id}/action")
+async def telecaller_action(customer_id: str, req: TelecallerAction, user=Depends(get_telecaller_user)):
+    customer = await db.users.find_one({"id": customer_id, "role": "customer"}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if user.get("role") != "admin" and customer.get("assigned_salesperson") != user["id"]:
+        raise HTTPException(status_code=403, detail="This customer is not assigned to you")
+    if req.action not in ("status_change", "note", "call", "whatsapp", "follow_up"):
+        raise HTTPException(status_code=422, detail="Invalid action")
+    if req.new_status and req.new_status not in TELECALLER_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Status must be one of: {', '.join(TELECALLER_STATUSES)}")
+    now = datetime.now(timezone.utc).isoformat()
+    prev_status = customer.get("lead_status", "new")
+    updates: Dict[str, Any] = {"lead_updated_at": now}
+    if req.new_status:
+        updates["lead_status"] = req.new_status
+    if req.follow_up_at:
+        updates["follow_up_at"] = req.follow_up_at
+    if req.notes:
+        updates["telecaller_last_note"] = req.notes
+    await db.users.update_one({"id": customer_id}, {"$set": updates})
+    activity = {
+        "id": str(uuid.uuid4()),
+        "telecaller_id": user["id"],
+        "telecaller_name": user.get("name", ""),
+        "customer_id": customer_id,
+        "customer_name": customer.get("name", ""),
+        "action": req.action,
+        "notes": req.notes,
+        "previous_status": prev_status,
+        "new_status": req.new_status or prev_status,
+        "follow_up_at": req.follow_up_at,
+        "created_at": now,
+    }
+    await db.telecaller_activity.insert_one(activity)
+    fresh = await db.users.find_one({"id": customer_id}, {"_id": 0})
+    return {"customer": fresh, "activity": {k: v for k, v in activity.items() if k != "_id"}}
+
+@api_router.get("/telecaller/customers/{customer_id}/activity")
+async def telecaller_activity(customer_id: str, user=Depends(get_telecaller_user)):
+    customer = await db.users.find_one({"id": customer_id, "role": "customer"}, {"_id": 0, "id": 1, "assigned_salesperson": 1})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if user.get("role") != "admin" and customer.get("assigned_salesperson") != user["id"]:
+        raise HTTPException(status_code=403, detail="This customer is not assigned to you")
+    activities = await db.telecaller_activity.find(
+        {"customer_id": customer_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {"activities": activities}
+
+@api_router.get("/telecaller/summary")
+async def telecaller_summary(user=Depends(get_telecaller_user)):
+    base = _telecaller_scope(user)
+    total = await db.users.count_documents(base)
+    by_status: Dict[str, int] = {}
+    for st in TELECALLER_STATUSES:
+        q = dict(base)
+        if st == "new":
+            q["$or"] = [{"lead_status": "new"}, {"lead_status": {"$exists": False}}]
+        else:
+            q["lead_status"] = st
+        by_status[st] = await db.users.count_documents(q)
+    today = datetime.now(timezone.utc).date().isoformat()
+    q_due = dict(base)
+    q_due["follow_up_at"] = {"$gt": "", "$lte": f"{today}T23:59:59"}
+    follow_ups_due = await db.users.count_documents(q_due)
+    act_query: Dict[str, Any] = {"created_at": {"$gte": f"{today}T00:00:00"}}
+    if user.get("role") != "admin":
+        act_query["telecaller_id"] = user["id"]
+    actions_today = await db.telecaller_activity.count_documents(act_query)
+    return {"total_customers": total, "by_status": by_status, "follow_ups_due": follow_ups_due, "actions_today": actions_today}
 
 # ===================== EXECUTIVE MANAGEMENT =====================
 
@@ -1966,6 +2183,8 @@ async def update_executive(exec_id: str, updates: Dict[str, Any], user=Depends(g
         filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
         if "role" in filtered:
             filtered["customer_type"] = filtered["role"]
+        if "status" in filtered:
+            filtered["account_status"] = filtered["status"]
         await db.users.update_one({"id": exec_id}, {"$set": filtered})
     return await db.users.find_one({"id": exec_id}, {"_id": 0})
 
@@ -1975,7 +2194,7 @@ async def disable_executive(exec_id: str, user=Depends(get_admin_user)):
     existing = await db.users.find_one({"id": exec_id}, {"_id": 0})
     if not existing or existing.get("role") not in ("executive", "billing_executive"):
         raise HTTPException(status_code=404, detail="Executive not found")
-    await db.users.update_one({"id": exec_id}, {"$set": {"status": "disabled", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await db.users.update_one({"id": exec_id}, {"$set": {"status": "disabled", "account_status": "disabled", "updated_at": datetime.now(timezone.utc).isoformat()}})
     return {"message": f"Executive {existing.get('name', '')} disabled"}
 
 @api_router.get("/executives/performance")
@@ -2023,6 +2242,58 @@ async def _internal_seed():
         "reward_points": 250, "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
         "last_login": datetime.now(timezone.utc).isoformat()
     }}, upsert=True)
+
+    # One-time backfill: website-parity fields on existing user records
+    await db.users.update_many(
+        {"account_status": {"$exists": False}},
+        [{"$set": {
+            "account_status": {"$ifNull": ["$status", "active"]},
+            "shop_name": {"$ifNull": ["$shop_name", ""]},
+            "location": {"$ifNull": ["$location", {"$ifNull": ["$city", ""]}]},
+            "phone_verified": {"$ifNull": ["$phone_verified", True]},
+            "onboarding_status": {"$ifNull": ["$onboarding_status", "completed"]},
+            "registration_source": {"$ifNull": ["$registration_source", "app"]},
+            "registered_at": {"$ifNull": ["$registered_at", "$created_at"]},
+            "has_logged_in": {"$ifNull": ["$has_logged_in", {"$toBool": {"$ifNull": ["$last_login", False]}}]},
+            "first_login_at": {"$ifNull": ["$first_login_at", {"$ifNull": ["$last_login", ""]}]},
+            "last_login_at": {"$ifNull": ["$last_login_at", {"$ifNull": ["$last_login", ""]}]},
+            "lead_status": {"$ifNull": ["$lead_status", "new"]},
+        }}]
+    )
+
+    # Demo website-registered customers (dev/staging only — same shape the enrollment website creates)
+    exec_user = await db.users.find_one({"phone": "7777777777"}, {"_id": 0, "id": 1})
+    exec_id = exec_user["id"] if exec_user else ""
+    now = datetime.now(timezone.utc).isoformat()
+    for phone, name, shop, loc, acct in [
+        ("8888800001", "Suresh Verma", "Verma Jewellers", "Ludhiana", "active"),
+        ("8888800002", "Inactive Tester", "Old Shop", "Amritsar", "inactive"),
+    ]:
+        if not await db.users.find_one({"phone": phone}):
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()), "phone": phone, "name": name,
+                "shop_name": shop, "location": loc, "city": loc,
+                "customer_code": f"AA{phone[-4:]}", "customer_type": "retailer",
+                "role": "customer", "category_interests": [],
+                "is_eligible_rewards": True,
+                "assigned_salesperson": exec_id if acct == "active" else "",
+                "status": acct, "account_status": acct,
+                "phone_verified": True, "onboarding_status": "completed",
+                "has_logged_in": False, "first_login_at": "", "last_login_at": "",
+                "registration_source": "website", "registered_at": now,
+                "lead_status": "new", "reward_points": 0, "is_new": True,
+                "created_at": now,
+            })
+    # Assign the main demo customer to the demo executive for telecaller testing
+    if exec_id:
+        await db.users.update_one(
+            {"phone": "8888888888", "assigned_salesperson": {"$in": ["", None]}},
+            {"$set": {"assigned_salesperson": exec_id}}
+        )
+    await db.telecaller_activity.create_index([("customer_id", 1), ("created_at", -1)])
+    await db.telecaller_activity.create_index([("telecaller_id", 1), ("created_at", -1)])
+    await db.users.create_index([("assigned_salesperson", 1)])
+
     existing = await db.products.count_documents({})
     if existing > 0:
         return

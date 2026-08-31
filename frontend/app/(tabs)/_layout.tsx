@@ -36,8 +36,10 @@ export default function TabLayout() {
   const tabBarHeight = TAB_CONTENT_HEIGHT + bottomInset;
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/login');
+    if (!loading) {
+      if (!user) router.replace('/login');
+      else if (user.role === 'executive') router.replace('/telecaller');
+      else if (user.role === 'admin' || user.role === 'billing_executive') router.replace('/panel');
     }
   }, [loading, user]);
 
@@ -52,7 +54,8 @@ export default function TabLayout() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}><ActivityIndicator size="large" color={Colors.gold} /></View>;
   }
 
-  if (!user) return null;
+  // Customer-only area — other roles are redirected above
+  if (!user || user.role !== 'customer') return null;
 
   return (
     <View style={{ flex: 1 }}>
