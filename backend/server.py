@@ -48,7 +48,7 @@ import hashlib
 
 _otp_store: Dict[str, Dict[str, Any]] = {}  # phone -> {otp, expires_at, attempts}
 _otp_rate: Dict[str, list] = {}  # phone -> [timestamp, ...]
-OTP_EXPIRY_SECONDS = 300  # 5 minutes
+OTP_EXPIRY_SECONDS = 600  # 10 minutes — matches the MSG91 DLT template text
 OTP_MAX_ATTEMPTS = 5
 OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
@@ -93,7 +93,7 @@ async def _send_sms_otp(phone: str):
         raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
     try:
         def _send():
-            params = {"mobile": _msg91_mobile(phone), "otp_length": 4, "otp_expiry": 5}
+            params = {"mobile": _msg91_mobile(phone), "otp_length": 4, "otp_expiry": 10}
             if MSG91_TEMPLATE_ID:
                 params["template_id"] = MSG91_TEMPLATE_ID
             return http_requests.post(f"{MSG91_BASE_URL}/otp", params=params, headers=_msg91_headers(), json={}, timeout=15)

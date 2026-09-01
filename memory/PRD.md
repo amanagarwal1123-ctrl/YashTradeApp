@@ -39,7 +39,7 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - **Demo data (dev)**: website customer 8888800001 (Suresh Verma/Verma Jewellers/Ludhiana), inactive 8888800002; DEMO_LOGIN_CREDENTIALS.txt at /app
 
 ### Real SMS OTP via MSG91 (June 2026 — replaced Twilio per user request)
-- OTP send/verify via **MSG91 OTP API v5** (`control.msg91.com/api/v5/otp` + `/otp/verify`), authkey in backend/.env, 4-digit codes, account default OTP template (MSG91_TEMPLATE_ID env optional)
+- OTP send/verify via **MSG91 OTP API v5** (`control.msg91.com/api/v5/otp` + `/otp/verify`), authkey in backend/.env, 4-digit codes, DLT template `MSG91_TEMPLATE_ID=61baece18e964726da04e8c5` ("Welcome to Yash Ornaments... Valid for 10 Minutes"), otp_expiry=10 min (OTP_EXPIRY_SECONDS=600 for demo/phone-change paths to match)
 - `/auth/send-otp`: demo-allowlisted phones (`OTP_DEMO_PHONES`) get local OTP 1234; other numbers validated locally (10 digits, starts 6-9) then MSG91 send (mobile format `91XXXXXXXXXX`); errors mapped to friendly messages
 - `/auth/verify-otp`: demo phones use in-memory check; others use MSG91 `/otp/verify` (`type: success`); "not match" → Invalid OTP, "not found/expired/already verified" → request new OTP; user record created only after successful OTP dispatch
 - MSG91 calls via `requests` (imported as http_requests) in `asyncio.to_thread`; local per-phone rate limiting (5/10min) applies to both paths
