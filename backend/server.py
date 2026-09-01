@@ -45,6 +45,7 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',')
 # Real OTPs are delivered via MSG91 OTP API; demo phones bypass MSG91 and accept 1234.
 import time as _time
 import hashlib
+import secrets
 
 _otp_store: Dict[str, Dict[str, Any]] = {}  # phone -> {otp, expires_at, attempts}
 _otp_rate: Dict[str, list] = {}  # phone -> [timestamp, ...]
@@ -67,7 +68,7 @@ def _is_demo_phone(phone: str) -> bool:
     return phone in DEMO_PHONES
 
 def _sms_available() -> bool:
-    return bool(MSG91_AUTHKEY)
+    return bool(MSG91_AUTHKEY and MSG91_TEMPLATE_ID)
 
 def _msg91_mobile(phone: str) -> str:
     """Normalize to MSG91 format: 91 + 10-digit number (no plus sign)."""
@@ -82,73 +83,57 @@ def _msg91_headers() -> Dict[str, str]:
     return {"authkey": MSG91_AUTHKEY, "Accept": "application/json", "Content-Type": "application/json"}
 
 async def _send_sms_otp(phone: str):
-    """Dispatch an OTP to a phone (demo store or real MSG91 SMS). Raises HTTPException on failure."""
+    """Dispatch an OTP to a phone. Demo phones use the fixed 1234; real numbers get a
+    server-generated OTP delivered via the MSG91 FLOW API (the template is a Flow
+    template — the MSG91 OTP API rejects it, same as on the enrollment website).
+    OTPs are stored hashed with expiry and verified locally."""
     if _is_demo_phone(phone) or not _sms_available():
         _store_otp(phone, '1234')
         logger.info(f"Demo OTP issued for ...{phone[-4:]}")
         return
-    # MSG91 accepts almost any 12-digit number, so validate Indian mobiles locally first
+    # Validate Indian mobiles locally first
     digits = ''.join(c for c in phone if c.isdigit())[-10:]
     if len(digits) != 10 or digits[0] not in '6789':
         raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+    otp = str(secrets.randbelow(9000) + 1000)  # crypto-safe 4-digit code
     try:
         def _send():
-            params = {"mobile": _msg91_mobile(phone), "otp_length": 4, "otp_expiry": 10}
-            if MSG91_TEMPLATE_ID:
-                params["template_id"] = MSG91_TEMPLATE_ID
-            return http_requests.post(f"{MSG91_BASE_URL}/otp", params=params, headers=_msg91_headers(), json={}, timeout=15)
+            return http_requests.post(
+                f"{MSG91_BASE_URL}/flow",
+                headers=_msg91_headers(),
+                json={
+                    "template_id": MSG91_TEMPLATE_ID,
+                    "short_url": "0",
+                    "recipients": [{"mobiles": _msg91_mobile(phone), "otp": otp}],
+                },
+                timeout=15,
+            )
         resp = await asyncio.to_thread(_send)
         try:
             body = resp.json()
         except ValueError:
             body = {}
-        if resp.status_code >= 300 or str(body.get("type", "")).lower() == "error":
+        if resp.status_code >= 300 or str(body.get("type", "")).lower() != "success":
             msg = str(body.get("message", "")).lower()
-            logger.error(f"MSG91 send-otp error for ...{phone[-4:]}: status={resp.status_code} msg={body.get('message')}")
-            if 'mobile' in msg or 'invalid' in msg:
+            logger.error(f"MSG91 flow send error for ...{phone[-4:]}: status={resp.status_code} msg={body.get('message')}")
+            if 'mobile' in msg or 'recipient' in msg:
                 raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
             raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
-        # Count this send against the local rate limit as well
-        timestamps = _otp_rate.get(phone, [])
-        timestamps.append(_time.time())
-        _otp_rate[phone] = timestamps
-        logger.info(f"MSG91 OTP sent to ...{phone[-4:]} (request_id={body.get('request_id')})")
+        # Store hashed OTP locally only after MSG91 accepted the message
+        _store_otp(phone, otp)
+        logger.info(f"MSG91 flow OTP sent to ...{phone[-4:]} (request_id={body.get('message')})")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"MSG91 send-otp failure for ...{phone[-4:]}: {e}")
+        logger.error(f"MSG91 flow send failure for ...{phone[-4:]}: {e}")
         raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
 
 async def _check_sms_otp(phone: str, otp: str):
-    """Verify an OTP (demo store or MSG91). Raises HTTPException if invalid."""
-    if _is_demo_phone(phone) or not _sms_available():
-        success, err_msg = _verify_otp(phone, otp)
-        if not success:
-            raise HTTPException(status_code=400, detail=err_msg)
-        return
-    try:
-        def _check():
-            return http_requests.get(f"{MSG91_BASE_URL}/otp/verify",
-                                params={"mobile": _msg91_mobile(phone), "otp": otp},
-                                headers=_msg91_headers(), timeout=15)
-        resp = await asyncio.to_thread(_check)
-        try:
-            body = resp.json()
-        except ValueError:
-            body = {}
-        if str(body.get("type", "")).lower() != "success":
-            msg = str(body.get("message", "")).lower()
-            logger.warning(f"MSG91 verify-otp rejected for ...{phone[-4:]}: {body.get('message')}")
-            if 'not match' in msg or 'invalid' in msg:
-                raise HTTPException(status_code=400, detail="Invalid OTP")
-            if 'expire' in msg or 'not found' in msg or 'already verified' in msg:
-                raise HTTPException(status_code=400, detail="OTP expired or not found. Please request a new OTP.")
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"MSG91 verify-otp failure for ...{phone[-4:]}: {e}")
-        raise HTTPException(status_code=502, detail="Could not verify OTP right now. Please try again.")
+    """All OTPs (demo and real) are verified locally against the hashed store —
+    MSG91 Flow only delivers the SMS. Raises HTTPException if invalid."""
+    success, err_msg = _verify_otp(phone, otp)
+    if not success:
+        raise HTTPException(status_code=400, detail=err_msg)
 
 # Pending phone-change requests: user_id -> {new_phone, expires_at}
 _phone_change_store: Dict[str, Dict[str, Any]] = {}
@@ -164,9 +149,12 @@ def _check_otp_rate(phone: str) -> bool:
     _otp_rate[phone] = timestamps
     return len(timestamps) < OTP_RATE_LIMIT
 
+def _hash_otp(otp: str) -> str:
+    return hashlib.sha256(otp.encode()).hexdigest()
+
 def _store_otp(phone: str, otp: str):
     now = _time.time()
-    _otp_store[phone] = {"otp": otp, "expires_at": now + OTP_EXPIRY_SECONDS, "attempts": 0}
+    _otp_store[phone] = {"otp_hash": _hash_otp(otp), "expires_at": now + OTP_EXPIRY_SECONDS, "attempts": 0}
     timestamps = _otp_rate.get(phone, [])
     timestamps.append(now)
     _otp_rate[phone] = timestamps
@@ -183,7 +171,7 @@ def _verify_otp(phone: str, otp: str) -> tuple:
         del _otp_store[phone]
         return False, "Too many failed attempts. Please request a new OTP."
     entry["attempts"] += 1
-    if entry["otp"] != otp:
+    if entry["otp_hash"] != _hash_otp(otp):
         return False, "Invalid OTP"
     # Success — remove used OTP
     del _otp_store[phone]
