@@ -38,6 +38,14 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - **Security**: SecureStore token storage on devices (AsyncStorage on web, with migration); demo OTP only for OTP_DEMO_PHONES allowlist; api.ts errors carry HTTP status
 - **Demo data (dev)**: website customer 8888800001 (Suresh Verma/Verma Jewellers/Ludhiana), inactive 8888800002; DEMO_LOGIN_CREDENTIALS.txt at /app
 
+### MSG91 Delivery Hardening — build `2026.09.04-sms-v4` (Sept 2026)
+- **Root cause of "OTP not sent":** MSG91 `/flow` returns `{"type":"success"}` + request id even with a wrong authkey/template, then silently drops the SMS. Old code trusted it → false "OTP sent".
+- **Pre-flight validation** (`_msg91_preflight`, cached 5 min / 30 s on network error): authkey via `GET control.msg91.com/api/validate.php` (must reply `Valid`) + template via `GET /api/v5/sms/getTemplateVersions` (must return an active version, no reject reason). OTP challenge stored ONLY after pre-flight passes AND MSG91 accepts the send. Failures → HTTP **503** (not 502 — Cloudflare rewrites 502) with explicit text, e.g. `MSG91 rejected the server's SMS configuration (Invalid authkey (MSG91 replied: 201)). OTP was NOT sent.` Missing env → `SMS provider is not configured on the server (...)`. The old silent fallback to demo OTP 1234 when MSG91 env was missing is REMOVED.
+- **Delivery confirmation:** every real send → `sms_log` row {id, phone, mobile, purpose(login_otp|phone_change|admin_test), status(accepted|rejected), error, request_id, sent_at/sent_ts, delivery_status(pending|delivered|failed|dropped|n/a), delivery_detail, checks[], msg91_request_date, msg91_status, last_checked_at, delivered_at, build}. Background task checks MSG91 log API `POST /api/v5/report/logs/p/sms` with `{startDate,endDate,requestId}` at +6s/+20s/+60s → Delivered / Failed / Dropped by MSG91 (never appeared in log). MSG91 caches a result-set per distinct filter for minutes, so each attempt rotates `startDate` back one day (3-day window). Log timestamps are IST.
+- **APIs:** public `GET /api/health` → {build, provider_check ok|FAILED, provider_message, demo_mode}; admin `GET /api/admin/sms/diagnostics?force=` (provider status, authkey hint, template DLT info, 24h counters accepted/delivered/failed/dropped/pending/rejected, last 30 sends), `POST /api/admin/sms/test {phone}` (real send through production path, returns otp + log; refuses demo phones 400; rate-limited 429), `POST /api/admin/sms/logs/{id}/recheck`.
+- **Admin panel → SMS tab** (`src/components/panel/SmsDiagnostics.tsx`, admin only): PROVIDER OK/FAILED card, config grid, template text, 24h stat cards, Send-test form (auto-refreshes at +8/+24/+66 s), recent-messages list with per-row RE-CHECK DELIVERY.
+- Verified: real sends to 9711881372 & 9999813334 confirmed **Delivered** by MSG91 within 3 s; fault injection (bad key / bad template / missing config) fails loudly with no OTP challenge stored.
+
 ### Real SMS OTP via MSG91 (June 2026 — replaced Twilio per user request)
 - OTP delivery via **MSG91 FLOW API** (`POST /api/v5/flow` with template_id + recipients[{mobiles, otp}]). IMPORTANT: template `61baece18e964726da04e8c5` (sender YSILVR) is a FLOW template — the MSG91 OTP API rejects it ("Template ID Missing or Invalid Template"); the enrollment website uses the same Flow route. OTPs are generated server-side (secrets, 4-digit), stored SHA-256 hashed in-memory with 10-min expiry + 5 attempt limit, and verified locally; MSG91 only delivers the SMS. `_sms_available()` requires MSG91_AUTHKEY + MSG91_TEMPLATE_ID. JWT_SECRET now set in backend/.env.
 - `/auth/send-otp`: demo-allowlisted phones (`OTP_DEMO_PHONES`) get local OTP 1234; other numbers validated locally (10 digits, starts 6-9) then MSG91 send (mobile format `91XXXXXXXXXX`); errors mapped to friendly messages
@@ -97,7 +105,7 @@ About, Endless Feed, Rate List, Schemes, Brands, Showroom Photos, Exhibition, Ho
 - Backend: FastAPI, Motor (async MongoDB), Pydantic
 - Storage: Emergent Object Storage
 - AI: emergentintegrations (Claude Sonnet 4.5)
-- SMS OTP: MSG91 OTP API
+- SMS OTP: MSG91 Flow API + pre-flight validation + delivery confirmation via MSG91 log API (build 2026.09.04-sms-v4)
 - PDF: PyMuPDF (fitz)
 
 ### Scroll Performance & Category Feed Fix (March 2026)

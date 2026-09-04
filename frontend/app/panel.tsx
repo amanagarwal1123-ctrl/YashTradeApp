@@ -8,8 +8,9 @@ import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
+import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives' | 'sms';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
 type Role = 'admin' | 'executive' | 'billing_executive' | null;
@@ -433,6 +434,7 @@ export default function PanelScreen() {
     { key: 'content', label: 'Content', icon: 'document-text' },
     { key: 'customers', label: 'Customers', icon: 'people' },
     { key: 'executives', label: 'Executives', icon: 'people-circle' },
+    { key: 'sms', label: 'SMS', icon: 'chatbox-ellipses' },
   ];
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'requests', label: 'Requests', icon: 'call' },
@@ -1319,6 +1321,9 @@ export default function PanelScreen() {
             </>
           )}
 
+
+          {/* ===== SMS PROVIDER DIAGNOSTICS (Admin only) ===== */}
+          {tab === 'sms' && role === 'admin' && <SmsDiagnostics />}
 
           {/* ===== CONTENT MANAGEMENT ===== */}
           {tab === 'content' && (

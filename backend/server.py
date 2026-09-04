@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import jwt
 import asyncio
 import requests as http_requests
@@ -55,9 +55,18 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
+APP_BUILD = "2026.09.04-sms-v4"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '')
-MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '')  # optional — account default OTP template used if empty
+MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '')
 MSG91_BASE_URL = os.environ.get('MSG91_BASE_URL', 'https://control.msg91.com/api/v5').rstrip('/')
+MSG91_VALIDATE_URL = 'https://control.msg91.com/api/validate.php'
+MSG91_PREFLIGHT_TTL = 300        # cache a successful/definitive provider validation for 5 minutes
+MSG91_PREFLIGHT_RETRY_TTL = 30   # re-check sooner when MSG91 itself was unreachable
+MSG91_LOG_TZ = timezone(timedelta(hours=5, minutes=30))  # MSG91 log timestamps are IST
+DELIVERY_CHECK_DELAYS = (6, 20, 60)  # seconds after MSG91 accepted the message
+
+_preflight_cache: Dict[str, Any] = {"checked_at": 0.0, "ttl": 0, "result": None}
+_bg_tasks: set = set()
 
 # Phones that always use the fixed demo OTP 1234 (admin/executive/test accounts)
 DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',') if p.strip()}
@@ -82,51 +91,260 @@ def _msg91_mobile(phone: str) -> str:
 def _msg91_headers() -> Dict[str, str]:
     return {"authkey": MSG91_AUTHKEY, "Accept": "application/json", "Content-Type": "application/json"}
 
-async def _send_sms_otp(phone: str):
-    """Dispatch an OTP to a phone. Demo phones use the fixed 1234; real numbers get a
-    server-generated OTP delivered via the MSG91 FLOW API (the template is a Flow
-    template — the MSG91 OTP API rejects it, same as on the enrollment website).
-    OTPs are stored hashed with expiry and verified locally."""
-    if _is_demo_phone(phone) or not _sms_available():
-        _store_otp(phone, '1234')
-        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
-        return
-    # Validate Indian mobiles locally first
+# ---- MSG91 pre-flight validation --------------------------------------------------
+# MSG91's /flow endpoint answers {"type":"success"} + a request id EVEN WHEN the authkey
+# or template id is wrong, then silently drops the message (no dashboard log entry).
+# So before trusting a send we validate the authkey and the DLT template explicitly.
+
+def _msg91_check_authkey() -> tuple:
+    """Returns (valid, detail). MSG91 replies the literal text 'Valid' for a good key."""
+    r = http_requests.get(MSG91_VALIDATE_URL, params={"authkey": MSG91_AUTHKEY}, timeout=10)
+    text = r.text.strip()
+    if r.status_code == 200 and text.lower() == "valid":
+        return True, "Valid"
+    return False, f"Invalid authkey (MSG91 replied: {text[:60] or r.status_code})"
+
+def _msg91_check_template() -> tuple:
+    """Returns (valid, detail, template_info) for the configured DLT template."""
+    r = http_requests.get(
+        f"{MSG91_BASE_URL}/sms/getTemplateVersions",
+        params={"template_id": MSG91_TEMPLATE_ID},
+        headers={"authkey": MSG91_AUTHKEY, "Accept": "application/json"},
+        timeout=10,
+    )
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if r.status_code == 401:
+        return False, "Invalid authkey (template lookup unauthorized)", {}
+    versions = body.get("data") or []
+    if str(body.get("status", "")).lower() != "success" or not versions:
+        errs = body.get("errors")
+        if isinstance(errs, list):
+            errs = ", ".join(str(e) for e in errs)
+        return False, f"Template ID rejected by MSG91 ({errs or 'not found'})", {}
+    active = next((v for v in versions if str(v.get("active_status")) == "1"), versions[0])
+    info = {
+        "template_id": MSG91_TEMPLATE_ID,
+        "name": active.get("template_name"),
+        "sender_id": active.get("sender_id"),
+        "dlt_id": active.get("DLT_ID"),
+        "dlt_verified": str(active.get("dlt_verified")) == "1",
+        "active": str(active.get("active_status")) == "1",
+        "status": active.get("status"),
+        "version": active.get("version"),
+        "text": active.get("template_data"),
+        "reject_reason": active.get("reject_reason") or active.get("dlt_reason"),
+    }
+    if info["reject_reason"]:
+        return False, f"Template rejected by MSG91/DLT ({info['reject_reason']})", info
+    if not info["active"]:
+        return False, "Template has no active version on MSG91", info
+    return True, "OK", info
+
+async def _msg91_preflight(force: bool = False) -> Dict[str, Any]:
+    """Validate authkey + template against MSG91 (cached). Never raises."""
+    now = _time.time()
+    cached = _preflight_cache["result"]
+    if cached and not force and now - _preflight_cache["checked_at"] < _preflight_cache["ttl"]:
+        return cached
+    result: Dict[str, Any] = {
+        "ok": False, "configured": _sms_available(), "authkey_valid": None, "template": {},
+        "error": None, "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ttl = MSG91_PREFLIGHT_TTL
+    if not _sms_available():
+        result["error"] = "SMS provider is not configured on the server (MSG91_AUTHKEY / MSG91_TEMPLATE_ID missing)"
+    else:
+        try:
+            key_ok, key_detail = await asyncio.to_thread(_msg91_check_authkey)
+            result["authkey_valid"] = key_ok
+            if not key_ok:
+                result["error"] = key_detail
+            else:
+                tpl_ok, tpl_detail, info = await asyncio.to_thread(_msg91_check_template)
+                result["template"] = info
+                if tpl_ok:
+                    result["ok"] = True
+                else:
+                    result["error"] = tpl_detail
+        except Exception as e:
+            result["error"] = f"Could not reach MSG91 to validate the SMS configuration ({type(e).__name__})"
+            ttl = MSG91_PREFLIGHT_RETRY_TTL
+    _preflight_cache.update({"result": result, "checked_at": now, "ttl": ttl})
+    if result["ok"]:
+        logger.info(f"MSG91 provider check OK (template={result['template'].get('name')}, sender={result['template'].get('sender_id')})")
+    else:
+        logger.error(f"MSG91 provider check FAILED: {result['error']}")
+    return result
+
+# ---- MSG91 send + delivery confirmation -------------------------------------------
+
+async def _msg91_send_flow(mobile: str, otp: str) -> Dict[str, Any]:
+    def _send():
+        return http_requests.post(
+            f"{MSG91_BASE_URL}/flow",
+            headers=_msg91_headers(),
+            json={"template_id": MSG91_TEMPLATE_ID, "short_url": "0",
+                  "recipients": [{"mobiles": mobile, "otp": otp}]},
+            timeout=15,
+        )
+    resp = await asyncio.to_thread(_send)
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {"message": resp.text[:120]}
+    return {"status_code": resp.status_code, "body": body}
+
+async def _dispatch_sms_otp(phone: str, otp: str, purpose: str) -> Dict[str, Any]:
+    """Send `otp` to a real number via the MSG91 Flow API with pre-flight validation and
+    delivery tracking. Every attempt is written to `sms_log`. Raises HTTPException (400/503)
+    on any failure — never reports a false success."""
     digits = ''.join(c for c in phone if c.isdigit())[-10:]
     if len(digits) != 10 or digits[0] not in '6789':
         raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
-    otp = str(secrets.randbelow(9000) + 1000)  # crypto-safe 4-digit code
+    mobile = _msg91_mobile(digits)
+    now = datetime.now(timezone.utc)
+    entry: Dict[str, Any] = {
+        "id": str(uuid.uuid4()), "phone": digits, "mobile": mobile, "purpose": purpose, "build": APP_BUILD,
+        "sent_at": now.isoformat(), "sent_ts": now.timestamp(), "status": "rejected", "error": None,
+        "request_id": None, "delivery_status": "n/a", "delivery_detail": "", "checks": [],
+        "msg91_request_date": None, "msg91_status": None, "last_checked_at": None, "delivered_at": None,
+    }
+    pre = await _msg91_preflight()
+    if not pre["ok"]:
+        entry["error"] = pre["error"]
+        await db.sms_log.insert_one({**entry})
+        logger.error(f"OTP NOT sent to ...{digits[-4:]}: {pre['error']}")
+        if not pre["configured"]:
+            raise HTTPException(status_code=503, detail=f"{pre['error']}. OTP was NOT sent.")
+        raise HTTPException(status_code=503, detail=f"MSG91 rejected the server's SMS configuration ({pre['error']}). OTP was NOT sent.")
     try:
-        def _send():
-            return http_requests.post(
-                f"{MSG91_BASE_URL}/flow",
-                headers=_msg91_headers(),
-                json={
-                    "template_id": MSG91_TEMPLATE_ID,
-                    "short_url": "0",
-                    "recipients": [{"mobiles": _msg91_mobile(phone), "otp": otp}],
-                },
-                timeout=15,
-            )
-        resp = await asyncio.to_thread(_send)
-        try:
-            body = resp.json()
-        except ValueError:
-            body = {}
-        if resp.status_code >= 300 or str(body.get("type", "")).lower() != "success":
-            msg = str(body.get("message", "")).lower()
-            logger.error(f"MSG91 flow send error for ...{phone[-4:]}: status={resp.status_code} msg={body.get('message')}")
-            if 'mobile' in msg or 'recipient' in msg:
-                raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
-            raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
-        # Store hashed OTP locally only after MSG91 accepted the message
-        _store_otp(phone, otp)
-        logger.info(f"MSG91 flow OTP sent to ...{phone[-4:]} (request_id={body.get('message')})")
-    except HTTPException:
-        raise
+        res = await _msg91_send_flow(mobile, otp)
     except Exception as e:
-        logger.error(f"MSG91 flow send failure for ...{phone[-4:]}: {e}")
-        raise HTTPException(status_code=502, detail="Could not send OTP right now. Please try again shortly.")
+        entry["error"] = f"Could not reach MSG91 ({type(e).__name__})"
+        await db.sms_log.insert_one({**entry})
+        logger.error(f"MSG91 flow send failure for ...{digits[-4:]}: {e}")
+        raise HTTPException(status_code=503, detail="Could not reach the SMS provider. Please try again shortly.")
+    body = res["body"]
+    if res["status_code"] >= 300 or str(body.get("type", "")).lower() != "success":
+        msg = str(body.get("message", "")) or f"HTTP {res['status_code']}"
+        entry["error"] = f"MSG91 send error: {msg}"
+        await db.sms_log.insert_one({**entry})
+        logger.error(f"MSG91 flow send error for ...{digits[-4:]}: status={res['status_code']} msg={msg}")
+        if 'mobile' in msg.lower() or 'recipient' in msg.lower():
+            raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+        raise HTTPException(status_code=503, detail=f"MSG91 did not accept the SMS ({msg}). OTP was NOT sent.")
+    entry.update({
+        "status": "accepted", "request_id": str(body.get("message", "")),
+        "delivery_status": "pending", "delivery_detail": "Accepted by MSG91 — awaiting delivery report",
+    })
+    await db.sms_log.insert_one({**entry})
+    logger.info(f"MSG91 flow SMS accepted for ...{digits[-4:]} purpose={purpose} request_id={entry['request_id']}")
+    _schedule_delivery_checks(entry["id"])
+    return entry
+
+def _msg91_fetch_logs(request_id: str, start_date: str, end_date: str) -> list:
+    """MSG91 SMS log rows for one request id. MSG91 caches the result set per distinct filter
+    for several minutes, so callers vary `start_date` between attempts to get fresh data."""
+    r = http_requests.post(
+        f"{MSG91_BASE_URL}/report/logs/p/sms",
+        headers=_msg91_headers(),
+        json={"startDate": start_date, "endDate": end_date, "requestId": request_id},
+        timeout=15,
+    )
+    if r.status_code >= 300:
+        raise RuntimeError(f"MSG91 log API HTTP {r.status_code}")
+    body = r.json()
+    return body.get("data") or []
+
+def _classify_msg91_status(status: str) -> str:
+    st = (status or '').strip().lower()
+    if st == 'delivered':
+        return 'delivered'
+    if st in ('failed', 'rejected', 'blocked', 'ndnc', 'dnd', 'expired', 'undelivered', 'invalid', 'blacklist'):
+        return 'failed'
+    return 'pending'
+
+async def _check_delivery(log_id: str, final: bool) -> Optional[Dict[str, Any]]:
+    """Look our send up in MSG91's SMS log by request id and record the delivery state.
+    `final=True` marks a message that never showed up in the MSG91 log as dropped."""
+    entry = await db.sms_log.find_one({"id": log_id}, {"_id": 0})
+    if not entry or entry.get("status") != "accepted" or entry.get("delivery_status") in ("delivered", "failed"):
+        return entry
+    sent_ts = entry["sent_ts"]
+    attempt = len(entry.get("checks") or [])
+    check = {"at": datetime.now(timezone.utc).isoformat(), "result": ""}
+    # Rotate the start date (MSG91 keeps a 3-day window) so every attempt bypasses MSG91's cached result set
+    start = datetime.fromtimestamp(sent_ts, MSG91_LOG_TZ) - timedelta(days=attempt % 3)
+    try:
+        rows = await asyncio.to_thread(
+            _msg91_fetch_logs, entry["request_id"],
+            start.strftime('%Y-%m-%d'), datetime.now(MSG91_LOG_TZ).strftime('%Y-%m-%d'),
+        )
+    except Exception as e:
+        check["result"] = f"MSG91 log lookup failed ({type(e).__name__})"
+        await db.sms_log.update_one({"id": log_id}, {"$push": {"checks": check}, "$set": {"last_checked_at": check["at"]}})
+        return await db.sms_log.find_one({"id": log_id}, {"_id": 0})
+    row = next((r for r in rows if str(r.get("telNum", "")).endswith(entry["phone"])), None)
+    updates: Dict[str, Any] = {"last_checked_at": check["at"]}
+    if row is None:
+        if final:
+            updates.update({"delivery_status": "dropped",
+                            "delivery_detail": "Dropped by MSG91 — accepted but never appeared in the MSG91 SMS log"})
+            check["result"] = "not in MSG91 log (final) → dropped"
+        else:
+            check["result"] = "not in MSG91 log yet"
+    else:
+        cls = _classify_msg91_status(row.get("status"))
+        detail = row.get("status") or "Unknown"
+        if row.get("deliveryTime"):
+            detail += f" at {row.get('deliveryDate', '')} {row.get('deliveryTime')} IST".replace("  ", " ")
+        updates.update({"delivery_status": cls, "delivery_detail": detail,
+                        "msg91_request_date": row.get("requestDate"), "msg91_status": row.get("status")})
+        if cls == "delivered":
+            updates["delivered_at"] = check["at"]
+        check["result"] = f"MSG91 status: {row.get('status')}"
+    await db.sms_log.update_one({"id": log_id}, {"$push": {"checks": check}, "$set": updates})
+    return await db.sms_log.find_one({"id": log_id}, {"_id": 0})
+
+async def _delivery_check_worker(log_id: str):
+    elapsed = 0
+    for i, delay in enumerate(DELIVERY_CHECK_DELAYS):
+        await asyncio.sleep(delay - elapsed)
+        elapsed = delay
+        try:
+            entry = await _check_delivery(log_id, final=(i == len(DELIVERY_CHECK_DELAYS) - 1))
+        except Exception as e:
+            logger.warning(f"SMS delivery check error for {log_id}: {e}")
+            continue
+        if not entry:
+            return
+        state = entry.get("delivery_status")
+        if state in ("delivered", "failed", "dropped"):
+            log = logger.info if state == "delivered" else logger.error
+            log(f"SMS {log_id} to ...{entry['phone'][-4:]} → {state.upper()} ({entry.get('delivery_detail')})")
+            return
+    logger.warning(f"SMS {log_id} still pending at MSG91 after {DELIVERY_CHECK_DELAYS[-1]}s — re-check from the admin panel")
+
+def _schedule_delivery_checks(log_id: str):
+    task = asyncio.create_task(_delivery_check_worker(log_id))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+async def _send_sms_otp(phone: str, purpose: str = "login_otp"):
+    """Dispatch an OTP to a phone. Demo phones use the fixed 1234; real numbers get a
+    server-generated OTP delivered via the MSG91 FLOW API (the template is a Flow
+    template — the MSG91 OTP API rejects it, same as on the enrollment website).
+    The OTP challenge is stored (hashed) ONLY after MSG91 validated + accepted the send."""
+    if _is_demo_phone(phone):
+        _store_otp(phone, '1234')
+        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
+        return
+    otp = str(secrets.randbelow(9000) + 1000)  # crypto-safe 4-digit code
+    await _dispatch_sms_otp(phone, otp, purpose)
+    _store_otp(phone, otp)
 
 async def _check_sms_otp(phone: str, otp: str):
     """All OTPs (demo and real) are verified locally against the hashed store —
@@ -502,6 +720,84 @@ async def get_billing_or_admin(user=Depends(get_current_user)):
 
 # ===================== AUTH ENDPOINTS =====================
 
+@api_router.get("/health")
+async def health():
+    """Public, secret-free health check: running build + live MSG91 provider validation (cached 5 min)."""
+    pre = await _msg91_preflight()
+    return {
+        "status": "ok",
+        "build": APP_BUILD,
+        "time": datetime.now(timezone.utc).isoformat(),
+        "sms_provider": "msg91-flow",
+        "provider_check": "ok" if pre["ok"] else "FAILED",
+        "provider_message": pre["error"] or "MSG91 authkey and DLT template accepted",
+        "provider_checked_at": pre["checked_at"],
+        "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
+    }
+
+@api_router.get("/admin/sms/diagnostics")
+async def sms_diagnostics(force: bool = False, user=Depends(get_admin_user)):
+    """Live MSG91 diagnostics for the admin panel: provider validation, 24h counters and recent sends."""
+    pre = await _msg91_preflight(force=force)
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).timestamp()
+    counters = {"total": 0, "accepted": 0, "delivered": 0, "failed": 0, "dropped": 0, "pending": 0, "rejected": 0}
+    pipeline = [
+        {"$match": {"sent_ts": {"$gte": since}}},
+        {"$group": {"_id": {"status": "$status", "delivery": "$delivery_status"}, "n": {"$sum": 1}}},
+    ]
+    async for g in db.sms_log.aggregate(pipeline):
+        n = g["n"]
+        counters["total"] += n
+        if g["_id"]["status"] == "rejected":
+            counters["rejected"] += n
+        else:
+            counters["accepted"] += n
+            d = g["_id"].get("delivery")
+            if d in counters:
+                counters[d] += n
+    recent = await db.sms_log.find({}, {"_id": 0}).sort("sent_ts", -1).limit(30).to_list(30)
+    return {
+        "build": APP_BUILD,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "provider_check": "ok" if pre["ok"] else "FAILED",
+        "provider_message": pre["error"] or "MSG91 authkey and DLT template accepted",
+        "checked_at": pre["checked_at"],
+        "configured": pre["configured"],
+        "authkey_valid": pre["authkey_valid"],
+        "authkey_hint": f"…{MSG91_AUTHKEY[-4:]}" if MSG91_AUTHKEY else None,
+        "template_id": MSG91_TEMPLATE_ID or None,
+        "template": pre["template"],
+        "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
+        "demo_phones": sorted(DEMO_PHONES),
+        "counters_24h": counters,
+        "recent": recent,
+    }
+
+@api_router.post("/admin/sms/test")
+async def sms_test(req: SendOTPRequest, user=Depends(get_admin_user)):
+    """Send a real test OTP SMS through the exact production path (pre-flight + delivery tracking)."""
+    phone = ''.join(c for c in req.phone if c.isdigit())[-10:]
+    if len(phone) != 10 or phone[0] not in '6789':
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit Indian mobile number.")
+    if _is_demo_phone(phone):
+        raise HTTPException(status_code=400, detail="This number is on the demo allowlist — no SMS is ever sent to it.")
+    if not _check_otp_rate(phone):
+        raise HTTPException(status_code=429, detail="Too many messages to this number. Please wait 10 minutes.")
+    otp = str(secrets.randbelow(9000) + 1000)
+    entry = await _dispatch_sms_otp(phone, otp, purpose="admin_test")
+    _otp_rate.setdefault(phone, []).append(_time.time())
+    return {"message": "Accepted by MSG91 — delivery is being confirmed", "otp": otp, "log": entry}
+
+@api_router.post("/admin/sms/logs/{log_id}/recheck")
+async def sms_recheck(log_id: str, user=Depends(get_admin_user)):
+    entry = await db.sms_log.find_one({"id": log_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="SMS log entry not found")
+    if entry.get("status") != "accepted":
+        return entry
+    final = _time.time() - entry["sent_ts"] > DELIVERY_CHECK_DELAYS[-1] + 30
+    return await _check_delivery(log_id, final=final)
+
 @api_router.post("/auth/send-otp")
 async def send_otp(req: SendOTPRequest):
     phone = req.phone.strip()
@@ -581,7 +877,7 @@ async def phone_change_request(req: PhoneChangeRequest, user=Depends(get_current
         raise HTTPException(status_code=409, detail="This number is already registered to another account.")
     if not _check_otp_rate(digits):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
-    await _send_sms_otp(digits)
+    await _send_sms_otp(digits, purpose="phone_change")
     _phone_change_store[user["id"]] = {"new_phone": digits, "expires_at": _time.time() + OTP_EXPIRY_SECONDS}
     return {"message": "OTP sent to the new number"}
 
@@ -2761,6 +3057,8 @@ async def seed_new_features():
     await db.exhibitions.create_index([("is_upcoming", -1), ("created_at", -1)])
     await db.banners.create_index([("order", 1)])
     await db.pdf_jobs.create_index([("upload_id", 1)], unique=True)
+    await db.sms_log.create_index([("sent_ts", -1)])
+    await db.sms_log.create_index([("id", 1)], unique=True)
 
 # ===================== APP SETUP =====================
 
@@ -2798,6 +3096,11 @@ async def startup():
             logger.info(f"Cart cleanup: removed {bad_qty.deleted_count} rows with invalid quantity")
     except Exception as e:
         logger.warning(f"Cart cleanup: {e}")
+    # Validate the MSG91 configuration at boot so a bad deploy is visible in the logs immediately
+    logger.info(f"Yash Trade backend build {APP_BUILD}")
+    task = asyncio.create_task(_msg91_preflight(force=True))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
