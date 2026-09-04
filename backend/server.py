@@ -31,7 +31,8 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 JWT_SECRET = os.environ.get('JWT_SECRET', '')
-if not JWT_SECRET or len(JWT_SECRET) < 16:
+JWT_SECRET_FROM_ENV = bool(JWT_SECRET and len(JWT_SECRET) >= 16)
+if not JWT_SECRET_FROM_ENV:
     JWT_SECRET = 'aman-jewellers-secret-key-2024-prod-v1'
     print("WARNING: JWT_SECRET is weak or missing — using built-in default. Set a strong JWT_SECRET in .env for production.")
 JWT_ALGORITHM = 'HS256'
@@ -55,9 +56,14 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "2026.09.04-sms-v4"
-MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '')
-MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '')
+APP_BUILD = "2026.09.04-sms-v5"
+MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
+# The DLT template id is NOT a secret (useless without the authkey). It has a built-in default because
+# Emergent snapshots deployment secrets at the FIRST deploy — a key added to backend/.env later is not
+# picked up by Redeploy, which is exactly how the deployed server ended up "not configured".
+MSG91_DEFAULT_TEMPLATE_ID = '61baece18e964726da04e8c5'  # Yash Ornaments "Login OTP" flow template (sender YSILVR)
+MSG91_TEMPLATE_FROM_ENV = bool(os.environ.get('MSG91_TEMPLATE_ID', '').strip())
+MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '').strip() or MSG91_DEFAULT_TEMPLATE_ID
 MSG91_BASE_URL = os.environ.get('MSG91_BASE_URL', 'https://control.msg91.com/api/v5').rstrip('/')
 MSG91_VALIDATE_URL = 'https://control.msg91.com/api/validate.php'
 MSG91_PREFLIGHT_TTL = 300        # cache a successful/definitive provider validation for 5 minutes
@@ -70,6 +76,33 @@ _bg_tasks: set = set()
 
 # Phones that always use the fixed demo OTP 1234 (admin/executive/test accounts)
 DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',') if p.strip()}
+
+DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
+                   'OTP_DEMO_PHONES', 'OTP_DEMO_MODE', 'EMERGENT_LLM_KEY')
+
+def _server_env_report() -> Dict[str, Any]:
+    """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
+    Lets /api/health on the deployed domain show exactly what the deployment secrets are missing."""
+    present = {k: bool(os.environ.get(k, '').strip()) for k in DEPLOY_ENV_KEYS}
+    warnings = []
+    if not present['MSG91_AUTHKEY']:
+        warnings.append("MSG91_AUTHKEY is missing — no real OTP SMS can be sent from this server")
+    if not present['MSG91_TEMPLATE_ID']:
+        warnings.append(f"MSG91_TEMPLATE_ID not set — using built-in default {MSG91_DEFAULT_TEMPLATE_ID}")
+    if not JWT_SECRET_FROM_ENV:
+        warnings.append("JWT_SECRET missing/weak — login tokens use the built-in default secret (set a strong one in deployment secrets)")
+    if not present['OTP_DEMO_PHONES']:
+        warnings.append("OTP_DEMO_PHONES not set — demo logins (OTP 1234) are disabled on this server; every number gets a real SMS")
+    if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
+        warnings.append("OTP_DEMO_MODE=true — EVERY number accepts OTP 1234 and no SMS is sent (never use in production)")
+    return {
+        "env_keys_present": [k for k, v in present.items() if v],
+        "env_keys_missing": [k for k, v in present.items() if not v],
+        "template_source": "env" if MSG91_TEMPLATE_FROM_ENV else "built-in default",
+        "jwt_secret_configured": JWT_SECRET_FROM_ENV,
+        "demo_phones_count": len(DEMO_PHONES),
+        "warnings": warnings,
+    }
 
 def _is_demo_phone(phone: str) -> bool:
     if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
@@ -155,7 +188,7 @@ async def _msg91_preflight(force: bool = False) -> Dict[str, Any]:
     }
     ttl = MSG91_PREFLIGHT_TTL
     if not _sms_available():
-        result["error"] = "SMS provider is not configured on the server (MSG91_AUTHKEY / MSG91_TEMPLATE_ID missing)"
+        result["error"] = "SMS provider is not configured on the server (MSG91_AUTHKEY missing from deployment secrets)"
     else:
         try:
             key_ok, key_detail = await asyncio.to_thread(_msg91_check_authkey)
@@ -722,7 +755,8 @@ async def get_billing_or_admin(user=Depends(get_current_user)):
 
 @api_router.get("/health")
 async def health():
-    """Public, secret-free health check: running build + live MSG91 provider validation (cached 5 min)."""
+    """Public, secret-free health check: running build + live MSG91 provider validation (cached 5 min)
+    + which deployment env keys exist on this server (names only)."""
     pre = await _msg91_preflight()
     return {
         "status": "ok",
@@ -733,6 +767,7 @@ async def health():
         "provider_message": pre["error"] or "MSG91 authkey and DLT template accepted",
         "provider_checked_at": pre["checked_at"],
         "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
+        **_server_env_report(),
     }
 
 @api_router.get("/admin/sms/diagnostics")
@@ -769,6 +804,7 @@ async def sms_diagnostics(force: bool = False, user=Depends(get_admin_user)):
         "template": pre["template"],
         "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
         "demo_phones": sorted(DEMO_PHONES),
+        "server_env": _server_env_report(),
         "counters_24h": counters,
         "recent": recent,
     }
@@ -3098,6 +3134,10 @@ async def startup():
         logger.warning(f"Cart cleanup: {e}")
     # Validate the MSG91 configuration at boot so a bad deploy is visible in the logs immediately
     logger.info(f"Yash Trade backend build {APP_BUILD}")
+    env_report = _server_env_report()
+    logger.info(f"Deployment env keys present: {env_report['env_keys_present']} | missing: {env_report['env_keys_missing']}")
+    for w in env_report["warnings"]:
+        logger.warning(f"ENV: {w}")
     task = asyncio.create_task(_msg91_preflight(force=True))
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)

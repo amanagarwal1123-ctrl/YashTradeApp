@@ -21,7 +21,7 @@ Unknown numbers (e.g. 9876501234) get 404 "Registration required" and NO account
 Safe negative-test numbers: 1111111111 (fails local validation, no SMS).
 Real-SMS verification numbers approved by the owner (use sparingly, each send costs a credit): 9711881372, 9999813334.
 
-SMS diagnostics (build 2026.09.04-sms-v4): public `GET /api/health` (expect `provider_check: ok`);
+SMS diagnostics (build 2026.09.04-sms-v5): public `GET /api/health` (expect `provider_check: ok`, `warnings: []`; lists env key NAMES present/missing on that server);
 admin-only `GET /api/admin/sms/diagnostics`, `POST /api/admin/sms/test {phone}` (refuses demo phones), `POST /api/admin/sms/logs/{id}/recheck`;
 Admin panel → **SMS** tab. Misconfigured MSG91 now returns HTTP 503 with an explicit message instead of a false "OTP sent".
 

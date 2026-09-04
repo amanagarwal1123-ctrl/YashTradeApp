@@ -32,6 +32,14 @@ type Diagnostics = {
   };
   demo_mode: boolean;
   demo_phones: string[];
+  server_env: {
+    env_keys_present: string[];
+    env_keys_missing: string[];
+    template_source: 'env' | 'built-in default';
+    jwt_secret_configured: boolean;
+    demo_phones_count: number;
+    warnings: string[];
+  };
   counters_24h: { total: number; accepted: number; delivered: number; failed: number; dropped: number; pending: number; rejected: number };
   recent: SmsLog[];
 };
@@ -124,6 +132,7 @@ export default function SmsDiagnostics() {
   const statusColor = ok ? Colors.success : Colors.error;
   const tpl = diag.template || {};
   const c = diag.counters_24h;
+  const env = diag.server_env;
 
   return (
     <View testID="sms-diagnostics">
@@ -150,7 +159,7 @@ export default function SmsDiagnostics() {
 
         <View style={st.kvGrid}>
           <KV label="Authkey" value={diag.authkey_valid === null ? (diag.configured ? 'Not checked' : 'Missing') : diag.authkey_valid ? `Valid ${diag.authkey_hint || ''}` : 'INVALID'} color={diag.authkey_valid ? Colors.success : Colors.error} />
-          <KV label="Template ID" value={diag.template_id || 'Missing'} color={diag.template_id ? Colors.text : Colors.error} mono />
+          <KV label="Template ID" value={`${diag.template_id || 'Missing'}${env?.template_source === 'built-in default' ? ' (built-in default)' : ''}`} color={diag.template_id ? Colors.text : Colors.error} mono />
           <KV label="Template" value={tpl.name ? `${tpl.name} (${tpl.version || 'v?'})` : '—'} />
           <KV label="Sender ID" value={tpl.sender_id || '—'} />
           <KV label="DLT Template ID" value={tpl.dlt_id || '—'} mono />
@@ -160,6 +169,33 @@ export default function SmsDiagnostics() {
         </View>
         {tpl.text ? <Text style={st.templateText}>“{tpl.text}”</Text> : null}
       </View>
+
+      {/* Server environment — which deployment secrets exist on THIS server (names only) */}
+      {env && (
+        <View testID="sms-server-env" style={[st.card, env.warnings.length > 0 && { borderColor: Colors.warning + '60' }]}>
+          <Text style={st.cardTitle}>SERVER ENVIRONMENT (deployment secrets on this server)</Text>
+          <Text style={st.hint}>Emergent snapshots secrets at the first deploy — keys added to backend/.env later must be added under Deployments → Secrets → Custom Keys, then Redeploy.</Text>
+          <View style={st.chipWrap}>
+            {env.env_keys_present.map(k => (
+              <View key={k} style={[st.envChip, { backgroundColor: Colors.success + '18', borderColor: Colors.success + '50' }]}>
+                <Ionicons name="checkmark" size={11} color={Colors.success} /><Text style={[st.envChipText, { color: Colors.success }]}>{k}</Text>
+              </View>
+            ))}
+            {env.env_keys_missing.map(k => (
+              <View key={k} style={[st.envChip, { backgroundColor: Colors.error + '18', borderColor: Colors.error + '50' }]}>
+                <Ionicons name="close" size={11} color={Colors.error} /><Text style={[st.envChipText, { color: Colors.error }]}>{k}</Text>
+              </View>
+            ))}
+          </View>
+          {env.warnings.map((w, i) => (
+            <View key={i} style={st.warnRow} testID={`sms-env-warning-${i}`}>
+              <Ionicons name="warning" size={14} color={Colors.warning} />
+              <Text style={st.warnText}>{w}</Text>
+            </View>
+          ))}
+          {env.warnings.length === 0 && <Text style={[st.meta, { color: Colors.success }]}>All expected keys are set on this server.</Text>}
+        </View>
+      )}
 
       {/* 24h counters */}
       <Text style={st.sectionTitle}>LAST 24 HOURS</Text>
@@ -276,6 +312,12 @@ const st = StyleSheet.create({
   kvValue: { fontSize: FontSize.sm, color: Colors.text, fontWeight: '600' },
   mono: { fontFamily: 'monospace', fontSize: FontSize.xs, fontWeight: '500' },
   templateText: { fontSize: FontSize.xs, color: Colors.textSecondary, fontStyle: 'italic', marginTop: Spacing.md, lineHeight: 16 },
+  cardTitle: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 1.5, fontWeight: '700', marginBottom: Spacing.sm },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: Spacing.sm },
+  envChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
+  envChipText: { fontSize: FontSize.xs, fontWeight: '600', fontFamily: 'monospace' },
+  warnRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 },
+  warnText: { flex: 1, fontSize: FontSize.sm, color: Colors.warning, lineHeight: 18 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   stat: { width: '30%', minWidth: 96, backgroundColor: Colors.card, borderRadius: 14, padding: Spacing.md, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: Colors.cardBorder },
   statVal: { fontSize: FontSize.xl, fontWeight: '700' },
