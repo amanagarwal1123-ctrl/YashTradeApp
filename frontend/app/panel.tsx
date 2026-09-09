@@ -42,6 +42,7 @@ export default function PanelScreen() {
   const [products, setProducts] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
 
   // Executives management
   const [executives, setExecutives] = useState<any[]>([]);
@@ -214,6 +215,7 @@ export default function PanelScreen() {
           const r = await api.get('/customers?limit=100');
           setCustomers(r.customers || []);
           try { const e = await api.get('/executives'); setExecutives(e.executives || []); } catch {}
+          try { const d = await api.get('/admin/deletion-requests'); setDeletionRequests(d.requests || []); } catch {}
           break;
         }
         case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
@@ -1146,9 +1148,10 @@ export default function PanelScreen() {
               {customers.map(c => {
                 const acct = c.account_status || c.status || 'active';
                 const isActive = acct === 'active';
+                const isDeleted = acct === 'deleted';
                 const telecaller = executives.find(e => e.id === c.assigned_salesperson);
                 return (
-                  <View key={c.id} style={[s.listItem, { flexDirection: 'column', alignItems: 'stretch' }]} data-testid={`customer-row-${c.id}`}>
+                  <View key={c.id} style={[s.listItem, { flexDirection: 'column', alignItems: 'stretch' }, isDeleted && { opacity: 0.6 }]} data-testid={`customer-row-${c.id}`}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <View style={{ flex: 1 }}>
                         <Text style={s.listTitle}>{c.name || c.phone}</Text>
@@ -1166,17 +1169,20 @@ export default function PanelScreen() {
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>
                       <View style={[s.custBadge, { backgroundColor: (isActive ? Colors.success : Colors.error) + '18' }]}>
-                        <Text style={[s.custBadgeText, { color: isActive ? Colors.success : Colors.error }]}>{acct.toUpperCase()}</Text>
+                        <Text style={[s.custBadgeText, { color: isActive ? Colors.success : Colors.error }]}>{isDeleted ? `DELETED ${c.deleted_at ? new Date(c.deleted_at).toLocaleDateString() : ''} (${c.deletion_source || 'app'})` : acct.toUpperCase()}</Text>
                       </View>
+                      {!isDeleted && (
                       <View style={[s.custBadge, { backgroundColor: (c.has_logged_in ? Colors.info : Colors.warning) + '18' }]}>
                         <Text style={[s.custBadgeText, { color: c.has_logged_in ? Colors.info : Colors.warning }]}>
                           {c.has_logged_in ? `LAST LOGIN: ${c.last_login_at ? new Date(c.last_login_at).toLocaleDateString() : '-'}` : 'NEVER LOGGED IN'}
                         </Text>
                       </View>
+                      )}
                       <View style={[s.custBadge, { backgroundColor: Colors.gold + '15' }]}>
                         <Text style={[s.custBadgeText, { color: Colors.gold }]}>TC: {telecaller ? telecaller.name : 'Unassigned'}</Text>
                       </View>
                     </View>
+                    {!isDeleted && (
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                       <TouchableOpacity
                         data-testid={`assign-btn-${c.id}`}
@@ -1199,6 +1205,7 @@ export default function PanelScreen() {
                         <Text style={[s.actText, { color: isActive ? Colors.error : Colors.success }]}>{isActive ? 'Deactivate' : 'Activate'}</Text>
                       </TouchableOpacity>
                     </View>
+                    )}
                     {assigningCustId === c.id && (
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                         <TouchableOpacity
@@ -1234,6 +1241,22 @@ export default function PanelScreen() {
                   </View>
                 );
               })}
+
+              {/* Account deletion requests (Play / App Store compliance log) */}
+              <Text style={s.sectionTitle}>ACCOUNT DELETION REQUESTS ({deletionRequests.length})</Text>
+              {deletionRequests.length === 0 && <Text style={[s.listMeta, { textAlign: 'center', marginBottom: Spacing.lg }]}>No deletion requests yet.</Text>}
+              {deletionRequests.map(d => (
+                <View key={d.id} style={s.listItem} testID={`deletion-row-${d.id}`}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.listTitle}>{d.name || d.phone}</Text>
+                    <Text style={s.listMeta}>{d.shop_name ? `${d.shop_name} • ` : ''}{d.phone} • via {d.source} • {new Date(d.requested_at).toLocaleString()}</Text>
+                    <Text style={s.listMeta}>Ref {d.reference} • kept: name, shop, place, number</Text>
+                  </View>
+                  <View style={[s.custBadge, { backgroundColor: Colors.success + '18' }]}>
+                    <Text style={[s.custBadgeText, { color: Colors.success }]}>{String(d.status || '').toUpperCase()}</Text>
+                  </View>
+                </View>
+              ))}
             </>
           )}
 

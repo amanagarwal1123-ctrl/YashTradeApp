@@ -56,7 +56,7 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "2026.09.04-sms-v5"
+APP_BUILD = "2026.09.09-integration-v6"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
 # The DLT template id is NOT a secret (useless without the authkey). It has a built-in default because
 # Emergent snapshots deployment secrets at the FIRST deploy — a key added to backend/.env later is not
@@ -77,8 +77,13 @@ _bg_tasks: set = set()
 # Phones that always use the fixed demo OTP 1234 (admin/executive/test accounts)
 DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',') if p.strip()}
 
+# Server-to-server secret shared with the enrollment website (its LIVE_INTEGRATION_KEY).
+# Lets the website create/update/delete customers directly — no OTP login, no SMS.
+ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip()
+INTEGRATION_HEADER = 'X-Integration-Key'
+
 DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
-                   'OTP_DEMO_PHONES', 'OTP_DEMO_MODE', 'EMERGENT_LLM_KEY')
+                   'OTP_DEMO_PHONES', 'OTP_DEMO_MODE', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
 
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
@@ -95,12 +100,20 @@ def _server_env_report() -> Dict[str, Any]:
         warnings.append("OTP_DEMO_PHONES not set — demo logins (OTP 1234) are disabled on this server; every number gets a real SMS")
     if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
         warnings.append("OTP_DEMO_MODE=true — EVERY number accepts OTP 1234 and no SMS is sent (never use in production)")
+    if not ENROLLMENT_INTEGRATION_KEY:
+        warnings.append("ENROLLMENT_INTEGRATION_KEY missing — website → app customer sync (POST /api/integrations/enrollments) is disabled on this server")
     return {
         "env_keys_present": [k for k, v in present.items() if v],
         "env_keys_missing": [k for k, v in present.items() if not v],
         "template_source": "env" if MSG91_TEMPLATE_FROM_ENV else "built-in default",
         "jwt_secret_configured": JWT_SECRET_FROM_ENV,
         "demo_phones_count": len(DEMO_PHONES),
+        "integration": {
+            "enabled": bool(ENROLLMENT_INTEGRATION_KEY),
+            "header": INTEGRATION_HEADER,
+            "enrollments_path": "/api/integrations/enrollments",
+            "delete_path": "/api/integrations/customers/{phone}",
+        },
         "warnings": warnings,
     }
 
@@ -597,6 +610,23 @@ class CustomerUpdate(BaseModel):
 class PhoneChangeRequest(BaseModel):
     new_phone: str
 
+class EnrollmentSync(BaseModel):
+    """Payload the enrollment website posts to /api/integrations/enrollments (see integration spec)."""
+    phone: str
+    name: str = ""
+    shop_name: str = ""
+    location: str = ""
+    city: str = ""
+    registration_source: str = "website"
+    registered_at: Optional[str] = None
+    onboarding_status: str = "registered"
+    phone_verified: bool = True
+    consent_terms: Optional[bool] = None
+    consent_privacy: Optional[bool] = None
+
+class DeleteAccountConfirm(BaseModel):
+    otp: str
+
 class PhoneChangeVerify(BaseModel):
     new_phone: str
     otp: str
@@ -751,6 +781,57 @@ async def get_billing_or_admin(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Billing or admin access required")
     return user
 
+async def require_integration_key(x_integration_key: Optional[str] = Header(None)):
+    """Server-to-server auth for the enrollment website (constant-time compare, no user token)."""
+    if not ENROLLMENT_INTEGRATION_KEY:
+        raise HTTPException(status_code=503, detail="Integration key is not configured on this server (ENROLLMENT_INTEGRATION_KEY)")
+    if not x_integration_key or not secrets.compare_digest(x_integration_key.strip(), ENROLLMENT_INTEGRATION_KEY):
+        raise HTTPException(status_code=401, detail="Invalid integration key")
+
+def _normalize_phone(raw: str) -> str:
+    digits = ''.join(c for c in str(raw) if c.isdigit())
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+    return digits
+
+# Fields that stay in the database after an account deletion — the owner keeps the business identity
+# (name, shop name, place, phone number) as a trade record; everything else is removed.
+DELETE_KEEP_FIELDS = ("id", "phone", "name", "shop_name", "location", "city", "role", "customer_code",
+                      "created_at", "registration_source", "registered_at", "assigned_salesperson")
+
+async def _delete_customer_data(user: Dict[str, Any], source: str) -> Dict[str, Any]:
+    """Account deletion (Play / App Store requirement). Removes login access, cart, wishlist, AI chats,
+    reward balance + history, telecaller notes, consents and profile extras. Keeps name, shop name,
+    location and phone as a de-activated business record. Enquiry/order records stay as trade history."""
+    uid, phone = user["id"], user["phone"]
+    now = datetime.now(timezone.utc).isoformat()
+    removed: Dict[str, int] = {}
+    for coll, query in (
+        ("cart", {"user_id": uid}), ("wishlists", {"user_id": uid}),
+        ("ai_chat_history", {"session_id": f"jeweller-{uid}"}),
+        ("reward_transactions", {"user_id": uid}), ("telecaller_activity", {"customer_id": uid}),
+    ):
+        res = await db[coll].delete_many(query)
+        removed[coll] = res.deleted_count
+    kept = {k: user.get(k) for k in DELETE_KEEP_FIELDS if k in user}
+    kept.update({
+        "account_status": "deleted", "status": "deleted", "deleted_at": now, "deletion_source": source,
+        "reward_points": 0, "is_new": False, "has_logged_in": False, "phone_verified": False,
+        "onboarding_status": "deleted", "lead_status": "deleted",
+    })
+    await db.users.replace_one({"id": uid}, kept)
+    _otp_store.pop(phone, None)
+    _phone_change_store.pop(uid, None)
+    reference = f"DEL-{now[:10].replace('-', '')}-{uid[:6].upper()}"
+    await db.deletion_requests.insert_one({
+        "id": str(uuid.uuid4()), "reference": reference, "user_id": uid, "phone": phone,
+        "name": user.get("name", ""), "shop_name": user.get("shop_name", ""), "source": source,
+        "requested_at": now, "completed_at": now, "status": "completed", "removed": removed,
+    })
+    logger.info(f"Account deleted for ...{phone[-4:]} via {source}: {removed}")
+    return {"deleted": True, "reference": reference, "removed": removed,
+            "kept": ["name", "shop_name", "location", "phone"]}
+
 # ===================== AUTH ENDPOINTS =====================
 
 @api_router.get("/health")
@@ -843,7 +924,7 @@ async def send_otp(req: SendOTPRequest):
         raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
     # Registered numbers only — enrollment happens on the Yash Ornaments website
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
-    if not user:
+    if not user or _account_status(user) == "deleted":
         raise HTTPException(status_code=404, detail="This number is not registered. Please enroll on the Yash Ornaments website first.")
     if _account_status(user) != "active":
         raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
@@ -855,7 +936,7 @@ async def verify_otp(req: VerifyOTPRequest):
     phone = req.phone.strip()
     otp = req.otp.strip()
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
-    if not user:
+    if not user or _account_status(user) == "deleted":
         raise HTTPException(status_code=404, detail="This number is not registered. Please enroll on the Yash Ornaments website first.")
     if _account_status(user) != "active":
         raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
@@ -891,7 +972,7 @@ async def get_me(user=Depends(get_current_user)):
 
 @api_router.put("/auth/profile")
 async def update_profile(updates: Dict[str, Any], user=Depends(get_current_user)):
-    allowed = {"name", "city", "shop_name", "location"}
+    allowed = {"name", "city", "shop_name", "location", "registration_source", "onboarding_status", "registered_at"}
     filtered = {k: str(v).strip() for k, v in updates.items() if k in allowed and isinstance(v, (str, int, float))}
     if "location" in filtered and "city" not in filtered:
         filtered["city"] = filtered["location"]  # keep legacy city field in sync
@@ -939,6 +1020,100 @@ async def phone_change_verify(req: PhoneChangeVerify, user=Depends(get_current_u
     _phone_change_store.pop(user["id"], None)
     logger.info(f"Phone changed for user {user['id']} to ...{new_phone[-4:]}")
     return await db.users.find_one({"id": user["id"]}, {"_id": 0})
+
+# ===================== ACCOUNT DELETION (in-app, Play/App Store requirement) =====================
+
+@api_router.post("/auth/delete-account/request")
+async def delete_account_request(user=Depends(get_current_user)):
+    """Step 1: OTP to the customer's own registered number to confirm the deletion."""
+    if user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Staff accounts are managed by the admin.")
+    if not _check_otp_rate(user["phone"]):
+        raise HTTPException(status_code=429, detail="Too many OTP requests. Please wait before trying again.")
+    await _send_sms_otp(user["phone"], purpose="account_deletion")
+    return {"message": "OTP sent to your registered number"}
+
+@api_router.post("/auth/delete-account/confirm")
+async def delete_account_confirm(req: DeleteAccountConfirm, user=Depends(get_current_user)):
+    """Step 2: verify the OTP and delete the account (see _delete_customer_data for what is kept)."""
+    if user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Staff accounts are managed by the admin.")
+    await _check_sms_otp(user["phone"], req.otp.strip())
+    return await _delete_customer_data(user, source="app")
+
+@api_router.get("/admin/deletion-requests")
+async def list_deletion_requests(user=Depends(get_admin_user)):
+    items = await db.deletion_requests.find({}, {"_id": 0}).sort("requested_at", -1).limit(100).to_list(100)
+    return {"requests": items, "total": await db.deletion_requests.count_documents({})}
+
+# ===================== ENROLLMENT WEBSITE INTEGRATION (server-to-server) =====================
+
+@api_router.post("/integrations/enrollments")
+async def integration_upsert_enrollment(req: EnrollmentSync, _=Depends(require_integration_key)):
+    """Upsert a customer enrolled on the website. The website already verified the phone by OTP —
+    no SMS is sent here and login tracking (has_logged_in / last_login) is never touched."""
+    phone = _normalize_phone(req.phone)
+    if len(phone) != 10 or phone[0] not in '6789':
+        raise HTTPException(status_code=400, detail="Invalid phone number")
+    now = datetime.now(timezone.utc).isoformat()
+    fields: Dict[str, Any] = {
+        "name": req.name.strip(), "shop_name": req.shop_name.strip(),
+        "location": req.location.strip(), "city": (req.city or req.location).strip(),
+        "registration_source": (req.registration_source or "website").strip(),
+        "registered_at": req.registered_at or now,
+        "onboarding_status": (req.onboarding_status or "registered").strip(),
+        "phone_verified": req.phone_verified,
+        "updated_at": now, "synced_from_website_at": now,
+    }
+    if req.consent_terms is not None:
+        fields["consent_terms"] = req.consent_terms
+    if req.consent_privacy is not None:
+        fields["consent_privacy"] = req.consent_privacy
+    existing = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if existing and existing.get("role", "customer") != "customer":
+        raise HTTPException(status_code=409, detail="This phone number belongs to a staff account")
+    if existing:
+        # Don't blank existing values with empty strings; re-activate accounts deleted earlier (re-enrollment)
+        updates = {k: v for k, v in fields.items() if v != ""}
+        if _account_status(existing) == "deleted":
+            updates.update({"account_status": "active", "status": "active", "deleted_at": None,
+                            "is_new": True, "reward_points": 0, "lead_status": "new",
+                            "customer_type": existing.get("customer_type") or "retailer",
+                            "is_eligible_rewards": True, "category_interests": []})
+        await db.users.update_one({"id": existing["id"]}, {"$set": updates})
+        created = False
+    else:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()), "phone": phone, "role": "customer",
+            "customer_code": f"AA{phone[-4:]}", "customer_type": "retailer",
+            "category_interests": [], "is_eligible_rewards": True, "assigned_salesperson": "",
+            "status": "active", "account_status": "active", "lead_status": "new",
+            "reward_points": 0, "is_new": True, "created_at": now,
+            "has_logged_in": False, "first_login_at": "", "last_login_at": "", "last_login": None,
+            **fields,
+        })
+        created = True
+    customer = await db.users.find_one({"phone": phone}, {"_id": 0})
+    logger.info(f"Website enrollment synced for ...{phone[-4:]} (created={created})")
+    return {"created": created, "customer": customer}
+
+@api_router.get("/integrations/customers/{phone}")
+async def integration_get_customer(phone: str, _=Depends(require_integration_key)):
+    """Lets the website verify field-by-field what is stored on the app backend."""
+    customer = await db.users.find_one({"phone": _normalize_phone(phone), "role": "customer"}, {"_id": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return {"customer": customer}
+
+@api_router.delete("/integrations/customers/{phone}")
+async def integration_delete_customer(phone: str, _=Depends(require_integration_key)):
+    """Account deletion requested on the website's /delete-account page."""
+    user = await db.users.find_one({"phone": _normalize_phone(phone)}, {"_id": 0})
+    if not user or user.get("role", "customer") != "customer":
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if _account_status(user) == "deleted":
+        return {"deleted": True, "already_deleted": True, "kept": ["name", "shop_name", "location", "phone"]}
+    return await _delete_customer_data(user, source="website")
 
 # ===================== PRODUCT ENDPOINTS =====================
 
@@ -2336,8 +2511,8 @@ async def get_telecaller_user(user=Depends(get_current_user)):
     return user
 
 def _telecaller_scope(user: Dict[str, Any]) -> Dict[str, Any]:
-    """Telecallers only see customers assigned to them; admins see all."""
-    query: Dict[str, Any] = {"role": "customer"}
+    """Telecallers only see customers assigned to them; admins see all. Deleted accounts are hidden."""
+    query: Dict[str, Any] = {"role": "customer", "account_status": {"$ne": "deleted"}}
     if user.get("role") != "admin":
         query["assigned_salesperson"] = user["id"]
     return query
@@ -3095,6 +3270,7 @@ async def seed_new_features():
     await db.pdf_jobs.create_index([("upload_id", 1)], unique=True)
     await db.sms_log.create_index([("sent_ts", -1)])
     await db.sms_log.create_index([("id", 1)], unique=True)
+    await db.deletion_requests.create_index([("requested_at", -1)])
 
 # ===================== APP SETUP =====================
 

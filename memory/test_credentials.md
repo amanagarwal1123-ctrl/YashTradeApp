@@ -25,5 +25,12 @@ SMS diagnostics (build 2026.09.04-sms-v5): public `GET /api/health` (expect `pro
 admin-only `GET /api/admin/sms/diagnostics`, `POST /api/admin/sms/test {phone}` (refuses demo phones), `POST /api/admin/sms/logs/{id}/recheck`;
 Admin panel → **SMS** tab. Misconfigured MSG91 now returns HTTP 503 with an explicit message instead of a false "OTP sent".
 
+Website integration (build 2026.09.09-integration-v6): header `X-Integration-Key: CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR`
+(= backend/.env ENROLLMENT_INTEGRATION_KEY). `POST /api/integrations/enrollments`, `GET|DELETE /api/integrations/customers/{phone}`.
+Safe test phones for integration upsert/delete: 8888800077 (Ramesh Kumar / Kumar Jewellers — NOT on the demo allowlist, so never call send-otp for it).
+In-app deletion: `POST /api/auth/delete-account/request` + `/confirm {otp}` — test with demo customer 8888800001 (OTP 1234) and restore it
+afterwards with the integration upsert {"phone":"8888800001","name":"Suresh Verma","shop_name":"Verma Jewellers","location":"Ludhiana","onboarding_status":"completed"}.
+Admin log: `GET /api/admin/deletion-requests`; panel Customers tab → "ACCOUNT DELETION REQUESTS".
+
 Preview URL: https://yash-tryon-test.preview.emergentagent.com
 Backend API base: https://yash-tryon-test.preview.emergentagent.com/api

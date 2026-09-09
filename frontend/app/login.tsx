@@ -8,7 +8,7 @@ import { api } from '../src/api';
 import { useLang } from '../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS, Language } from '../src/i18n';
 
-const ENROLLMENT_URL = process.env.EXPO_PUBLIC_ENROLLMENT_URL || 'https://enroll.yashornaments.com';
+const ENROLLMENT_URL = process.env.EXPO_PUBLIC_ENROLLMENT_URL || 'https://yash-register.emergent.host';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');

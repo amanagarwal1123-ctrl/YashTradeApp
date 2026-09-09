@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,8 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS } from '../../src/i18n';
 import { confirmAlert } from '../../src/utils/alert';
+
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
@@ -38,11 +40,11 @@ export default function ProfileScreen() {
     confirmAlert('Logout', 'Are you sure?', () => { logout(); router.replace('/login'); }, 'Logout');
   };
 
-  const MenuItem = ({ icon, label, value, onPress, testID }: any) => (
+  const MenuItem = ({ icon, label, value, onPress, testID, danger }: any) => (
     <TouchableOpacity testID={testID} style={styles.menuItem} onPress={onPress}>
       <View style={styles.menuLeft}>
-        <Ionicons name={icon} size={20} color={Colors.gold} />
-        <Text style={styles.menuLabel}>{label}</Text>
+        <Ionicons name={icon} size={20} color={danger ? Colors.error : Colors.gold} />
+        <Text style={[styles.menuLabel, danger && { color: Colors.error }]}>{label}</Text>
       </View>
       {value ? <Text style={styles.menuValue}>{value}</Text> : <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />}
     </TouchableOpacity>
@@ -141,6 +143,12 @@ export default function ProfileScreen() {
         </View>
 
         {/* Removed admin/executive panel section - moved to /panel web URL */}
+
+        <View style={styles.menuSection}>
+          <Text style={styles.menuSectionTitle}>PRIVACY</Text>
+          <MenuItem testID="privacy-policy-btn" icon="shield-checkmark" label="Privacy Policy" onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})} />
+          <MenuItem testID="delete-account-btn" icon="trash" label="Delete My Account" danger onPress={() => router.push('/delete-account')} />
+        </View>
 
         <TouchableOpacity testID="logout-btn" style={styles.logoutBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color={Colors.error} />
