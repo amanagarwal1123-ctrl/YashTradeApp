@@ -56,7 +56,7 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "2026.09.09-integration-v6"
+APP_BUILD = "2026.09.09-integration-v7"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
 # The DLT template id is NOT a secret (useless without the authkey). It has a built-in default because
 # Emergent snapshots deployment secrets at the FIRST deploy — a key added to backend/.env later is not
@@ -79,11 +79,15 @@ DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',
 
 # Server-to-server secret shared with the enrollment website (its LIVE_INTEGRATION_KEY).
 # Lets the website create/update/delete customers directly — no OTP login, no SMS.
-ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip()
+# Built-in default so a plain Redeploy enables the sync (deployment secrets are snapshotted at first
+# deploy); set ENROLLMENT_INTEGRATION_KEY in deployment secrets to rotate it.
+ENROLLMENT_INTEGRATION_DEFAULT_KEY = 'CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR'
+ENROLLMENT_KEY_FROM_ENV = bool(os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip())
+ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip() or ENROLLMENT_INTEGRATION_DEFAULT_KEY
 INTEGRATION_HEADER = 'X-Integration-Key'
 
 DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
-                   'OTP_DEMO_PHONES', 'OTP_DEMO_MODE', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
+                   'OTP_DEMO_PHONES', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
 
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
@@ -98,10 +102,10 @@ def _server_env_report() -> Dict[str, Any]:
         warnings.append("JWT_SECRET missing/weak — login tokens use the built-in default secret (set a strong one in deployment secrets)")
     if not present['OTP_DEMO_PHONES']:
         warnings.append("OTP_DEMO_PHONES not set — demo logins (OTP 1234) are disabled on this server; every number gets a real SMS")
-    if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
-        warnings.append("OTP_DEMO_MODE=true — EVERY number accepts OTP 1234 and no SMS is sent (never use in production)")
-    if not ENROLLMENT_INTEGRATION_KEY:
-        warnings.append("ENROLLMENT_INTEGRATION_KEY missing — website → app customer sync (POST /api/integrations/enrollments) is disabled on this server")
+    if os.environ.get('OTP_DEMO_MODE', '').lower() == 'true':
+        warnings.append("OTP_DEMO_MODE=true is set but IGNORED since build v7 — only the OTP_DEMO_PHONES allow-list uses the fixed OTP; all other numbers receive a real SMS")
+    if not ENROLLMENT_KEY_FROM_ENV:
+        warnings.append("ENROLLMENT_INTEGRATION_KEY not set — using the built-in default key for website → app sync (set your own in deployment secrets to rotate it)")
     return {
         "env_keys_present": [k for k, v in present.items() if v],
         "env_keys_missing": [k for k, v in present.items() if not v],
@@ -109,7 +113,8 @@ def _server_env_report() -> Dict[str, Any]:
         "jwt_secret_configured": JWT_SECRET_FROM_ENV,
         "demo_phones_count": len(DEMO_PHONES),
         "integration": {
-            "enabled": bool(ENROLLMENT_INTEGRATION_KEY),
+            "enabled": True,
+            "key_source": "env" if ENROLLMENT_KEY_FROM_ENV else "built-in default",
             "header": INTEGRATION_HEADER,
             "enrollments_path": "/api/integrations/enrollments",
             "delete_path": "/api/integrations/customers/{phone}",
@@ -118,8 +123,9 @@ def _server_env_report() -> Dict[str, Any]:
     }
 
 def _is_demo_phone(phone: str) -> bool:
-    if os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true':
-        return True
+    """Only the explicit OTP_DEMO_PHONES allow-list (staff/test accounts) uses the fixed OTP 1234.
+    The former global OTP_DEMO_MODE switch was removed: a stray `true` in deployment secrets silently
+    disabled every real SMS in production."""
     return phone in DEMO_PHONES
 
 def _sms_available() -> bool:
@@ -783,8 +789,6 @@ async def get_billing_or_admin(user=Depends(get_current_user)):
 
 async def require_integration_key(x_integration_key: Optional[str] = Header(None)):
     """Server-to-server auth for the enrollment website (constant-time compare, no user token)."""
-    if not ENROLLMENT_INTEGRATION_KEY:
-        raise HTTPException(status_code=503, detail="Integration key is not configured on this server (ENROLLMENT_INTEGRATION_KEY)")
     if not x_integration_key or not secrets.compare_digest(x_integration_key.strip(), ENROLLMENT_INTEGRATION_KEY):
         raise HTTPException(status_code=401, detail="Invalid integration key")
 
@@ -847,7 +851,7 @@ async def health():
         "provider_check": "ok" if pre["ok"] else "FAILED",
         "provider_message": pre["error"] or "MSG91 authkey and DLT template accepted",
         "provider_checked_at": pre["checked_at"],
-        "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
+        "demo_mode": False,  # global demo switch removed in v7 — only OTP_DEMO_PHONES use the fixed OTP
         **_server_env_report(),
     }
 
@@ -883,7 +887,7 @@ async def sms_diagnostics(force: bool = False, user=Depends(get_admin_user)):
         "authkey_hint": f"…{MSG91_AUTHKEY[-4:]}" if MSG91_AUTHKEY else None,
         "template_id": MSG91_TEMPLATE_ID or None,
         "template": pre["template"],
-        "demo_mode": os.environ.get('OTP_DEMO_MODE', 'false').lower() == 'true',
+        "demo_mode": False,  # global demo switch removed in v7 — only OTP_DEMO_PHONES use the fixed OTP
         "demo_phones": sorted(DEMO_PHONES),
         "server_env": _server_env_report(),
         "counters_24h": counters,

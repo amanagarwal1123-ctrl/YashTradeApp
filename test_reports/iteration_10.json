@@ -1,0 +1,31 @@
+{
+  "summary": "Build 2026.09.09-integration-v7 backend verified end-to-end (9/9 pytest cases pass in /app/backend/tests/test_iteration10_integration_v7.py, JUnit at /app/test_reports/pytest/iter10_results.xml). (1) GET /api/health returns build='2026.09.09-integration-v7', demo_mode=false, integration={enabled:true, key_source:'env', header:'X-Integration-Key', enrollments_path:'/api/integrations/enrollments', delete_path:'/api/integrations/customers/{phone}'}, warnings=[], and 'OTP_DEMO_MODE' is NOT in env_keys_present nor env_keys_missing; the integration key value never appears in the body. (2) Subprocess simulation (from /app/backend with `env -u ENROLLMENT_INTEGRATION_KEY OTP_DEMO_MODE=true python3 -c ...`, loading only MONGO_URL/DB_NAME/MSG91_AUTHKEY/MSG91_TEMPLATE_ID/JWT_SECRET/OTP_DEMO_PHONES from .env and disabling dotenv.load_dotenv so server import cannot re-hydrate ENROLLMENT_INTEGRATION_KEY) confirmed ENROLLMENT_INTEGRATION_KEY==ENROLLMENT_INTEGRATION_DEFAULT_KEY, ENROLLMENT_KEY_FROM_ENV=false, _is_demo_phone('9999999999')=true, _is_demo_phone('9711881372')=false (a real number is NOT demo even with OTP_DEMO_MODE=true), _server_env_report().integration.key_source='built-in default', warnings contain one mentioning OTP_DEMO_MODE + IGNORED and one mentioning built-in default key. (3) Regression: POST /api/integrations/enrollments with correct X-Integration-Key for 8888800077 (Ramesh Kumar/Kumar Jewellers/Delhi) → 200 with customer.shop_name='Kumar Jewellers'; same POST without header → 401. Demo send-otp 9999999999/8888888888 → 200; verify-otp 9999999999+1234 → token; unknown 9876501234 → 404. GET /api/admin/sms/diagnostics with admin token → 200 with demo_mode=false and server_env.integration.key_source='env'. GET /api/products?limit=3 → 200. No secrets leaked. Deprecated packages detected: none. No .env or supervisor changes were made.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10_integration_v7.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:84-86 correctly separates ENROLLMENT_INTEGRATION_DEFAULT_KEY / ENROLLMENT_KEY_FROM_ENV / ENROLLMENT_INTEGRATION_KEY, so /api/health can honestly report key_source ∈ {'env','built-in default'} without ever leaking the value.",
+    "server.py:105-106 emits an explicit warning when a legacy OTP_DEMO_MODE=true is still present in deployment secrets, and _is_demo_phone (line 125-129) now consults ONLY DEMO_PHONES — a stray global switch can no longer silently mock every SMS.",
+    "server.py:854, 890 hard-code demo_mode=false in the public health and admin diagnostics payloads — matches the v7 spec that the global demo switch was removed.",
+    "_server_env_report never returns raw env values; DEPLOY_ENV_KEYS is a fixed allow-list of KEY NAMES only — /api/health body is safe to expose publicly.",
+    "server.py continues to exceed the 700-line guideline (~3328 lines). Consider extracting routers/integrations.py and routers/health.py. Non-blocking, pre-existing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10_integration_v7.py (new)",
+    "/app/test_reports/pytest/iter10_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (skipped per request)"},
+  "seed_data_creation": "Integration upsert re-touched customer 8888800077 (Ramesh Kumar / Kumar Jewellers / Delhi) — already present from iteration 9. No other data changes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Build 2026.09.09-integration-v7 backend is green. Key invariants: (a) /api/health.demo_mode is ALWAYS false in v7; (b) /api/health.integration.key_source reflects env vs built-in default; (c) OTP_DEMO_MODE env is IGNORED and never surfaced in env_keys_present/missing, but if OTP_DEMO_MODE=true is set a warning is emitted; (d) _is_demo_phone consults ONLY OTP_DEMO_PHONES allow-list — safe demo phones are 9999999999, 8888888888, 7777777777, 6666666666, 8888800001, 8888800002; (e) built-in default integration key = CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR; never call send-otp for 8888800077 (it's for integration endpoints only) or for other real numbers. Subprocess simulation pattern: `env -u ENROLLMENT_INTEGRATION_KEY OTP_DEMO_MODE=true python3 -c \"...\"` from /app/backend, and monkey-patch `dotenv.load_dotenv=lambda *a,**k: False` BEFORE `import server` so the module-level env reads are not overridden by the real .env file — otherwise ENROLLMENT_INTEGRATION_KEY will come back and the test will fail. Frontend was NOT re-tested this iteration (owner requested backend-only)."
+}

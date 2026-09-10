@@ -1,9 +1,9 @@
 # Test Credentials — Yash Trade
 
-Real SMS OTP is live via **MSG91 OTP API** (4-digit codes, account default OTP template). The phones below are on the
+Real SMS OTP is live via **MSG91 Flow API** (4-digit codes). The phones below are on the
 demo allowlist (`OTP_DEMO_PHONES` in backend/.env) and always accept OTP `1234` —
 no SMS is sent for them. Any other valid Indian mobile (starts 6-9) receives a real SMS.
-`OTP_DEMO_MODE=false` (set to `true` to mock ALL numbers).
+The global `OTP_DEMO_MODE` switch was REMOVED in build v7 (ignored if set) — only the allow-list bypasses SMS.
 
 | Role | Where to log in | Phone | OTP |
 |------|-----------------|-------|-----|

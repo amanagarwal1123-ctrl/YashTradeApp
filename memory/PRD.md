@@ -38,6 +38,10 @@ Build a production-grade, private mobile app for "Yash Trade" / "Yash Ornaments"
 - **Security**: SecureStore token storage on devices (AsyncStorage on web, with migration); demo OTP only for OTP_DEMO_PHONES allowlist; api.ts errors carry HTTP status
 - **Demo data (dev)**: website customer 8888800001 (Suresh Verma/Verma Jewellers/Ludhiana), inactive 8888800002; DEMO_LOGIN_CREDENTIALS.txt at /app
 
+### Redeploy-only enablement — build `2026.09.09-integration-v7` (Sept 2026)
+- Owner cannot/will not edit deployment secrets, so the code no longer depends on them: `ENROLLMENT_INTEGRATION_KEY` has a built-in default (`ENROLLMENT_INTEGRATION_DEFAULT_KEY`, env overrides; health `integration.key_source` = env | built-in default) and the **global `OTP_DEMO_MODE` switch is REMOVED** (`_is_demo_phone` = allow-list only). The deployed server had `OTP_DEMO_MODE=true` in its secrets → every number accepted 1234 with no SMS; now that value is ignored (health warning says so) and `demo_mode` is always `false`.
+- A plain Redeploy (Publish) now yields: real MSG91 OTPs for all non-allow-listed numbers, website sync enabled with the shared key, in-app deletion, privacy link.
+
 ### Website ↔ App integration + In-app Account Deletion — build `2026.09.09-integration-v6` (Sept 2026)
 - **Why:** website sync used to piggyback on customer OTP login (demo OTP 1234) → impossible once demo mode is off; `shop_name`/`registration_source`/`onboarding_status` were dropped; no in-app deletion (Play policy). Implements the website's `docs/YASH_TRADE_APP_INTEGRATION.md` spec exactly.
 - **Server-to-server auth:** header `X-Integration-Key` compared (constant-time) with env `ENROLLMENT_INTEGRATION_KEY` (backend/.env; MUST also be added to deployment secrets, and the same value set on the website as `LIVE_INTEGRATION_KEY`). 401 bad key, 503 if unset. `/api/health.integration` = {enabled, header, enrollments_path, delete_path}; warning when key missing.
