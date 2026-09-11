@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIn
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../src/theme';
-import { api, getImageUrl } from '../src/api';
+import { api, getProductGallery } from '../src/api';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../src/context/AuthContext';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -12,12 +14,16 @@ export default function ImageViewerScreen() {
     productId?: string; batchId?: string; startIndex?: string; ids?: string;
   }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const {user} = useAuth();
   const [images, setImages] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  useEffect(() => { setPhotoIndex(0); }, [currentIndex]);
 
   const loadImages = useCallback(async (p: number = 1) => {
     try {
@@ -104,7 +110,8 @@ export default function ImageViewerScreen() {
     );
   }
 
-  const fullUri = getImageUrl(currentItem, false);
+  const productPhotos = getProductGallery(currentItem);
+  const fullUri = productPhotos[photoIndex] || productPhotos[0] || '';
   const title = currentItem.title || '';
   const meta = [currentItem.metal_type, currentItem.category].filter(Boolean).join(' • ');
 
@@ -131,9 +138,9 @@ export default function ImageViewerScreen() {
         centerContent={true}
         pinchGestureEnabled={true}
         style={styles.imageContainer}
-        data-testid="viewer-zoom-scroll"
+        testID="viewer-zoom-scroll"
       >
-        <Image source={{ uri: fullUri }} style={styles.fullImage} resizeMode="contain" data-testid="viewer-main-image" />
+        <Image source={{ uri: fullUri }} style={styles.fullImage} resizeMode="contain" testID="viewer-main-image" />
       </ScrollView>
 
       {/* Zoom hint */}
@@ -155,7 +162,11 @@ export default function ImageViewerScreen() {
       )}
 
       {/* Bottom Info */}
-      <View style={styles.bottomInfo}>
+      <View style={[styles.bottomInfo, {paddingBottom: Math.max(insets.bottom, 16)}]}>
+        {productPhotos.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoStrip}>
+          {productPhotos.map((uri,index)=><TouchableOpacity key={uri} testID={`viewer-photo-${index}`} accessibilityLabel={`Product photograph ${index+1}`} onPress={()=>setPhotoIndex(index)} style={[styles.photoThumb, photoIndex===index && styles.photoSelected]}><Image source={{uri}} style={styles.fullImage} resizeMode="contain"/></TouchableOpacity>)}
+        </ScrollView>}
+        {user?.role==='admin' && <TouchableOpacity testID="viewer-manage-photos" style={styles.photoManage} onPress={()=>router.push({pathname:'/product-photos',params:{id:currentItem.id}})}><Text style={styles.imageMeta}>Manage product photographs</Text></TouchableOpacity>}
         {title ? <Text style={styles.imageTitle} numberOfLines={1}>{title}</Text> : null}
         {meta ? <Text style={styles.imageMeta}>{meta}</Text> : null}
         <View style={styles.bottomActions}>
@@ -174,6 +185,10 @@ export default function ImageViewerScreen() {
 }
 
 const styles = StyleSheet.create({
+  photoStrip: { gap: 10, paddingBottom: 14 },
+  photoThumb: { width: 54, height: 54, borderRadius: 8, borderWidth: 1, borderColor: Colors.border },
+  photoSelected: { borderColor: Colors.gold, borderWidth: 2 },
+  photoManage: { minHeight: 44, justifyContent: 'center' },
   container: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
   counter: { position: 'absolute', top: 56, left: 0, right: 0, zIndex: 10, alignItems: 'center' },

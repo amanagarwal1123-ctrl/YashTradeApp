@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api, getImageUrl } from '../../src/api';
+import { api, getProductGallery } from '../../src/api';
 import { showAlert } from '../../src/utils/alert';
 
 export default function ProductDetail() {
@@ -68,11 +68,8 @@ export default function ProductDetail() {
   }
   if (!product) return <View style={styles.loader}><Text style={styles.errorText}>Product not found</Text></View>;
 
-  const images = product.images || [];
-  const hasStorageImage = !!product.storage_path;
-  const displayImageUri = hasStorageImage
-    ? getImageUrl(product, false)
-    : images[currentImage] || getImageUrl(product, false);
+  const images = getProductGallery(product);
+  const displayImageUri = images[currentImage] || images[0] || '';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -121,7 +118,7 @@ export default function ProductDetail() {
           {images.length > 1 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbRow}>
               {images.map((img: string, i: number) => (
-                <TouchableOpacity key={i} onPress={() => setCurrentImage(i)}>
+                <TouchableOpacity testID={`product-photo-${i}`} key={i} onPress={() => setCurrentImage(i)}>
                   <Image source={{ uri: img }} style={[styles.thumb, currentImage === i && styles.thumbActive]} />
                 </TouchableOpacity>
               ))}

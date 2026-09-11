@@ -115,3 +115,9 @@ frontend/.metro-cache/
 credentials.json
 *.key
 .credentials
+private/
+identity-exports/
+migration-reports/
+review-access*
+backend/import-tmp/
+!backend/.env.example

@@ -1,0 +1,11 @@
+{
+  "contract_version": 1,
+  "synthetic_only": true,
+  "website_export": [
+    {"collection":"staff_users","record_id":"synthetic-web-17","canonical_user_id":"synthetic-app-42","phone":"+91 60000 00001","phone_verified":true,"verified_at":null,"role":"telecaller","account_status":"active","created_at":"2026-09-01T00:00:00+00:00","updated_at":"2026-09-02T00:00:00+00:00"}
+  ],
+  "app_export": [
+    {"id":"synthetic-app-42","phone":"6000000001","phone_verified":true,"role":"executive","account_status":"active","session_version":0}
+  ],
+  "approved_mapping_format": {"synthetic-app-42":{"role":"telecaller","approval_reference":"PRIVATE-OWNER-APPROVAL-ID"}}
+}

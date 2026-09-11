@@ -2,12 +2,12 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { api, setToken } from '../api';
+import { api, setToken, setRefreshToken } from '../api';
 
 // Secure token storage: SecureStore on devices, AsyncStorage on web
 const tokenStore = {
   get: async (): Promise<string | null> => {
-    if (Platform.OS === 'web') return AsyncStorage.getItem('auth_token');
+    if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return null; }
     const secure = await SecureStore.getItemAsync('auth_token');
     if (secure) return secure;
     // One-time migration from the old AsyncStorage location
@@ -18,7 +18,7 @@ const tokenStore = {
     }
     return legacy;
   },
-  set: (v: string) => Platform.OS === 'web' ? AsyncStorage.setItem('auth_token', v) : SecureStore.setItemAsync('auth_token', v),
+  set: (v: string) => Platform.OS === 'web' ? Promise.resolve() : SecureStore.setItemAsync('auth_token', v),
   remove: async () => {
     if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return; }
     await SecureStore.deleteItemAsync('auth_token');
@@ -51,14 +51,14 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (token: string, user: User) => Promise<void>;
+  login: (token: string, user: User, refreshToken?: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null, loading: true,
-  login: async () => {}, logout: async () => {}, refreshUser: async () => {},
+  login: async () => { throw new Error('Authentication provider unavailable'); }, logout: async () => {}, refreshUser: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -85,13 +85,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = async (token: string, userData: User) => {
+  const login = async (token: string, userData: User, refreshToken?: string) => {
     await tokenStore.set(token);
     setToken(token);
-    setUser(userData);
+    await setRefreshToken(refreshToken || null);
+    const me = await api.get('/auth/me');
+    if (!['customer', 'admin', 'telecaller', 'billing_executive'].includes(me.role)) throw new Error('Unknown account role');
+    setUser(me);
+    return me;
   };
 
   const logout = async () => {
+    try { await api.post('/auth/logout'); } catch { /* Local tokens are still removed if offline. */ }
+    await setRefreshToken(null);
     await tokenStore.remove();
     setToken(null);
     setUser(null);

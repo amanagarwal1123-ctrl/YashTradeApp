@@ -1,0 +1,8 @@
+{
+  "template_version": 1,
+  "products": [
+    {"product_code":"SAMPLE-SILVER-001","title":"Silver floral anklets","metal_type":"silver","category":"payal","description":"Illustrative sample pair; not live inventory.","approx_weight":"85-90 g","purity":"92.5%","selling_touch":"92.5","selling_label":"Sample only","stock_status":"in_stock","tags":["sample","anklets"],"visibility":"hidden","is_new_arrival":true,"is_trending":false,"is_pinned":false,"photo":"silver.jpg"},
+    {"product_code":"SAMPLE-GOLD-001","title":"Gold floral bangle","metal_type":"gold","category":"bangles","description":"Illustrative gold bangle. Sample only.","approx_weight":"22.5 g","purity":"22K","stock_status":"limited","visibility":"hidden","photo":"gold.jpg"},
+    {"product_code":"SAMPLE-DIAMOND-001","title":"Diamond solitaire pendant","metal_type":"diamond","category":"pendants","description":"Illustrative pendant with separate setting and stone fields.","approx_weight":"4.2 g","purity":"18K","base_metal":"gold","stone_weight_ct":0.75,"stock_status":"in_stock","visibility":"hidden","photo":"diamond.jpg"}
+  ]
+}

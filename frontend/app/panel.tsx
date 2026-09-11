@@ -9,11 +9,12 @@ import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUpload
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
+import { downloadSample } from '../src/pdfClient';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives' | 'sms';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
-type Role = 'admin' | 'executive' | 'billing_executive' | null;
+type Role = 'admin' | 'telecaller' | 'billing_executive' | null;
 
 const KEEP_AWAKE_TAG = 'yash-panel-upload';
 
@@ -132,10 +133,11 @@ export default function PanelScreen() {
     if (appAuthLoading || authStep === 'done') return;
     if (appUser) {
       if (appUser.role === 'customer') { router.replace('/(tabs)'); return; }
-      if (['admin', 'executive', 'billing_executive'].includes(appUser.role)) {
+      if (appUser.role === 'telecaller') { router.replace('/telecaller'); return; }
+      if (['admin', 'telecaller', 'billing_executive'].includes(appUser.role)) {
         setUser(appUser);
         setRole(appUser.role as Role);
-        setTab(appUser.role === 'billing_executive' ? 'rewards' : appUser.role === 'executive' ? 'requests' : 'dashboard');
+        setTab(appUser.role === 'billing_executive' ? 'rewards' : 'dashboard');
         setAuthStep('done');
       }
     }
@@ -156,15 +158,16 @@ export default function PanelScreen() {
     try {
       const res = await api.post('/auth/verify-otp', { phone, otp });
       const u = res.user;
-      if (u.role !== 'admin' && u.role !== 'executive' && u.role !== 'billing_executive') {
+      if (u.role !== 'admin' && u.role !== 'telecaller' && u.role !== 'billing_executive') {
         setAuthError('Access denied. This panel is for admin and executive users only.');
         setToken(null);
         return;
       }
-      await appLogin(res.token, u);
-      setUser(u);
-      setRole(u.role);
-      setTab(u.role === 'billing_executive' ? 'rewards' : u.role === 'executive' ? 'requests' : 'dashboard');
+      const canonical = await appLogin(res.token, u, res.refresh_token);
+      if (canonical.role === 'telecaller') { router.replace('/telecaller'); return; }
+      setUser(canonical);
+      setRole(canonical.role as Role);
+      setTab(canonical.role === 'billing_executive' ? 'rewards' : 'dashboard');
       setAuthStep('done');
     } catch (e: any) { setAuthError(e.message); }
     finally { setAuthLoading(false); }
@@ -301,6 +304,8 @@ export default function PanelScreen() {
   };
 
   const pickPdfFile = () => {
+    router.push({ pathname: '/pdf-import', params: { batchId: uploadBatchId } });
+    return;
     if (Platform.OS === 'web') {
       const input = document.createElement('input');
       input.type = 'file'; input.accept = '.pdf,application/pdf'; input.multiple = false;
@@ -316,7 +321,7 @@ export default function PanelScreen() {
     if (!uploadBatchId || !pdfFile) return;
     setPdfImporting(true); setPdfResult(null); setPdfPhase(''); setPdfProgress(0); setPdfStage('idle');
     try {
-      const result = await api.importPdfChunked(uploadBatchId, pdfFile, (stage, detail, progress) => {
+      const result = await api.importPdfChunked(uploadBatchId, pdfFile, (stage: 'idle' | 'validating' | 'uploading' | 'processing' | 'done' | 'error', detail: string, progress?: number) => {
         setPdfStage(stage);
         setPdfPhase(detail);
         if (progress !== undefined) setPdfProgress(progress);
@@ -443,6 +448,8 @@ export default function PanelScreen() {
   ];
   const BILLING_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'rewards', label: 'Reward Wallet', icon: 'wallet' },
+    { key: 'requests', label: 'Pending queries', icon: 'time-outline' },
+    { key: 'rates', label: 'Rates & rate list', icon: 'trending-up' },
   ];
   const tabs = role === 'admin' ? ADMIN_TABS : role === 'billing_executive' ? BILLING_TABS : EXEC_TABS;
 
@@ -463,7 +470,12 @@ export default function PanelScreen() {
       {/* Tab bar */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabBar}>
         {tabs.map(t => (
-          <TouchableOpacity key={t.key} testID={`panel-tab-${t.key}`} style={[s.tabItem, tab === t.key && s.tabActive]} onPress={() => setTab(t.key)}>
+          <TouchableOpacity key={t.key} testID={`panel-tab-${t.key}`} style={[s.tabItem, tab === t.key && s.tabActive]} onPress={() => {
+            if(t.key === 'requests') router.push('/staff-requests');
+            else if(t.key === 'rates') router.push('/staff-rates');
+            else if(t.key === 'customers') router.push('/customer-directory');
+            else setTab(t.key);
+          }}>
             <Ionicons name={t.icon as any} size={16} color={tab === t.key ? Colors.gold : Colors.textMuted} />
             <Text style={[s.tabLabel, tab === t.key && s.tabLabelActive]}>{t.label}</Text>
           </TouchableOpacity>
@@ -687,7 +699,7 @@ export default function PanelScreen() {
                       <Text style={s.menuCardTitle}>Upload Images</Text>
                       <Text style={s.menuCardHint}>Upload photos from device</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity testID="pm-pdf" style={s.menuCard} onPress={() => { setProductSubView('pdf_import'); loadTab('products'); }}>
+                    <TouchableOpacity testID="pm-pdf" style={s.menuCard} onPress={() => router.push('/pdf-import')}>
                       <View style={[s.menuCardIcon, { backgroundColor: '#E91E63' + '15' }]}><Ionicons name="document-text" size={28} color="#E91E63" /></View>
                       <Text style={s.menuCardTitle}>Import PDF</Text>
                       <Text style={s.menuCardHint}>Import PDF catalogue as products</Text>
@@ -967,11 +979,12 @@ export default function PanelScreen() {
                           <Ionicons name="document-text" size={20} color="#E91E63" />
                           <Text style={{ fontSize: FontSize.md, fontWeight: '700', color: Colors.text }}>Import PDF Catalogue</Text>
                         </View>
-                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.xs, marginBottom: Spacing.md }}>Upload a PDF file — each page will be extracted as a separate product image</Text>
+                        <Text style={{ color: Colors.textSecondary, fontSize: FontSize.xs, marginBottom: Spacing.md }}>Open the reviewed importer for product blocks, square crops and hidden draft confirmation.</Text>
+                        <TouchableOpacity testID="batch-download-pdf-sample" style={s.pickBtn} onPress={() => downloadSample().catch((e: any) => showAlert('Download failed', e.message))}><Ionicons name="download-outline" size={22} color={Colors.gold}/><Text style={s.formLabel}>Download Sample PDF</Text></TouchableOpacity>
                         <TouchableOpacity style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
                           <Ionicons name="document-text" size={32} color="#E91E63" />
                           <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '600' }}>Tap to select PDF file</Text>
-                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF only — Max 300MB — Pages become product images</Text>
+                          <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>Server limits, upload/resume and review are shown in the shared importer.</Text>
                         </TouchableOpacity>
                         {pdfFile && (
                           <View style={{ marginTop: Spacing.md, backgroundColor: Colors.surface, borderRadius: 10, padding: Spacing.md }}>

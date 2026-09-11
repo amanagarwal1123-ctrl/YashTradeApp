@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,10 +8,13 @@ import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 
 export default function VerifyOTPScreen() {
-  const { phone } = useLocalSearchParams<{ phone: string }>();
+  const { phone, challengeId } = useLocalSearchParams<{ phone: string; challengeId: string }>();
   const [otp, setOtp] = useState(['', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [activeChallenge, setActiveChallenge] = useState(challengeId);
+  const [cooldown, setCooldown] = useState(60);
+  useEffect(() => { const timer = setInterval(() => setCooldown(n => Math.max(0,n-1)),1000); return () => clearInterval(timer); }, []);
   const refs = [useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null), useRef<TextInput>(null)];
   const router = useRouter();
   const { login } = useAuth();
@@ -34,15 +37,17 @@ export default function VerifyOTPScreen() {
   };
 
   const verifyOTP = async (code: string) => {
+    if (loading) return;
     setLoading(true); setError('');
     try {
-      const res = await api.post('/auth/verify-otp', { phone, otp: code });
-      await login(res.token, res.user);
+      const res = await api.post('/auth/verify-otp', { phone, otp: code, challenge_id: activeChallenge, channel: 'mobile' });
+      const currentUser = await login(res.token, res.user, res.refresh_token);
       // Role-based routing — the backend-verified role decides the experience
-      const role = res.user?.role || 'customer';
-      if (role === 'executive') router.replace('/telecaller');
+      const role = currentUser.role;
+      if (role === 'telecaller') router.replace('/telecaller');
       else if (role === 'admin' || role === 'billing_executive') router.replace('/panel');
-      else router.replace('/(tabs)');
+      else if (role === 'customer') router.replace('/(tabs)');
+      else throw new Error('Unknown account role; contact support');
     } catch (e: any) {
       setError(e.message || 'Invalid OTP');
       setOtp(['', '', '', '']);
@@ -73,6 +78,7 @@ export default function VerifyOTPScreen() {
               keyboardType="number-pad"
               maxLength={1}
               value={d}
+              editable={!loading}
               onChangeText={(t) => handleChange(t, i)}
               onKeyPress={(e) => handleKeyPress(e, i)}
               autoFocus={i === 0}
@@ -80,16 +86,22 @@ export default function VerifyOTPScreen() {
           ))}
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text testID="verify-otp-error" style={styles.error}>{error}</Text> : null}
         {loading && <ActivityIndicator color={Colors.gold} style={{ marginTop: Spacing.md }} />}
 
         <Text style={styles.hint}>OTP sent via SMS to your mobile number</Text>
+        <TouchableOpacity testID="otp-resend" style={styles.resend} disabled={cooldown>0 || loading} onPress={async () => {
+          setLoading(true); setError('');
+          try { const sent=await api.post('/auth/send-otp',{phone,channel:'mobile'}); setActiveChallenge(sent.challenge_id); setCooldown(sent.resend_after); setOtp(['','','','']); }
+          catch(e:any){setError(e.message);} finally{setLoading(false);}
+        }}><Text testID="otp-resend-countdown" style={styles.subtitle}>{cooldown>0?`Resend available in ${cooldown}s`:'Resend OTP'}</Text></TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  resend: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   container: { flex: 1, backgroundColor: Colors.background },
   inner: { flex: 1, paddingHorizontal: Spacing.lg },
   backBtn: { marginTop: Spacing.md, padding: Spacing.sm },

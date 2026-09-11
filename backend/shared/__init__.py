@@ -1,0 +1,1 @@
+"""Canonical shared services. Legacy catalog/rewards endpoints remain compatible."""

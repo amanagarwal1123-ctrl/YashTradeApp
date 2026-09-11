@@ -9,7 +9,7 @@ import { useAuth } from '../src/context/AuthContext';
 import { showAlert } from '../src/utils/alert';
 
 export default function EditProfileScreen() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
   const router = useRouter();
 
   const [name, setName] = useState(user?.name || '');
@@ -56,9 +56,9 @@ export default function EditProfileScreen() {
     setPhoneBusy(true);
     try {
       await api.post('/auth/phone-change/verify', { new_phone: newPhone, otp: phoneOtp });
-      await refreshUser();
-      setShowPhoneChange(false); setOtpSent(false); setNewPhone(''); setPhoneOtp('');
-      showAlert('Phone Updated', 'Your registered number has been changed');
+      await logout();
+      showAlert('Phone Updated', 'Your identity and history are preserved. Sign in with the new number and a fresh OTP.');
+      router.replace('/login');
     } catch (e: any) {
       setPhoneError(e?.message || 'Could not verify OTP');
     } finally { setPhoneBusy(false); }

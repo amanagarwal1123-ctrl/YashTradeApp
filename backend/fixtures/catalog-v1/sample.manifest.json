@@ -1,0 +1,187 @@
+{
+  "template": {
+    "version": 1,
+    "page_size_mm": [
+      210,
+      297
+    ],
+    "points_per_mm": 2.834645669291339,
+    "max_blocks_per_page": 2,
+    "slots_mm": [
+      [
+        10,
+        22,
+        200,
+        151
+      ],
+      [
+        10,
+        157,
+        200,
+        286
+      ]
+    ],
+    "photo_boxes_points": [
+      [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ]
+    ],
+    "field_boxes_points": [
+      [
+        289.13385826771656,
+        96.37795275590553,
+        555.5905511811025,
+        411.02362204724415
+      ],
+      [
+        289.13385826771656,
+        479.05511811023626,
+        555.5905511811025,
+        793.7007874015749
+      ]
+    ],
+    "begin_marker_mm": {
+      "x": 12,
+      "offset_y": 6
+    },
+    "end_marker_mm": {
+      "x": 12,
+      "offset_y": 127
+    },
+    "master_pixels": 1024,
+    "thumbnail_pixels": 320,
+    "fields": {
+      "Product Code": "product_code",
+      "Product Name": "title",
+      "Product Type": "metal_type",
+      "Category": "category",
+      "Description": "description",
+      "Subcategory": "subcategory",
+      "Metal Weight": "approx_weight",
+      "Purity": "purity",
+      "Selling Touch": "selling_touch",
+      "Selling Label": "selling_label",
+      "Stock Status": "stock_status",
+      "Tags": "tags",
+      "Video URL": "video_url",
+      "Visibility": "visibility",
+      "New Arrival": "is_new_arrival",
+      "Trending": "is_trending",
+      "Pinned": "is_pinned",
+      "Base Metal": "base_metal",
+      "Stone Weight ct": "stone_weight_ct"
+    },
+    "defaults": {
+      "stock_status": "in_stock",
+      "visibility": "hidden",
+      "is_new_arrival": true,
+      "is_trending": false,
+      "is_pinned": false,
+      "tags": []
+    },
+    "required": [
+      "product_code",
+      "title",
+      "metal_type",
+      "category",
+      "photo"
+    ],
+    "modes": [
+      "template_v1",
+      "legacy_pages"
+    ],
+    "default_visibility": "hidden",
+    "cropbox_policy": "full A4 required; rotated pages supported; altered crop boxes rejected with instructions"
+  },
+  "products": [
+    {
+      "product_code": "SAMPLE-SILVER-001",
+      "page": 2,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "SAMPLE-SILVER-001",
+        "title": "Silver floral anklets",
+        "metal_type": "silver",
+        "category": "payal",
+        "description": "Illustrative sample pair; not live inventory.",
+        "approx_weight": "85-90 g",
+        "purity": "92.5%",
+        "selling_touch": "92.5",
+        "selling_label": "Sample only",
+        "stock_status": "in_stock",
+        "tags": [
+          "sample",
+          "anklets"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "silver.jpg"
+    },
+    {
+      "product_code": "SAMPLE-GOLD-001",
+      "page": 2,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "SAMPLE-GOLD-001",
+        "title": "Gold floral bangle",
+        "metal_type": "gold",
+        "category": "bangles",
+        "description": "Illustrative gold bangle. Sample only.",
+        "approx_weight": "22.5 g",
+        "purity": "22K",
+        "stock_status": "limited",
+        "visibility": "hidden"
+      },
+      "photo": "gold.jpg"
+    },
+    {
+      "product_code": "SAMPLE-DIAMOND-001",
+      "page": 3,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "SAMPLE-DIAMOND-001",
+        "title": "Diamond solitaire pendant",
+        "metal_type": "diamond",
+        "category": "pendants",
+        "description": "Illustrative pendant with separate setting and stone fields.",
+        "approx_weight": "4.2 g",
+        "purity": "18K",
+        "base_metal": "gold",
+        "stone_weight_ct": 0.75,
+        "stock_status": "in_stock",
+        "visibility": "hidden"
+      },
+      "photo": "diamond.jpg"
+    }
+  ]
+}

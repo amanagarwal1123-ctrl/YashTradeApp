@@ -7,8 +7,9 @@ import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
 import { useLang } from '../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS, Language } from '../src/i18n';
+import Constants from 'expo-constants';
 
-const ENROLLMENT_URL = process.env.EXPO_PUBLIC_ENROLLMENT_URL || 'https://yash-register.emergent.host';
+const ENROLLMENT_URL = Constants.expoConfig?.extra?.enrollmentUrl || '';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');
@@ -29,10 +30,10 @@ export default function LoginScreen() {
     if (phone.length < 10) { setError(t.invalidPhone); return; }
     setLoading(true); setError(''); setRegistrationRequired(false);
     try {
-      await api.post('/auth/send-otp', { phone });
-      router.push({ pathname: '/verify-otp', params: { phone } });
+      const result = await api.post('/auth/send-otp', { phone, channel: 'mobile' });
+      router.push({ pathname: '/verify-otp', params: { phone, challengeId: result.challenge_id } });
     } catch (e: any) {
-      if (e?.status === 404) {
+      if (e?.code === 'USER_NOT_FOUND') {
         setRegistrationRequired(true);
       } else {
         setError(e.message || 'Failed to send OTP');
@@ -83,7 +84,7 @@ export default function LoginScreen() {
               onChangeText={(val) => { setPhone(val.replace(/[^0-9]/g, '')); setError(''); setRegistrationRequired(false); }}
             />
           </View>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text testID="login-error" style={styles.error}>{error}</Text> : null}
 
           {registrationRequired && (
             <View style={styles.regBox} testID="registration-required">

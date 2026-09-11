@@ -1,0 +1,2147 @@
+{
+  "template": {
+    "version": 1,
+    "page_size_mm": [
+      210,
+      297
+    ],
+    "points_per_mm": 2.834645669291339,
+    "max_blocks_per_page": 2,
+    "slots_mm": [
+      [
+        10,
+        22,
+        200,
+        151
+      ],
+      [
+        10,
+        157,
+        200,
+        286
+      ]
+    ],
+    "photo_boxes_points": [
+      [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ]
+    ],
+    "field_boxes_points": [
+      [
+        289.13385826771656,
+        96.37795275590553,
+        555.5905511811025,
+        411.02362204724415
+      ],
+      [
+        289.13385826771656,
+        479.05511811023626,
+        555.5905511811025,
+        793.7007874015749
+      ]
+    ],
+    "begin_marker_mm": {
+      "x": 12,
+      "offset_y": 6
+    },
+    "end_marker_mm": {
+      "x": 12,
+      "offset_y": 127
+    },
+    "master_pixels": 1024,
+    "thumbnail_pixels": 320,
+    "fields": {
+      "Product Code": "product_code",
+      "Product Name": "title",
+      "Product Type": "metal_type",
+      "Category": "category",
+      "Description": "description",
+      "Subcategory": "subcategory",
+      "Metal Weight": "approx_weight",
+      "Purity": "purity",
+      "Selling Touch": "selling_touch",
+      "Selling Label": "selling_label",
+      "Stock Status": "stock_status",
+      "Tags": "tags",
+      "Video URL": "video_url",
+      "Visibility": "visibility",
+      "New Arrival": "is_new_arrival",
+      "Trending": "is_trending",
+      "Pinned": "is_pinned",
+      "Base Metal": "base_metal",
+      "Stone Weight ct": "stone_weight_ct"
+    },
+    "defaults": {
+      "stock_status": "in_stock",
+      "visibility": "hidden",
+      "is_new_arrival": true,
+      "is_trending": false,
+      "is_pinned": false,
+      "tags": []
+    },
+    "required": [
+      "product_code",
+      "title",
+      "metal_type",
+      "category",
+      "photo"
+    ],
+    "modes": [
+      "template_v1",
+      "legacy_pages"
+    ],
+    "default_visibility": "hidden",
+    "cropbox_policy": "full A4 required; rotated pages supported; altered crop boxes rejected with instructions"
+  },
+  "products": [
+    {
+      "product_code": "BENCH-S-000",
+      "page": 2,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-000",
+        "title": "Benchmark Product 0",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-001",
+      "page": 2,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-001",
+        "title": "Benchmark Product 1",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-002",
+      "page": 3,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-002",
+        "title": "Benchmark Product 2",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-003",
+      "page": 3,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-003",
+        "title": "Benchmark Product 3",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-004",
+      "page": 4,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-004",
+        "title": "Benchmark Product 4",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-005",
+      "page": 4,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-005",
+        "title": "Benchmark Product 5",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-006",
+      "page": 5,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-006",
+        "title": "Benchmark Product 6",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-007",
+      "page": 5,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-007",
+        "title": "Benchmark Product 7",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-008",
+      "page": 6,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-008",
+        "title": "Benchmark Product 8",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-009",
+      "page": 6,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-009",
+        "title": "Benchmark Product 9",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-010",
+      "page": 7,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-010",
+        "title": "Benchmark Product 10",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-011",
+      "page": 7,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-011",
+        "title": "Benchmark Product 11",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-012",
+      "page": 8,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-012",
+        "title": "Benchmark Product 12",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-013",
+      "page": 8,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-013",
+        "title": "Benchmark Product 13",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-014",
+      "page": 9,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-014",
+        "title": "Benchmark Product 14",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-015",
+      "page": 9,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-015",
+        "title": "Benchmark Product 15",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-016",
+      "page": 10,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-016",
+        "title": "Benchmark Product 16",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-017",
+      "page": 10,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-017",
+        "title": "Benchmark Product 17",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-018",
+      "page": 11,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-018",
+        "title": "Benchmark Product 18",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-019",
+      "page": 11,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-019",
+        "title": "Benchmark Product 19",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-020",
+      "page": 12,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-020",
+        "title": "Benchmark Product 20",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-021",
+      "page": 12,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-021",
+        "title": "Benchmark Product 21",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-022",
+      "page": 13,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-022",
+        "title": "Benchmark Product 22",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-023",
+      "page": 13,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-023",
+        "title": "Benchmark Product 23",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-024",
+      "page": 14,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-024",
+        "title": "Benchmark Product 24",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-025",
+      "page": 14,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-025",
+        "title": "Benchmark Product 25",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-026",
+      "page": 15,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-026",
+        "title": "Benchmark Product 26",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-027",
+      "page": 15,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-027",
+        "title": "Benchmark Product 27",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-028",
+      "page": 16,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-028",
+        "title": "Benchmark Product 28",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-029",
+      "page": 16,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-029",
+        "title": "Benchmark Product 29",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-030",
+      "page": 17,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-030",
+        "title": "Benchmark Product 30",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-031",
+      "page": 17,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-031",
+        "title": "Benchmark Product 31",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-032",
+      "page": 18,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-032",
+        "title": "Benchmark Product 32",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-033",
+      "page": 18,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-033",
+        "title": "Benchmark Product 33",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-034",
+      "page": 19,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-034",
+        "title": "Benchmark Product 34",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-035",
+      "page": 19,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-035",
+        "title": "Benchmark Product 35",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-036",
+      "page": 20,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-036",
+        "title": "Benchmark Product 36",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-037",
+      "page": 20,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-037",
+        "title": "Benchmark Product 37",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-038",
+      "page": 21,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-038",
+        "title": "Benchmark Product 38",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-039",
+      "page": 21,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-039",
+        "title": "Benchmark Product 39",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-040",
+      "page": 22,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-040",
+        "title": "Benchmark Product 40",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-041",
+      "page": 22,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-041",
+        "title": "Benchmark Product 41",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-042",
+      "page": 23,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-042",
+        "title": "Benchmark Product 42",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-043",
+      "page": 23,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-043",
+        "title": "Benchmark Product 43",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-044",
+      "page": 24,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-044",
+        "title": "Benchmark Product 44",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-045",
+      "page": 24,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-045",
+        "title": "Benchmark Product 45",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-046",
+      "page": 25,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-046",
+        "title": "Benchmark Product 46",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-047",
+      "page": 25,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-047",
+        "title": "Benchmark Product 47",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-048",
+      "page": 26,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-048",
+        "title": "Benchmark Product 48",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-049",
+      "page": 26,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-049",
+        "title": "Benchmark Product 49",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-050",
+      "page": 27,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-050",
+        "title": "Benchmark Product 50",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-051",
+      "page": 27,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-051",
+        "title": "Benchmark Product 51",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-052",
+      "page": 28,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-052",
+        "title": "Benchmark Product 52",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-053",
+      "page": 28,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-053",
+        "title": "Benchmark Product 53",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-054",
+      "page": 29,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-S-054",
+        "title": "Benchmark Product 54",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-055",
+      "page": 29,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-G-055",
+        "title": "Benchmark Product 55",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-056",
+      "page": 30,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-D-056",
+        "title": "Benchmark Product 56",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    },
+    {
+      "product_code": "BENCH-S-057",
+      "page": 30,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-S-057",
+        "title": "Benchmark Product 57",
+        "metal_type": "silver",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "925",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "silver"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/silver.jpg"
+    },
+    {
+      "product_code": "BENCH-G-058",
+      "page": 31,
+      "slot": 0,
+      "crop_points": [
+        45.35433070866142,
+        119.05511811023624,
+        272.12598425196853,
+        345.82677165354335
+      ],
+      "fields": {
+        "product_code": "BENCH-G-058",
+        "title": "Benchmark Product 58",
+        "metal_type": "gold",
+        "category": "chain",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "gold"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/gold.jpg"
+    },
+    {
+      "product_code": "BENCH-D-059",
+      "page": 31,
+      "slot": 1,
+      "crop_points": [
+        45.35433070866142,
+        501.732283464567,
+        272.12598425196853,
+        728.5039370078741
+      ],
+      "fields": {
+        "product_code": "BENCH-D-059",
+        "title": "Benchmark Product 59",
+        "metal_type": "diamond",
+        "category": "ring",
+        "description": "Synthetic benchmark fixture",
+        "subcategory": "daily",
+        "approx_weight": "10-12 g",
+        "purity": "22K",
+        "base_metal": "gold",
+        "selling_touch": "92.5",
+        "selling_label": "Benchmark",
+        "stock_status": "in_stock",
+        "tags": [
+          "bench",
+          "diamond"
+        ],
+        "visibility": "hidden",
+        "is_new_arrival": true,
+        "is_trending": false,
+        "is_pinned": false
+      },
+      "photo": "../backend/fixtures/catalog-v1/diamond.jpg"
+    }
+  ]
+}

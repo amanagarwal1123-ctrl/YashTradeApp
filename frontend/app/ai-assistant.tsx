@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
+import { showAlert } from '../src/utils/alert';
 import { useLang } from '../src/context/LanguageContext';
 
 interface Message { id: string; role: 'user' | 'assistant'; content: string; }
@@ -38,7 +39,7 @@ export default function AIAssistantScreen() {
     try {
       const res = await api.post('/ai/chat', { message: msg, session_id: sessionId, language });
       if (res.session_id) setSessionId(res.session_id);
-      const aiMsg: Message = { id: (Date.now() + 1).toString(), role: 'assistant', content: res.response };
+      const aiMsg: Message = { id: res.message_id || (Date.now() + 1).toString(), role: 'assistant', content: res.response };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e) {
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
@@ -50,6 +51,10 @@ export default function AIAssistantScreen() {
       {item.role === 'assistant' && <View style={styles.aiAvatar}><Ionicons name="sparkles" size={14} color={Colors.gold} /></View>}
       <View style={[styles.msgBubble, item.role === 'user' ? styles.userBubble : styles.aiBubble]}>
         <Text style={[styles.msgText, item.role === 'user' && styles.userMsgText]}>{item.content}</Text>
+        {item.role === 'assistant' && <TouchableOpacity testID={`report-ai-${item.id}`} style={styles.reportButton} onPress={async () => {
+          try { await api.post('/ai/reports', { message_id: item.id, reason: 'Problematic generated content' }); showAlert('Reported', 'This message is hidden from future history and queued for moderation.'); }
+          catch (e: any) { showAlert('Report not sent', e.message); }
+        }}><Ionicons name="flag-outline" size={16} color={Colors.warning}/><Text style={styles.reportText}>Report content</Text></TouchableOpacity>}
       </View>
     </View>
   );
@@ -105,6 +110,8 @@ export default function AIAssistantScreen() {
 }
 
 const styles = StyleSheet.create({
+  reportButton: { minHeight: 44, flexDirection: 'row', gap: 8, alignItems: 'center' },
+  reportText: { color: Colors.warning, fontSize: 12 },
   container: { flex: 1, backgroundColor: Colors.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },
   backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },

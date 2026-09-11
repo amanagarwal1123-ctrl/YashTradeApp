@@ -1,0 +1,53 @@
+{
+  "summary": "Executed authenticated mobile-web UI coverage via local Playwright pytest with ASGI route forwarding (**/api/** -> shared api_client) in same async loop. Covered admin panel + requests/history + directory + rates/slabs + PDF flow, telecaller requests/leads, billing rates/slabs, and customer home/gallery. All 4 authored UI tests passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin PDF upload (small sample)",
+        "issue": "Observed intermittent chunk upload conflict (POST /api/pdf-upload/{id}/chunk?chunk_index=1 -> 409) during browser upload; flow still completed after analysis/process path.",
+        "affected_testIDs": [
+          "pdf-upload",
+          "pdf-selected-file",
+          "pdf-job-phase"
+        ]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/pytest/iter13_authenticated_ui.xml",
+    "/app/test_reports/iteration13_preview_load.jpeg",
+    "/app/test_reports/iteration13_admin_pdf.jpeg",
+    "/app/test_reports/iteration13_telecaller.jpeg",
+    "/app/test_reports/iteration13_billing.jpeg",
+    "/app/test_reports/iteration13_customer.jpeg"
+  ],
+  "action_items": [
+    "Review PDF chunk upload robustness on web for duplicate/overlapping chunk requests returning 409.",
+    "Keep this new routed-browser test as regression for authenticated synthetic coverage."
+  ],
+  "critical_code_review_comments": [
+    "Authenticated test harness now correctly avoids local loopback server and forwards browser /api calls through in-process ASGI transport, preserving Authorization/content-type headers.",
+    "Web auth state remains memory-based; tests must navigate in-app (no hard reload) after OTP login to preserve session in UI automation."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/iteration_13.json"
+  ],
+  "success_rate": {
+    "backend": "N/A (intentionally skipped in this call)",
+    "frontend": "100% (4/4 playwright pytest tests passed)"
+  },
+  "seed_data_creation": "Created only synthetic in-test records (TEST products/requests/customer lead fields) inside isolated_db fixtures; no production mutations.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Execution used /opt/plugins-venv python because default runtime lacked playwright. Installed backend requirements into /opt/plugins-venv to satisfy shared conftest dependencies. External transports are fixture-backed: SMS + storage are MOCKED; API/business logic is real app code via ASGI forwarding.",
+  "rca_of_issue": "PDF upload UI attempted an extra chunk index on tiny sample, causing 409 conflict. Reproduction: admin login -> panel products -> PDF import -> select sample -> upload. Despite 409 on one chunk call, job record existed and review/commit completed after process_job invocation. Likely duplicate chunk dispatch/race in frontend uploader for small payload segmentation."
+}

@@ -1,0 +1,8 @@
+{
+  "pdf_path": "/app/test_reports/benchmark_catalog_60.pdf",
+  "bytes": 4127720,
+  "pages": 32,
+  "products": 60,
+  "elapsed_seconds": 39.321,
+  "peak_rss_kb": 447312
+}

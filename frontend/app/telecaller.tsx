@@ -7,6 +7,7 @@ import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
+import RequestsWorkspace from '../src/components/staff/RequestsWorkspace';
 
 const STATUSES = [
   { key: 'new', label: 'New', color: Colors.info },
@@ -28,6 +29,7 @@ export default function TelecallerScreen() {
   const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [showLeads, setShowLeads] = useState(false);
 
   const [customers, setCustomers] = useState<TCCustomer[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -83,12 +85,12 @@ export default function TelecallerScreen() {
   }, [search, statusFilter]);
 
   useEffect(() => {
-    if (user?.role === 'executive') { setLoading(true); loadData(1); }
+    if (user?.role === 'telecaller') { setLoading(true); loadData(1); }
   }, [user?.role, statusFilter]);
 
   // Debounced search
   useEffect(() => {
-    if (user?.role !== 'executive') return;
+    if (user?.role !== 'telecaller') return;
     const t = setTimeout(() => loadData(1), 400);
     return () => clearTimeout(t);
   }, [search]);
@@ -155,9 +157,11 @@ export default function TelecallerScreen() {
     ];
   }, [summary]);
 
-  if (authLoading || !user || user.role !== 'executive') {
+  if (authLoading || !user || user.role !== 'telecaller') {
     return <View style={st.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
   }
+
+  if (!showLeads) return <RequestsWorkspace onCRM={() => setShowLeads(true)}/>;
 
   const renderCustomer = ({ item: c }: { item: TCCustomer }) => {
     const meta = statusMeta(c.lead_status || 'new');
@@ -198,7 +202,7 @@ export default function TelecallerScreen() {
       {/* Header */}
       <View style={st.header}>
         <View>
-          <Text style={st.headerTitle}>Telecaller</Text>
+          <TouchableOpacity testID="leads-back-to-requests" onPress={() => setShowLeads(false)}><Text style={st.headerTitle}>Back to Requests</Text></TouchableOpacity>
           <Text style={st.headerSub}>{user.name || user.phone}</Text>
         </View>
         <TouchableOpacity testID="tc-logout" style={st.logoutBtn} onPress={handleLogout}>

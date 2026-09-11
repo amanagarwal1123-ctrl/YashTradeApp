@@ -11,7 +11,10 @@ export default function Index() {
   useEffect(() => {
     if (!loading) {
       if (user) {
-        router.replace('/(tabs)');
+        if (user.role === 'customer') router.replace('/(tabs)');
+        else if (user.role === 'telecaller') router.replace('/telecaller');
+        else if (['admin', 'billing_executive'].includes(user.role)) router.replace('/panel');
+        else router.replace('/login');
       } else {
         router.replace('/login');
       }

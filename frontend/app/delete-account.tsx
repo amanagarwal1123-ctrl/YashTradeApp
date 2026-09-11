@@ -10,8 +10,8 @@ import { showAlert, confirmAlert } from '../src/utils/alert';
 
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
-const REMOVED = ['Login access to the Yash Trade App', 'Cart and wishlist', 'AI assistant chat history', 'Reward points and reward history', 'Telecaller notes and follow-ups', 'Consents and other profile details'];
-const KEPT = ['Your name', 'Shop name', 'Place / location', 'Mobile number'];
+const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'Local AI assistant chat history', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details'];
+const KEPT = ['Anonymous operational query history', 'Deletion reference and keyed identity tombstone to prevent accidental restoration', 'Website and provider erasure acknowledgements (pending until confirmed)'];
 
 export default function DeleteAccountScreen() {
   const { user, logout } = useAuth();
@@ -38,7 +38,7 @@ export default function DeleteAccountScreen() {
       try {
         const res = await api.post('/auth/delete-account/confirm', { otp });
         await logout();
-        showAlert('Account deleted', `Your account has been deleted. Reference: ${res.reference}. You can enroll again on the Yash Ornaments website any time.`);
+        showAlert('Local account removed', `Your profile has been anonymized and sessions revoked. Reference: ${res.reference}. Website and provider erasure acknowledgements remain pending.`);
         router.replace('/login');
       } catch (e: any) {
         setError(e?.message || 'Could not verify OTP');
@@ -60,7 +60,7 @@ export default function DeleteAccountScreen() {
         <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
           <View style={st.warnCard}>
             <Ionicons name="warning" size={22} color={Colors.error} />
-            <Text style={st.warnText}>Deleting your account is permanent. You will be logged out and will need to enroll again on the Yash Ornaments website to use the app.</Text>
+            <Text style={st.warnText}>Deletion revokes your sessions and anonymizes your local profile. Website and provider copies require separate confirmed cleanup. Enrollment retries cannot automatically restore this identity.</Text>
           </View>
 
           <Text style={st.label}>WHAT WILL BE REMOVED</Text>
@@ -70,12 +70,12 @@ export default function DeleteAccountScreen() {
             ))}
           </View>
 
-          <Text style={st.label}>KEPT AS A BUSINESS RECORD</Text>
+          <Text style={st.label}>RESTRICTED DELETION & OPERATIONAL RECORD</Text>
           <View style={st.card}>
             {KEPT.map(item => (
               <View key={item} style={st.row}><Ionicons name="checkmark-circle" size={16} color={Colors.textMuted} /><Text style={st.rowText}>{item}</Text></View>
             ))}
-            <Text style={st.hint}>Yash Trade keeps these trade-partner details for its wholesale records; they are no longer linked to any app login.</Text>
+            <Text style={st.hint}>Ordinary profile identifiers are not retained as an unspecified business record. Any external provider retention must be confirmed separately.</Text>
           </View>
 
           <TouchableOpacity testID="delete-privacy-link" style={st.linkRow} onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})}>

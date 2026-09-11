@@ -30,8 +30,6 @@ type Diagnostics = {
   template: {
     name?: string; sender_id?: string; dlt_id?: string; dlt_verified?: boolean; active?: boolean; version?: string; text?: string;
   };
-  demo_mode: boolean;
-  demo_phones: string[];
   server_env: {
     env_keys_present: string[];
     env_keys_missing: string[];
@@ -63,7 +61,7 @@ export default function SmsDiagnostics() {
   const [error, setError] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ phone: string; otp: string; requestId: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ phone: string; requestId: string } | null>(null);
   const [recheckingId, setRecheckingId] = useState('');
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -95,7 +93,7 @@ export default function SmsDiagnostics() {
     setTesting(true); setTestResult(null);
     try {
       const r = await api.post('/admin/sms/test', { phone: testPhone });
-      setTestResult({ phone: testPhone, otp: r.otp, requestId: r.log?.request_id || '' });
+      setTestResult({ phone: testPhone, requestId: r.log?.request_id || '' });
       load(); scheduleRefresh();
     } catch (e: any) {
       showAlert('Test SMS was NOT sent', e.message);
@@ -165,7 +163,7 @@ export default function SmsDiagnostics() {
           <KV label="DLT Template ID" value={tpl.dlt_id || '—'} mono />
           <KV label="DLT verified flag" value={tpl.dlt_id ? (tpl.dlt_verified ? 'Yes' : 'No (MSG91 flag)') : '—'} color={tpl.dlt_verified ? Colors.success : Colors.warning} />
           <KV label="Active version" value={tpl.dlt_id ? (tpl.active ? 'Yes' : 'NO') : '—'} color={tpl.active ? Colors.success : Colors.error} />
-          <KV label="Demo mode" value={diag.demo_mode ? 'ON — all numbers get 1234' : `Off • ${diag.demo_phones.length} allow-listed`} color={diag.demo_mode ? Colors.warning : Colors.textSecondary} />
+          <KV label="OTP security" value="Provider delivery only · no fixed-code bypass" color={Colors.textSecondary} />
         </View>
         {tpl.text ? <Text style={st.templateText}>“{tpl.text}”</Text> : null}
       </View>
@@ -232,7 +230,7 @@ export default function SmsDiagnostics() {
           <View testID="sms-test-result" style={st.resultBox}>
             <Ionicons name="paper-plane" size={16} color={Colors.success} />
             <Text style={st.resultText}>
-              Accepted by MSG91 for {testResult.phone} — the SMS should read OTP <Text style={st.bold}>{testResult.otp}</Text>.
+              Accepted by MSG91 for {testResult.phone}. OTP contents are never returned in diagnostics.
               {testResult.requestId ? ` Request ID ${testResult.requestId}.` : ''} Delivery status updates below.
             </Text>
           </View>

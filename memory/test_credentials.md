@@ -1,36 +1,12 @@
-# Test Credentials — Yash Trade
+# Controlled testing only
 
-Real SMS OTP is live via **MSG91 Flow API** (4-digit codes). The phones below are on the
-demo allowlist (`OTP_DEMO_PHONES` in backend/.env) and always accept OTP `1234` —
-no SMS is sent for them. Any other valid Indian mobile (starts 6-9) receives a real SMS.
-The global `OTP_DEMO_MODE` switch was REMOVED in build v7 (ignored if set) — only the allow-list bypasses SMS.
-
-| Role | Where to log in | Phone | OTP |
-|------|-----------------|-------|-----|
-| Customer | App root `/` (mobile app) | 8888888888 | 1234 |
-| Customer (website-registered, has shop/location) | `/` | 8888800001 | 1234 |
-| Customer (INACTIVE — must be blocked) | `/` | 8888800002 | 1234 |
-| Telecaller (role `executive` → /telecaller) | `/` (same login) | 7777777777 | 1234 |
-| Admin (→ /panel) | `/` or `/panel` | 9999999999 | 1234 |
-| Billing Executive (→ /panel) | `/` or `/panel` | 6666666666 | 1234 |
-
-Unified login: everyone uses the same phone+OTP screen; the backend role decides the flow.
-Unknown numbers (e.g. 9876501234) get 404 "Registration required" and NO account is created.
-
-⚠️ Do NOT test login with arbitrary real phone numbers — it sends real paid SMS via MSG91.
-Safe negative-test numbers: 1111111111 (fails local validation, no SMS).
-Real-SMS verification numbers approved by the owner (use sparingly, each send costs a credit): 9711881372, 9999813334.
-
-SMS diagnostics (build 2026.09.04-sms-v5): public `GET /api/health` (expect `provider_check: ok`, `warnings: []`; lists env key NAMES present/missing on that server);
-admin-only `GET /api/admin/sms/diagnostics`, `POST /api/admin/sms/test {phone}` (refuses demo phones), `POST /api/admin/sms/logs/{id}/recheck`;
-Admin panel → **SMS** tab. Misconfigured MSG91 now returns HTTP 503 with an explicit message instead of a false "OTP sent".
-
-Website integration (build 2026.09.09-integration-v6): header `X-Integration-Key: CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR`
-(= backend/.env ENROLLMENT_INTEGRATION_KEY). `POST /api/integrations/enrollments`, `GET|DELETE /api/integrations/customers/{phone}`.
-Safe test phones for integration upsert/delete: 8888800077 (Ramesh Kumar / Kumar Jewellers — NOT on the demo allowlist, so never call send-otp for it).
-In-app deletion: `POST /api/auth/delete-account/request` + `/confirm {otp}` — test with demo customer 8888800001 (OTP 1234) and restore it
-afterwards with the integration upsert {"phone":"8888800001","name":"Suresh Verma","shop_name":"Verma Jewellers","location":"Ludhiana","onboarding_status":"completed"}.
-Admin log: `GET /api/admin/deletion-requests`; panel Customers tab → "ACCOUNT DELETION REQUESTS".
-
-Preview URL: https://yash-tryon-test.preview.emergentagent.com
-Backend API base: https://yash-tryon-test.preview.emergentagent.com/api
+Legacy fixed-OTP and seeded logins are disabled. Do not send SMS to any real phone.
+No reusable OTPs, credentials, tokens or integration secrets belong in this repository.
+Automated tests must use a separate synthetic database and intercept SMS dispatch IN TESTS ONLY.
+Authenticated UI test sessions may be provisioned privately outside the repository, then revoked.
+Approved testing method: local Playwright routes browser /api requests into the existing isolated
+ASGI fixture on the same async test loop. Its dynamic OTPs and sessions remain in memory only;
+no loopback server or new production endpoint is necessary. All four synthetic fixture roles may
+be used this way. This is test-transport isolation, not reusable Play Console access.
+The owner's role reconciliation has NOT been applied. No website export has been received.
+Play review accounts have NOT been provisioned; an isolated review environment is required.

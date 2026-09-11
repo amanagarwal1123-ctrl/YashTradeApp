@@ -38,7 +38,7 @@ export default function TabLayout() {
   useEffect(() => {
     if (!loading) {
       if (!user) router.replace('/login');
-      else if (user.role === 'executive') router.replace('/telecaller');
+      else if (user.role === 'telecaller') router.replace('/telecaller');
       else if (user.role === 'admin' || user.role === 'billing_executive') router.replace('/panel');
     }
   }, [loading, user]);

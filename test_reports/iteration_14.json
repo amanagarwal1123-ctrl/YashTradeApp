@@ -1,0 +1,22 @@
+{
+  "build": "shared-v1-2026-09-11",
+  "verification": "main-agent reran full authored suite after reported issues",
+  "tests": {"passed": 31, "backend": 27, "authenticated_browser": 4, "junit": "test_reports/pytest/shared_final.xml"},
+  "fixes_verified": [
+    "Corrected premature test-only PDF analysis trigger; wait for complete manifest/queued phase",
+    "Incomplete cached source cannot bypass manifest validation",
+    "Cold browser bundle waits for painted content",
+    "Idempotent index initialization handles transient AutoReconnect with bounded retries only",
+    "Primary customer gallery selects an added photo while preserving original scan"
+  ],
+  "production_mutations": false,
+  "real_sms_sent": false,
+  "external_transport_in_tests": "SMS and storage fixture stubs; real API logic and isolated Mongo",
+  "preview_build": "shared-v1-2026-09-11",
+  "preview_commit": "unrecorded",
+  "production_build_observed": "2026.09.09-integration-v7",
+  "production_commit": null,
+  "website_updated": false,
+  "production_reconciliation_applied": false,
+  "remaining_gates": "See RELEASE_READINESS.md and PDF_VALIDATION_EVIDENCE.md"
+}

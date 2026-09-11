@@ -1,0 +1,31 @@
+import React, { useCallback, useState } from 'react';
+import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { api } from '../src/api';
+import { useAuth } from '../src/context/AuthContext';
+import { Button, dateText, Input, ui } from '../src/components/staff/Controls';
+
+export default function CustomerDirectory() {
+  const router = useRouter(); const {user} = useAuth();
+  const [data,setData]=useState<any>(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[status,setStatus]=useState(''),[login,setLogin]=useState(''),[onboarding,setOnboarding]=useState('');
+  const [error,setError]=useState(''),[busy,setBusy]=useState(false),[detail,setDetail]=useState<any>(null);
+  const load=useCallback(async()=>{setBusy(true);try{setData(await api.get(`/customers?${new URLSearchParams({page:String(page),limit:'20',search,account_status:status,login_state:login,onboarding_status:onboarding})}`));setError('');}catch(e:any){setError(e.message);}finally{setBusy(false);}},[page,search,status,login,onboarding]);
+  useFocusEffect(useCallback(()=>{if(user?.role==='admin')load();},[load,user]));
+  if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="directory-access-denied" style={ui.error}>Admin access required</Text></SafeAreaView>;
+  return <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={busy} onRefresh={load}/>}>
+    <Button id="directory-back" title={detail?'Back to list':'Back to panel'} onPress={()=>detail?setDetail(null):router.replace('/panel')}/><Text testID="directory-title" style={ui.title}>Customer directory</Text>{!!error&&<Text testID="directory-error" style={ui.error}>{error}</Text>}
+    {!detail?<><Input id="directory-search" label="Search name, phone, shop or place" value={search} onChange={s=>{setSearch(s);setPage(1);}}/>
+      <View style={ui.row}>{['','active','inactive'].map(v=><Button key={v} id={`directory-status-${v||'all'}`} title={v||'All accounts'} active={status===v} onPress={()=>{setStatus(v);setPage(1);}}/>)}</View>
+      <View style={ui.row}>{['','never','logged_in'].map(v=><Button key={v} id={`directory-login-${v||'all'}`} title={v==='never'?'No app login':v==='logged_in'?'Has app login':'All logins'} active={login===v} onPress={()=>{setLogin(v);setPage(1);}}/>)}</View>
+      <View style={ui.row}>{['','completed','pending'].map(v=><Button key={v} id={`directory-step-${v||'all'}`} title={v?`Step 1 ${v}`:'All onboarding'} active={onboarding===v} onPress={()=>{setOnboarding(v);setPage(1);}}/>)}</View>
+      <Text testID="directory-total" style={ui.label}>{data?.total??'—'} CUSTOMERS</Text>
+      {data?.customers.map((u:any)=><View key={u.id} testID={`directory-customer-${u.id}`} style={ui.card}><Text style={ui.text}>{u.number}. {u.name} · {u.phone}</Text><Text style={ui.muted}>{u.shop_name} · {u.location||u.city}</Text><Text style={ui.muted}>Step 1 {u.step1_complete?'complete':'pending'} · {u.account_status} · {u.has_logged_in?'Has app login':'No recorded app login'}</Text><Text style={ui.muted}>Registered {dateText(u.registered_at)}{ '\n' }First app login {dateText(u.first_mobile_login_at)}{ '\n' }Last app login {dateText(u.last_mobile_login_at)}</Text><Button id={`directory-open-${u.id}`} title="Profile, queries & activity" onPress={async()=>{try{setDetail(await api.get(`/customers/${u.id}`));}catch(e:any){setError(e.message);}}}/></View>)}
+      <View style={ui.row}><Button id="directory-prev" title="Previous" disabled={page<=1} onPress={()=>setPage(page-1)}/><Text testID="directory-page" style={ui.text}>Page {page}</Text><Button id="directory-next" title="Next" disabled={!data||page>=data.pages} onPress={()=>setPage(page+1)}/></View>
+    </>:<><Text testID="customer-detail-name" style={ui.title}>{detail.name}</Text><Text style={ui.text}>{detail.phone} · {detail.shop_name} · {detail.location}</Text><Text style={ui.muted}>Assigned telecaller ID: {detail.assigned_salesperson||'Unassigned'}</Text>
+      <Button id="customer-status-toggle" title={detail.account_status==='active'?'Disable account':'Enable account'} onPress={async()=>{try{await api.patch(`/customers/${detail.id}`,{account_status:detail.account_status==='active'?'inactive':'active'});setDetail(await api.get(`/customers/${detail.id}`));await load();}catch(e:any){setError(e.message);}}}/>
+      <Text style={ui.label}>QUERIES (LATEST 100)</Text>{detail.queries.map((q:any)=><View key={q.id} testID={`customer-query-${q.id}`} style={ui.card}><Text style={ui.text}>{q.request_type} · {q.status}</Text><Text style={ui.muted}>{dateText(q.created_at)} · {q.notes}</Text></View>)}
+      <Text style={ui.label}>LEAD ACTIVITY (LATEST 100)</Text>{detail.activity.map((a:any)=><View key={a.id} testID={`customer-activity-${a.id}`} style={ui.card}><Text style={ui.text}>{a.action} · {a.notes}</Text><Text style={ui.muted}>{dateText(a.created_at)}</Text></View>)}
+    </>}
+  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+}

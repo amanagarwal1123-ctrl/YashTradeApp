@@ -25,7 +25,7 @@ load_dotenv(ROOT_DIR / '.env')
 # MongoDB
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'jewellers_app')]
+db = client[os.environ['DB_NAME']]
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -33,17 +33,16 @@ api_router = APIRouter(prefix="/api")
 JWT_SECRET = os.environ.get('JWT_SECRET', '')
 JWT_SECRET_FROM_ENV = bool(JWT_SECRET and len(JWT_SECRET) >= 16)
 if not JWT_SECRET_FROM_ENV:
-    JWT_SECRET = 'aman-jewellers-secret-key-2024-prod-v1'
-    print("WARNING: JWT_SECRET is weak or missing — using built-in default. Set a strong JWT_SECRET in .env for production.")
+    print("WARNING: JWT_SECRET is missing or weak; canonical authentication will fail closed.")
 JWT_ALGORITHM = 'HS256'
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
-# CORS origins from env (comma-separated), falls back to permissive for dev
+# CORS origins from env (comma-separated); no wildcard fallback.
 CORS_ORIGINS = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 
 # ===================== OTP STORE =====================
 # OTP store with expiry and rate limiting.
-# Real OTPs are delivered via MSG91 OTP API; demo phones bypass MSG91 and accept 1234.
+# Canonical persistent challenge handling is in shared/auth.py; MSG91 is transport only.
 import time as _time
 import hashlib
 import secrets
@@ -56,14 +55,10 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "2026.09.09-integration-v7"
+APP_BUILD = "shared-v1-2026-09-11"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
-# The DLT template id is NOT a secret (useless without the authkey). It has a built-in default because
-# Emergent snapshots deployment secrets at the FIRST deploy — a key added to backend/.env later is not
-# picked up by Redeploy, which is exactly how the deployed server ended up "not configured".
-MSG91_DEFAULT_TEMPLATE_ID = '61baece18e964726da04e8c5'  # Yash Ornaments "Login OTP" flow template (sender YSILVR)
 MSG91_TEMPLATE_FROM_ENV = bool(os.environ.get('MSG91_TEMPLATE_ID', '').strip())
-MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '').strip() or MSG91_DEFAULT_TEMPLATE_ID
+MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '').strip()
 MSG91_BASE_URL = os.environ.get('MSG91_BASE_URL', 'https://control.msg91.com/api/v5').rstrip('/')
 MSG91_VALIDATE_URL = 'https://control.msg91.com/api/validate.php'
 MSG91_PREFLIGHT_TTL = 300        # cache a successful/definitive provider validation for 5 minutes
@@ -74,20 +69,17 @@ DELIVERY_CHECK_DELAYS = (6, 20, 60)  # seconds after MSG91 accepted the message
 _preflight_cache: Dict[str, Any] = {"checked_at": 0.0, "ttl": 0, "result": None}
 _bg_tasks: set = set()
 
-# Phones that always use the fixed demo OTP 1234 (admin/executive/test accounts)
-DEMO_PHONES = {p.strip() for p in os.environ.get('OTP_DEMO_PHONES', '').split(',') if p.strip()}
+# Compatibility constant only; old environment variables NEVER enable fixed OTP access.
+DEMO_PHONES = set()
 
 # Server-to-server secret shared with the enrollment website (its LIVE_INTEGRATION_KEY).
-# Lets the website create/update/delete customers directly — no OTP login, no SMS.
-# Built-in default so a plain Redeploy enables the sync (deployment secrets are snapshotted at first
-# deploy); set ENROLLMENT_INTEGRATION_KEY in deployment secrets to rotate it.
-ENROLLMENT_INTEGRATION_DEFAULT_KEY = 'CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR'
+# Enrollment credential requires a canonical verification grant for writes.
 ENROLLMENT_KEY_FROM_ENV = bool(os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip())
-ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip() or ENROLLMENT_INTEGRATION_DEFAULT_KEY
+ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').strip()
 INTEGRATION_HEADER = 'X-Integration-Key'
 
 DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
-                   'OTP_DEMO_PHONES', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
+                   'STAFF_SERVICE_KEY', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
 
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
@@ -97,24 +89,20 @@ def _server_env_report() -> Dict[str, Any]:
     if not present['MSG91_AUTHKEY']:
         warnings.append("MSG91_AUTHKEY is missing — no real OTP SMS can be sent from this server")
     if not present['MSG91_TEMPLATE_ID']:
-        warnings.append(f"MSG91_TEMPLATE_ID not set — using built-in default {MSG91_DEFAULT_TEMPLATE_ID}")
+        warnings.append("MSG91_TEMPLATE_ID missing — real OTP delivery unavailable")
     if not JWT_SECRET_FROM_ENV:
-        warnings.append("JWT_SECRET missing/weak — login tokens use the built-in default secret (set a strong one in deployment secrets)")
-    if not present['OTP_DEMO_PHONES']:
-        warnings.append("OTP_DEMO_PHONES not set — demo logins (OTP 1234) are disabled on this server; every number gets a real SMS")
-    if os.environ.get('OTP_DEMO_MODE', '').lower() == 'true':
-        warnings.append("OTP_DEMO_MODE=true is set but IGNORED since build v7 — only the OTP_DEMO_PHONES allow-list uses the fixed OTP; all other numbers receive a real SMS")
+        warnings.append("JWT_SECRET missing/weak — authentication unavailable")
     if not ENROLLMENT_KEY_FROM_ENV:
-        warnings.append("ENROLLMENT_INTEGRATION_KEY not set — using the built-in default key for website → app sync (set your own in deployment secrets to rotate it)")
+        warnings.append("ENROLLMENT_INTEGRATION_KEY missing — enrollment integration unavailable")
     return {
         "env_keys_present": [k for k, v in present.items() if v],
         "env_keys_missing": [k for k, v in present.items() if not v],
-        "template_source": "env" if MSG91_TEMPLATE_FROM_ENV else "built-in default",
+        "template_source": "env" if MSG91_TEMPLATE_FROM_ENV else "missing",
         "jwt_secret_configured": JWT_SECRET_FROM_ENV,
         "demo_phones_count": len(DEMO_PHONES),
         "integration": {
-            "enabled": True,
-            "key_source": "env" if ENROLLMENT_KEY_FROM_ENV else "built-in default",
+            "enabled": ENROLLMENT_KEY_FROM_ENV,
+            "key_source": "env" if ENROLLMENT_KEY_FROM_ENV else "missing",
             "header": INTEGRATION_HEADER,
             "enrollments_path": "/api/integrations/enrollments",
             "delete_path": "/api/integrations/customers/{phone}",
@@ -123,10 +111,8 @@ def _server_env_report() -> Dict[str, Any]:
     }
 
 def _is_demo_phone(phone: str) -> bool:
-    """Only the explicit OTP_DEMO_PHONES allow-list (staff/test accounts) uses the fixed OTP 1234.
-    The former global OTP_DEMO_MODE switch was removed: a stray `true` in deployment secrets silently
-    disabled every real SMS in production."""
-    return phone in DEMO_PHONES
+    """All legacy bypasses disabled, independent of environment flags."""
+    return False
 
 def _sms_available() -> bool:
     return bool(MSG91_AUTHKEY and MSG91_TEMPLATE_ID)
@@ -207,7 +193,8 @@ async def _msg91_preflight(force: bool = False) -> Dict[str, Any]:
     }
     ttl = MSG91_PREFLIGHT_TTL
     if not _sms_available():
-        result["error"] = "SMS provider is not configured on the server (MSG91_AUTHKEY missing from deployment secrets)"
+        missing = [k for k, value in (("MSG91_AUTHKEY", MSG91_AUTHKEY), ("MSG91_TEMPLATE_ID", MSG91_TEMPLATE_ID)) if not value]
+        result["error"] = f"SMS provider is not configured: missing {', '.join(missing)}"
     else:
         try:
             key_ok, key_detail = await asyncio.to_thread(_msg91_check_authkey)
@@ -390,13 +377,9 @@ async def _send_sms_otp(phone: str, purpose: str = "login_otp"):
     server-generated OTP delivered via the MSG91 FLOW API (the template is a Flow
     template — the MSG91 OTP API rejects it, same as on the enrollment website).
     The OTP challenge is stored (hashed) ONLY after MSG91 validated + accepted the send."""
-    if _is_demo_phone(phone):
-        _store_otp(phone, '1234')
-        logger.info(f"Demo OTP issued for ...{phone[-4:]}")
-        return
     otp = str(secrets.randbelow(9000) + 1000)  # crypto-safe 4-digit code
     await _dispatch_sms_otp(phone, otp, purpose)
-    _store_otp(phone, otp)
+    # Transport only. Canonical challenge digests are persisted by shared/auth.py.
 
 async def _check_sms_otp(phone: str, otp: str):
     """All OTPs (demo and real) are verified locally against the hashed store —
@@ -755,22 +738,8 @@ def create_token(user_id: str, role: str = "customer"):
     return jwt.encode({"user_id": user_id, "role": role, "exp": datetime.now(timezone.utc).timestamp() + 86400 * 30}, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(authorization.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        if user.get("account_status", user.get("status", "active")) != "active":
-            raise HTTPException(status_code=403, detail="Your account is inactive. Please contact Yash Trade support.")
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    from shared.core import current_user
+    return await current_user(authorization)
 
 async def get_admin_user(user=Depends(get_current_user)):
     if user.get("role") != "admin":
@@ -778,7 +747,7 @@ async def get_admin_user(user=Depends(get_current_user)):
     return user
 
 async def get_executive_or_admin(user=Depends(get_current_user)):
-    if user.get("role") not in ("admin", "executive"):
+    if user.get("role") not in ("admin", "telecaller"):
         raise HTTPException(status_code=403, detail="Executive or admin access required")
     return user
 
@@ -884,11 +853,9 @@ async def sms_diagnostics(force: bool = False, user=Depends(get_admin_user)):
         "checked_at": pre["checked_at"],
         "configured": pre["configured"],
         "authkey_valid": pre["authkey_valid"],
-        "authkey_hint": f"…{MSG91_AUTHKEY[-4:]}" if MSG91_AUTHKEY else None,
         "template_id": MSG91_TEMPLATE_ID or None,
         "template": pre["template"],
         "demo_mode": False,  # global demo switch removed in v7 — only OTP_DEMO_PHONES use the fixed OTP
-        "demo_phones": sorted(DEMO_PHONES),
         "server_env": _server_env_report(),
         "counters_24h": counters,
         "recent": recent,
@@ -907,7 +874,7 @@ async def sms_test(req: SendOTPRequest, user=Depends(get_admin_user)):
     otp = str(secrets.randbelow(9000) + 1000)
     entry = await _dispatch_sms_otp(phone, otp, purpose="admin_test")
     _otp_rate.setdefault(phone, []).append(_time.time())
-    return {"message": "Accepted by MSG91 — delivery is being confirmed", "otp": otp, "log": entry}
+    return {"message": "Accepted by MSG91 — delivery is being confirmed", "log": entry}
 
 @api_router.post("/admin/sms/logs/{log_id}/recheck")
 async def sms_recheck(log_id: str, user=Depends(get_admin_user)):
@@ -1145,13 +1112,9 @@ async def list_products(
         # Require admin auth for include_hidden
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Admin authentication required to view hidden products")
-        try:
-            payload = jwt.decode(authorization.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            u = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
-            if not u or u.get("role") != "admin":
-                raise HTTPException(status_code=403, detail="Admin access required to view hidden products")
-        except jwt.PyJWTError:
-            raise HTTPException(status_code=401, detail="Invalid token")
+        u = await get_current_user(authorization)
+        if u.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required to view hidden products")
     else:
         query["visibility"] = {"$ne": "hidden"}
     if category:
@@ -1186,14 +1149,14 @@ async def get_product(product_id: str, authorization: Optional[str] = Header(Non
         is_admin = False
         if authorization and authorization.startswith("Bearer "):
             try:
-                payload = jwt.decode(authorization.split(" ")[1], JWT_SECRET, algorithms=[JWT_ALGORITHM])
-                u = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+                u = await get_current_user(authorization)
                 is_admin = u and u.get("role") == "admin"
             except Exception:
                 pass
         if not is_admin:
             raise HTTPException(status_code=404, detail="Product not found")
     await db.products.update_one({"id": product_id}, {"$inc": {"views": 1}})
+    product.setdefault("version", 0)
     return product
 
 @api_router.post("/products")
@@ -2203,7 +2166,8 @@ async def reward_history(user=Depends(get_current_user)):
 async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
-        session_id = req.session_id or f"jeweller-{user['id']}"
+        # Client session IDs cannot select another user's provider or database history.
+        session_id = f"jeweller-{user['id']}"
         lang_instruction = ""
         if req.language == "hi":
             lang_instruction = "\n\nIMPORTANT: Respond in HINDI (हिंदी) language. Use Devanagari script."
@@ -2222,7 +2186,7 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
             f"{lang_instruction}"
         )
         history = await db.ai_chat_history.find(
-            {"session_id": session_id}, {"_id": 0}
+            {"session_id": session_id, "user_id": user["id"], "moderation_status": {"$ne": "hidden"}}, {"_id": 0}
         ).sort("created_at", -1).limit(10).to_list(10)
         history.reverse()
         chat = LlmChat(
@@ -2238,9 +2202,10 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         user_message = UserMessage(text=req.message)
         response = await chat.send_message(user_message)
         now = datetime.now(timezone.utc).isoformat()
-        await db.ai_chat_history.insert_one({"session_id": session_id, "role": "user", "content": req.message, "created_at": now})
-        await db.ai_chat_history.insert_one({"session_id": session_id, "role": "assistant", "content": response, "created_at": now})
-        return {"response": response, "session_id": session_id}
+        message_id = str(uuid.uuid4())
+        await db.ai_chat_history.insert_one({"id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id, "role": "user", "content": req.message, "created_at": now})
+        await db.ai_chat_history.insert_one({"id": message_id, "user_id": user["id"], "session_id": session_id, "role": "assistant", "content": response, "created_at": now})
+        return {"response": response, "session_id": session_id, "message_id": message_id}
     except Exception as e:
         logger.error(f"AI chat error: {e}")
         return {"response": "I'm having trouble connecting right now. Please try again.", "session_id": req.session_id or "", "error": True}
@@ -2383,6 +2348,9 @@ async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
         "status": "pending", "assigned_to": "", "admin_notes": "", "notes_history": [],
         "created_at": now
     }
+    from shared.queries import event
+    request_data.update(version=0, pending_since=now, updated_at=now, assignee_id="", product_ids=product_ids,
+        events=[event("creation", user, request_data["id"], new="pending", request_status="pending")])
     await db.requests.insert_one(request_data)
     await db.cart.update_many({"user_id": user["id"], "status": "active"}, {"$set": {"status": "submitted"}})
     return {"message": "Cart submitted", "request_id": request_data["id"], "items_count": len(cart_details)}
@@ -2510,7 +2478,7 @@ async def update_customer(customer_id: str, req: CustomerUpdate, user=Depends(ge
 TELECALLER_STATUSES = ["new", "contacted", "interested", "follow_up_required", "converted", "not_interested", "unable_to_reach"]
 
 async def get_telecaller_user(user=Depends(get_current_user)):
-    if user.get("role") not in ("executive", "admin"):
+    if user.get("role") not in ("telecaller", "admin"):
         raise HTTPException(status_code=403, detail="Telecaller access required")
     return user
 
@@ -2563,6 +2531,8 @@ async def telecaller_action(customer_id: str, req: TelecallerAction, user=Depend
         raise HTTPException(status_code=403, detail="This customer is not assigned to you")
     if req.action not in ("status_change", "note", "call", "whatsapp", "follow_up"):
         raise HTTPException(status_code=422, detail="Invalid action")
+    if req.new_status == "follow_up":
+        req.new_status = "follow_up_required"
     if req.new_status and req.new_status not in TELECALLER_STATUSES:
         raise HTTPException(status_code=422, detail=f"Status must be one of: {', '.join(TELECALLER_STATUSES)}")
     now = datetime.now(timezone.utc).isoformat()
@@ -2715,96 +2685,6 @@ async def executive_performance(user=Depends(get_admin_user)):
 
 # ===================== SEED DATA =====================
 
-async def _internal_seed():
-    """Internal seed called at startup - no auth needed"""
-    # Always ensure system users exist
-    for phone, name, code, ctype, role in [
-        ("9999999999", "Yash Trade Admin", "ADMIN01", "admin", "admin"),
-        ("7777777777", "Priya Executive", "EXEC01", "executive", "executive"),
-        ("6666666666", "Billing Executive", "BILL01", "billing_executive", "billing_executive"),
-    ]:
-        if not await db.users.find_one({"phone": phone}):
-            await db.users.insert_one({
-                "id": str(uuid.uuid4()), "phone": phone, "name": name,
-                "city": "Delhi", "customer_code": code, "customer_type": ctype,
-                "role": role, "category_interests": [], "is_eligible_rewards": False,
-                "assigned_salesperson": "", "status": "active", "reward_points": 0,
-                "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-                "last_login": datetime.now(timezone.utc).isoformat()
-            })
-    # Demo customer
-    await db.users.update_one({"phone": "8888888888"}, {"$setOnInsert": {
-        "id": str(uuid.uuid4()), "phone": "8888888888", "name": "Rajesh Kumar",
-        "city": "Jaipur", "customer_code": "AA8888", "customer_type": "retailer",
-        "role": "customer", "category_interests": ["payal", "chain", "articles"],
-        "is_eligible_rewards": True, "assigned_salesperson": "", "status": "active",
-        "reward_points": 250, "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": datetime.now(timezone.utc).isoformat()
-    }}, upsert=True)
-
-    # One-time backfill: website-parity fields on existing user records
-    await db.users.update_many(
-        {"account_status": {"$exists": False}},
-        [{"$set": {
-            "account_status": {"$ifNull": ["$status", "active"]},
-            "shop_name": {"$ifNull": ["$shop_name", ""]},
-            "location": {"$ifNull": ["$location", {"$ifNull": ["$city", ""]}]},
-            "phone_verified": {"$ifNull": ["$phone_verified", True]},
-            "onboarding_status": {"$ifNull": ["$onboarding_status", "completed"]},
-            "registration_source": {"$ifNull": ["$registration_source", "app"]},
-            "registered_at": {"$ifNull": ["$registered_at", "$created_at"]},
-            "has_logged_in": {"$ifNull": ["$has_logged_in", {"$toBool": {"$ifNull": ["$last_login", False]}}]},
-            "first_login_at": {"$ifNull": ["$first_login_at", {"$ifNull": ["$last_login", ""]}]},
-            "last_login_at": {"$ifNull": ["$last_login_at", {"$ifNull": ["$last_login", ""]}]},
-            "lead_status": {"$ifNull": ["$lead_status", "new"]},
-        }}]
-    )
-
-    # Demo website-registered customers (dev/staging only — same shape the enrollment website creates)
-    exec_user = await db.users.find_one({"phone": "7777777777"}, {"_id": 0, "id": 1})
-    exec_id = exec_user["id"] if exec_user else ""
-    now = datetime.now(timezone.utc).isoformat()
-    for phone, name, shop, loc, acct in [
-        ("8888800001", "Suresh Verma", "Verma Jewellers", "Ludhiana", "active"),
-        ("8888800002", "Inactive Tester", "Old Shop", "Amritsar", "inactive"),
-    ]:
-        if not await db.users.find_one({"phone": phone}):
-            await db.users.insert_one({
-                "id": str(uuid.uuid4()), "phone": phone, "name": name,
-                "shop_name": shop, "location": loc, "city": loc,
-                "customer_code": f"AA{phone[-4:]}", "customer_type": "retailer",
-                "role": "customer", "category_interests": [],
-                "is_eligible_rewards": True,
-                "assigned_salesperson": exec_id if acct == "active" else "",
-                "status": acct, "account_status": acct,
-                "phone_verified": True, "onboarding_status": "completed",
-                "has_logged_in": False, "first_login_at": "", "last_login_at": "",
-                "registration_source": "website", "registered_at": now,
-                "lead_status": "new", "reward_points": 0, "is_new": True,
-                "created_at": now,
-            })
-    # Assign the main demo customer to the demo executive for telecaller testing
-    if exec_id:
-        await db.users.update_one(
-            {"phone": "8888888888", "assigned_salesperson": {"$in": ["", None]}},
-            {"$set": {"assigned_salesperson": exec_id}}
-        )
-    await db.telecaller_activity.create_index([("customer_id", 1), ("created_at", -1)])
-    await db.telecaller_activity.create_index([("telecaller_id", 1), ("created_at", -1)])
-    await db.users.create_index([("assigned_salesperson", 1)])
-
-    existing = await db.products.count_documents({})
-    if existing > 0:
-        return
-    # Indexes
-    await db.products.create_index([("created_at", -1)])
-    await db.products.create_index([("batch_id", 1)])
-    await db.products.create_index([("is_deleted", 1)])
-    await db.rates.create_index([("created_at", -1)])
-    await db.requests.create_index([("user_id", 1)])
-    await db.requests.create_index([("status", 1)])
-    await db.users.create_index([("phone", 1)], unique=True)
-    await db.batches.create_index([("created_at", -1)])
 
 @api_router.post("/seed")
 async def seed_data(user=Depends(get_admin_user)):
@@ -2812,25 +2692,6 @@ async def seed_data(user=Depends(get_admin_user)):
     if existing > 0:
         return {"message": "Data already seeded", "products": existing}
 
-    admin = await db.users.find_one({"phone": "9999999999"})
-    if not admin:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()), "phone": "9999999999", "name": "Yash Trade Admin",
-            "city": "Delhi", "customer_code": "ADMIN01", "customer_type": "admin",
-            "role": "admin", "category_interests": [], "is_eligible_rewards": False,
-            "assigned_salesperson": "", "status": "active", "reward_points": 0,
-            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat()
-        })
-
-    await db.users.update_one({"phone": "8888888888"}, {"$setOnInsert": {
-        "id": str(uuid.uuid4()), "phone": "8888888888", "name": "Rajesh Kumar",
-        "city": "Jaipur", "customer_code": "AA8888", "customer_type": "retailer",
-        "role": "customer", "category_interests": ["payal", "chain", "articles"],
-        "is_eligible_rewards": True, "assigned_salesperson": "", "status": "active",
-        "reward_points": 250, "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": datetime.now(timezone.utc).isoformat()
-    }}, upsert=True)
 
     products = [
         {"title": "Designer Silver Payal", "description": "Handcrafted silver anklets with intricate jali work.", "metal_type": "silver", "category": "payal", "subcategory": "bridal", "images": ["https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=600"], "approx_weight": "45-55 grams", "stock_status": "in_stock", "tags": ["bridal", "festive", "bestseller"], "is_trending": True, "is_new_arrival": True},
@@ -2911,16 +2772,6 @@ async def seed_data(user=Depends(get_admin_user)):
 
 @api_router.post("/seed/expand")
 async def seed_expand(user=Depends(get_admin_user)):
-    exec_exists = await db.users.find_one({"phone": "7777777777"})
-    if not exec_exists:
-        await db.users.insert_one({
-            "id": str(uuid.uuid4()), "phone": "7777777777", "name": "Priya Executive",
-            "city": "Delhi", "customer_code": "EXEC01", "customer_type": "executive",
-            "role": "executive", "category_interests": [], "is_eligible_rewards": False,
-            "assigned_salesperson": "", "status": "active", "reward_points": 0,
-            "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat()
-        })
     count = await db.products.count_documents({})
     if count >= 50:
         return {"message": "Already expanded", "products": count}
@@ -3010,7 +2861,7 @@ async def delete_about_section(section: str, user=Depends(get_admin_user)):
 
 @api_router.get("/rate-list")
 async def get_rate_list(metal_type: str = Query("")):
-    query: Dict[str, Any] = {}
+    query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
     if metal_type:
         query["metal_type"] = metal_type
     slabs = await db.rate_slabs.find(query, {"_id": 0}).sort([("metal_type", 1), ("order", 1)]).to_list(200)
@@ -3278,40 +3129,28 @@ async def seed_new_features():
 
 # ===================== APP SETUP =====================
 
-app.include_router(api_router)
+from shared.install import install_shared
+install_shared(app, api_router, db, _dispatch_sms_otp, put_object, get_object)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=CORS_ORIGINS or ["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 @app.on_event("startup")
 async def startup():
-    try:
-        await _internal_seed()
-        logger.info("Seed data initialized")
-    except Exception as e:
-        logger.info(f"Seed check: {e}")
+    # No implicit data migrations, staff identities or sample catalog seeds at startup.
+    from shared.core import ensure_indexes
+    await ensure_indexes()
     try:
         init_storage()
         logger.info("Object storage ready")
     except Exception as e:
         logger.warning(f"Storage init deferred: {e}")
-    try:
-        await seed_new_features()
-        logger.info("New features seeded")
-    except Exception as e:
-        logger.warning(f"New features seed: {e}")
-    # Cart cleanup: remove rows with quantity <= 0 or orphaned products
-    try:
-        bad_qty = await db.cart.delete_many({"quantity": {"$lte": 0}})
-        if bad_qty.deleted_count > 0:
-            logger.info(f"Cart cleanup: removed {bad_qty.deleted_count} rows with invalid quantity")
-    except Exception as e:
-        logger.warning(f"Cart cleanup: {e}")
+    # No startup cleanup of customer data. Invalid cart rows require explicit reviewed action.
     # Validate the MSG91 configuration at boot so a bad deploy is visible in the logs immediately
     logger.info(f"Yash Trade backend build {APP_BUILD}")
     env_report = _server_env_report()

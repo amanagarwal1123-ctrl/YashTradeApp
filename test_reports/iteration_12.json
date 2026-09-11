@@ -1,0 +1,73 @@
+{
+  "summary": "Expanded backend + mobile-web verification for shared-v1-2026-09-11 with new reviewed PDF lifecycle tests, auth/query race/guard tests, and refreshed unauth mobile UI checks on public preview.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "isolated shared test runtime (Mongo)",
+        "issue": "Flaky AutoReconnect/connection closed observed during full-suite runs (26/27 pass in retry run; single setup/runtime failure is intermittent infrastructure instability, not deterministic app logic)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Authenticated role-based workspace flows (admin/telecaller/billing/customer) including real signed-in panel/requests/rates/directory/pdf-import journeys",
+        "issue": "Not executed end-to-end in this run on public preview because isolated synthetic UI session routing/proxy-to-loopback ASGI harness was not provisioned in this iteration.",
+        "affected_testIDs": [
+          "panel-tab-*",
+          "requests-*",
+          "rates-*",
+          "directory-*",
+          "pdf-*"
+        ]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_pdf_import_extended.py",
+    "/app/backend/tests/shared/test_shared_auth_identity.py",
+    "/app/backend/tests/shared/test_shared_people_queries_rates.py",
+    "/app/backend/tests/shared/test_shared_pdf_media_reconcile.py",
+    "/app/backend/tests/shared/pdf_benchmark_report.py",
+    "/app/test_reports/pytest/iter12_pre_results.xml",
+    "/app/test_reports/pytest/iter12_extended_partial.xml",
+    "/app/test_reports/pytest/iter12_results.xml",
+    "/app/test_reports/pytest/iter12_results_retry.xml",
+    "/app/test_reports/iteration12_home_mobile.jpeg",
+    "/app/test_reports/iteration12_ui_guards.jpeg",
+    "/app/test_reports/iteration12_ui_verify_otp.jpeg",
+    "/app/PDF_VALIDATION_EVIDENCE.md",
+    "/app/test_reports/pdf_benchmark_iter12.json"
+  ],
+  "action_items": [
+    "Provision isolated authenticated UI sessions/proxy harness (loopback ASGI + synthetic DB) and run full mobile signed-in route coverage for admin/telecaller/billing/customer as requested.",
+    "Investigate intermittent Mongo AutoReconnect in CI/container during larger shared suite runs; add resilient fixture retry/backoff around index creation and first auth calls.",
+    "Continue parser negative coverage for malformed/encrypted/scanned/rotated/tall-image variants beyond current fixture set and attach rendered page/crop evidence for each class.",
+    "Execute remaining import-job chaos permutations against real transient storage-failure simulation with explicit retry telemetry and recovery proof."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py is very large (>3000 lines), violating maintainability threshold; split into focused modules to reduce regression risk.",
+    "backend/server.py and frontend/login.tsx include fallback defaults (e.g., DB_NAME and hardcoded enrollment URL), conflicting with strict env-only fail-fast contract.",
+    "frontend/src/api.ts uses EXPO_PUBLIC_BACKEND_URL key path while the environment contract in this task references EXPO_BACKEND_URL; alignment should be enforced.",
+    "frontend/app/panel.tsx contains stale/dead paths (e.g., legacy PDF import branch after early return), increasing confusion and testability risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_pdf_import_extended.py",
+    "/app/backend/tests/shared/pdf_benchmark_report.py",
+    "/app/PDF_VALIDATION_EVIDENCE.md",
+    "/app/test_reports/iteration_12.json"
+  ],
+  "success_rate": {
+    "backend": "96.3% on full-suite retry (26/27) with intermittent infra error; targeted new suite 10/10 passed",
+    "frontend": "55% (mobile public-preview load, unauth guards, verify-otp-error selector validated; authenticated role workflows pending)"
+  },
+  "seed_data_creation": "Synthetic isolated Mongo test data only (ephemeral shared_test_* DBs dropped after tests). No production/public DB mutation.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "MOCKED: SMS transport and object storage were intercepted only in isolated backend tests via fixture monkeypatching. Public preview frontend was tested only for unauth/guard/verify-otp UI surfaces. Physical Android/iOS native and release-build flows remain unverified.",
+  "rca_of_issue": "Main uncovered risk is test-environment gap for authenticated UI, not yet a confirmed business-logic defect: required signed-in role workflows need isolated synthetic sessions + API forwarding harness. Intermittent Mongo AutoReconnect suggests infrastructure instability under repeated isolated DB setup; reproduction seen in full shared-suite runs where setup/indexing or first auth write occasionally fails with connection closed."
+}
