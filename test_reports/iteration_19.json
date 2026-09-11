@@ -1,0 +1,39 @@
+{
+  "summary": "Extended existing shared admin mobile-web catalog/author/media-usage journey with isolated legacy external HTTPS image guard and canonical bearer-header verification; executed targeted journey + TypeScript compile.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/pytest/iter19_catalog_author_external_guard.xml",
+    "/app/test_reports/iteration19_preview_load_mobile.jpeg"
+  ],
+  "action_items": [
+    "No blocking issue found in requested follow-up scope.",
+    "Main agent can keep full-suite count unchanged at 54 and rely on this targeted guard extension."
+  ],
+  "critical_code_review_comments": [
+    "PrivateImage canonical-prefix split appears correctly enforced in tested path: canonical API file preview uses Bearer; external HTTPS image request omits Authorization.",
+    "No production code was modified in this run; only existing shared journey test was extended."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/iteration_19.json"
+  ],
+  "success_rate": {
+    "backend": "N/A (not requested; ASGI fixture transport only)",
+    "frontend": "100% (1/1 targeted journey + tsc pass)"
+  },
+  "seed_data_creation": "Isolated synthetic fixture records only. SMS and object storage were MOCKED in test transport; no real provider writes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Executed: /opt/plugins-venv/bin/pytest /app/backend/tests/shared/test_shared_authenticated_ui.py::test_admin_mobile_web_catalog_author_export_and_media_usage -v --tb=short --junitxml=/app/test_reports/pytest/iter19_catalog_author_external_guard.xml (passed). Executed: cd /app/frontend && yarn -s tsc --noEmit (passed). Added external-route interception for https://legacy-external.test/** to avoid real external network.",
+  "rca_of_issue": "Earlier token-leak risk would happen when external URLs were treated as canonical API URLs. This regression test now confirms external HTTPS image fetches are routed without Authorization headers while canonical private author-preview image fetches still carry Bearer via authenticatedFetch."
+}

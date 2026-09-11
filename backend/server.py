@@ -435,7 +435,7 @@ logger = logging.getLogger(__name__)
 
 # ===================== OBJECT STORAGE =====================
 
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+STORAGE_URL = ((os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com").rstrip("/") + "/objstore/api/v1/storage"
 APP_NAME = "yash-trade"
 storage_key = None
 
@@ -1349,6 +1349,9 @@ async def upload_to_batch(
     files: List[UploadFile] = File(...),
     user=Depends(get_admin_user)
 ):
+    from shared.media_lifecycle import tracked_put
+    if len(files) > 10:
+        raise HTTPException(status_code=413, detail="Upload at most 10 images per request")
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -1356,7 +1359,7 @@ async def upload_to_batch(
     current_count = batch.get("image_count", 0)
     for file in files:
         try:
-            data = await file.read()
+            data = await file.read(20 * 1024 * 1024 + 1)
             if len(data) > 20 * 1024 * 1024:
                 results.append({"filename": file.filename, "status": "error", "detail": "File too large (max 20MB)"})
                 continue
@@ -1370,8 +1373,8 @@ async def upload_to_batch(
             # Upload to storage
             original_path = f"{APP_NAME}/originals/{file_id}.jpg"
             thumb_path = f"{APP_NAME}/thumbs/{file_id}.jpg"
-            put_object(original_path, original_data, "image/jpeg")
-            put_object(thumb_path, thumb_data, "image/jpeg")
+            await tracked_put(original_path, original_data, "image/jpeg", "batch_master", user["id"])
+            await tracked_put(thumb_path, thumb_data, "image/jpeg", "thumbnail", user["id"])
             # Create product record
             now = datetime.now(timezone.utc).isoformat()
             current_count += 1
@@ -3052,7 +3055,8 @@ async def delete_banner(banner_id: str, user=Depends(get_admin_user)):
 @api_router.post("/banners/upload")
 async def upload_banner_image(file: UploadFile = File(...), user=Depends(get_admin_user)):
     """Upload a banner image to object storage. Returns the served URL."""
-    data = await file.read()
+    from shared.media_lifecycle import tracked_put
+    data = await file.read(10 * 1024 * 1024 + 1)
     if len(data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
     if len(data) < 100:
@@ -3063,7 +3067,7 @@ async def upload_banner_image(file: UploadFile = File(...), user=Depends(get_adm
         raise HTTPException(status_code=400, detail="Invalid image file. Use JPG, PNG or WebP.")
     file_id = str(uuid.uuid4())
     path = f"{APP_NAME}/banners/{file_id}.jpg"
-    put_object(path, processed, "image/jpeg")
+    await tracked_put(path, processed, "image/jpeg", "banner", user["id"])
     return {"image_url": f"/api/files/{path}", "storage_path": path}
 
 # ===================== SEED ABOUT/DEMO DATA =====================

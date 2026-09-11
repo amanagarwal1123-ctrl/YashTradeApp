@@ -24,8 +24,8 @@ export function Button({ id, title, onPress, active, disabled, icon }: { id: str
     {icon && <Ionicons name={icon} size={18} color={Colors.gold}/>}<Text style={ui.text}>{title}</Text>
   </Pressable>;
 }
-export function Input({ id, label, value, onChange, multiline = false }: { id: string; label: string; value: string; onChange: (s: string) => void; multiline?: boolean }) {
-  return <View style={{ gap: 8 }}><Text testID={`${id}-label`} style={ui.muted}>{label}</Text><TextInput testID={id} accessibilityLabel={label} value={value} onChangeText={onChange} style={ui.input} placeholderTextColor={Colors.textMuted} multiline={multiline} /></View>;
+export function Input({ id, label, value, onChange, multiline = false, numeric = false }: { id: string; label: string; value: string; onChange: (s: string) => void; multiline?: boolean; numeric?: boolean }) {
+  return <View style={{ gap: 8 }}><Text testID={`${id}-label`} style={ui.muted}>{label}</Text><TextInput testID={id} accessibilityLabel={label} value={value} onChangeText={onChange} style={ui.input} placeholderTextColor={Colors.textMuted} multiline={multiline} keyboardType={numeric?'decimal-pad':'default'} /></View>;
 }
 export function Busy() { return <ActivityIndicator testID="staff-loading" color={Colors.gold}/>; }
 export const dateText = (s?: string) => s ? new Date(s).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST' : 'Not recorded';

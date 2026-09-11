@@ -4,10 +4,12 @@ import hmac
 import os
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from dotenv import load_dotenv
 from fastapi import Depends, Header, HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import AutoReconnect, DuplicateKeyError
@@ -16,7 +18,8 @@ db = None
 dispatch_sms = None
 put_object = None
 get_object = None
-BUILD = "shared-v1-2026-09-11"
+load_dotenv()
+BUILD = "shared-v1-followup-2026-09-11"
 ROLES = {"customer", "admin", "telecaller", "billing_executive"}
 STAFF = ROLES - {"customer"}
 
@@ -123,18 +126,24 @@ async def by_phone(number):
 
 
 @asynccontextmanager
-async def lock(key, seconds=30):
+async def lock(key, seconds=30, wait_seconds=0):
     owner = secrets.token_hex(16)
-    try:
-        await db.operation_locks.insert_one({"_id": key, "owner": owner,
-                                             "expires_at": now() + timedelta(seconds=seconds)})
-    except DuplicateKeyError:
-        found = await db.operation_locks.find_one_and_update(
-            {"_id": key, "expires_at": {"$lt": now()}},
-            {"$set": {"owner": owner, "expires_at": now() + timedelta(seconds=seconds)}},
-            return_document=ReturnDocument.AFTER)
-        if not found:
-            fail(409, "OPERATION_IN_PROGRESS", "Another update is in progress; retry shortly")
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            await db.operation_locks.insert_one({"_id": key, "owner": owner,
+                                                 "expires_at": now() + timedelta(seconds=seconds)})
+            break
+        except DuplicateKeyError:
+            found = await db.operation_locks.find_one_and_update(
+                {"_id": key, "expires_at": {"$lt": now()}},
+                {"$set": {"owner": owner, "expires_at": now() + timedelta(seconds=seconds)}},
+                return_document=ReturnDocument.AFTER)
+            if found:
+                break
+            if time.monotonic() >= deadline:
+                fail(409, "OPERATION_IN_PROGRESS", "Another update is in progress; retry shortly")
+            await asyncio.sleep(0.1)
     try:
         async def renew():
             while True:
@@ -192,6 +201,8 @@ async def integration_key(x_integration_key: str | None = Header(None)):
 
 
 async def service_key(x_staff_service_key: str | None = Header(None)):
+    if hmac.compare_digest(secret("STAFF_SERVICE_KEY"), os.environ.get("ENROLLMENT_INTEGRATION_KEY", "")):
+        fail(503, "CONFIGURATION_REQUIRED", "STAFF_SERVICE_KEY must differ from enrollment credential")
     if not hmac.compare_digest(x_staff_service_key or "", secret("STAFF_SERVICE_KEY")):
         fail(401, "SERVICE_KEY_INVALID", "A separate staff-service credential is required")
 
@@ -211,6 +222,14 @@ async def indexes():
     await db.requests.create_index([("created_at", -1), ("id", 1)])
     await db.requests.create_index([("events.type", 1), ("events.timestamp", 1)])
     await db.products.create_index([("batch_id", 1), ("created_at", -1)])
+    await db.products.create_index([("created_at", -1), ("id", 1)])
+    await db.products.create_index([("metal_type", 1), ("category", 1), ("created_at", -1), ("id", 1)])
+    await db.products.create_index([("title", "text"), ("tags", "text"), ("product_code", "text"), ("category", "text")], name="catalog_search_v1")
+    for field in ("storage_path", "thumbnail_path", "original_source_storage_path", "images"):
+        await db.products.create_index(field)
+    await db.banners.create_index("image_url")
+    await db.media_assets.create_index("path", unique=True, sparse=True)
+    await db.media_assets.create_index([("purpose", 1), ("created_at", 1)])
     await db.users.create_index([("assigned_salesperson", 1)])
     await db.telecaller_activity.create_index([("customer_id", 1), ("created_at", -1)])
     await db.import_jobs.create_index("id", unique=True)

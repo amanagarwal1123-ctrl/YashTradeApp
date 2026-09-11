@@ -15,6 +15,14 @@ if __name__ == "__main__":
         if int(page) < 0:
             with open_document(path, int(maximum)) as document:
                 print(json.dumps({"pages": len(document)}))
+        elif mode == "source_preview":
+            with open_document(path, int(maximum)) as document:
+                p = document[int(page)]; p.set_rotation(0)
+                import fitz
+                pix = p.get_pixmap(matrix=fitz.Matrix(900/p.rect.width, 900/p.rect.width), alpha=False)
+                target = Path(path).parent / f"source-preview-{page}.png"
+                target.write_bytes(pix.tobytes("png"))
+                print(json.dumps({"page_image": str(target), "width_points": p.rect.width, "height_points": p.rect.height}))
         elif len(sys.argv) > 5:
             with open_document(path, int(maximum)) as document:
                 p = document[int(page)]; p.set_rotation(0)

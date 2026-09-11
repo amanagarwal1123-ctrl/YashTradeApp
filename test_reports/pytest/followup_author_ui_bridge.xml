@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="9.156" timestamp="2026-09-11T13:34:00.922919+00:00" hostname="agent-env-14c982ce-fcba-4f94-8821-ec2bc44c4db3"><testcase classname="tests.shared.test_shared_authenticated_ui" name="test_admin_mobile_web_catalog_author_export_and_media_usage" time="9.084"><failure message="AssertionError: Upload failed with 422: {&quot;code&quot;:&quot;INVALID_IMAGE&quot;,&quot;detail&quot;:&quot;The file is not a valid supported image&quot;}&#10;assert 422 == 200&#10; +  where 422 = &lt;Response url='https://pagination-ui-boost.preview.emergentagent.com/api/products/upload-image' request=&lt;Request url='https://pagination-ui-boost.preview.emergentagent.com/api/products/upload-image' method='POST'&gt;&gt;.status">api_client = &lt;httpx.AsyncClient object at 0xfaa15214f090&gt;
+isolated_db = {'db': AsyncIOMotorDatabase(Database(MongoClient(host=['localhost:27017'], document_class=dict, tz_aware=False, connec...00IEND\xaeB`\x82', 'image/png'), ...}, 'sent_otps': {('9999813334', 'login'): '2463', ('9999813335', 'login'): '3353'}}
+seeded_users = {'u_admin': {'_id': ObjectId('6aa4034958fac9ec650f124a'), 'account_status': 'active', 'created_at': '2026-09-11T13:34:...ec650f124f'), 'account_status': 'active', 'created_at': '2026-09-11T13:34:01.264871+00:00', 'id': 'u_cust2', ...}, ...}
+login_helper = &lt;function login_helper.&lt;locals&gt;._login at 0xfaa152160040&gt;
+
+    @pytest.mark.asyncio
+    async def test_admin_mobile_web_catalog_author_export_and_media_usage(api_client, isolated_db, seeded_users, login_helper):
+        """Admin mobile-web routed journey: catalog(&lt;=40/page,next/prev/filter/search,DOM/heap) -&gt; author upload/export parse -&gt; media usage."""
+        if async_playwright is None:
+            pytest.skip("Playwright is not importable in this Python environment")
+    
+        await _seed_ui_data(isolated_db)
+        await _seed_catalog_metadata(isolated_db, total=300)
+    
+        now = c.stamp()
+        await isolated_db["db"].users.update_one(
+            {"id": "u_admin2"},
+            {
+                "$set": {
+                    "id": "u_admin2",
+                    "phone": "9999813335",
+                    "phone_normalized": "9999813335",
+                    "name": "Owner Admin Two",
+                    "role": "admin",
+                    "account_status": "active",
+                    "status": "active",
+                    "session_version": 0,
+                    "onboarding_status": "completed",
+                    "phone_verified": True,
+                    "shop_name": "HQ2",
+                    "location": "Delhi",
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+        admin_token = (await login_helper("9999813335"))["token"]
+        control_upload = await api_client.post(
+            "/api/products/upload-image",
+            headers=_auth_headers(admin_token),
+            files={"file": ("silver.jpg", Path('/app/backend/fixtures/catalog-v1/silver.jpg').read_bytes(), "image/jpeg")},
+        )
+        assert control_upload.status_code == 200, control_upload.text
+    
+        pw, browser, context, page = await _start_routed_browser(api_client)
+        try:
+            await _login_via_otp_ui(page, isolated_db, "9999813334", "panel")
+            await page.click('[data-testid="panel-tab-products"]')
+            await page.wait_for_selector('[data-testid="pm-list"]', timeout=15000)
+            await page.click('[data-testid="pm-list"]')
+            await page.wait_for_selector('[data-testid="catalog-title"]', timeout=15000)
+    
+            await page.wait_for_selector('[data-testid^="catalog-product-"]', timeout=15000)
+            rendered = await page.locator('[data-testid^="catalog-product-"]').count()
+            assert 1 &lt;= rendered &lt;= 40, f"virtualized render count should stay &lt;=40, got {rendered}"
+    
+            async with page.expect_response(lambda r: "/api/products?page=2&amp;limit=40" in r.url and r.request.method == "GET") as page2_info:
+                await page.click('[data-testid="catalog-next"]')
+            assert (await page2_info.value).status == 200
+    
+            async with page.expect_response(lambda r: "/api/products?page=1&amp;limit=40" in r.url and r.request.method == "GET") as page1_info:
+                await page.click('[data-testid="catalog-prev"]')
+            assert (await page1_info.value).status == 200
+    
+            await page.click('[data-testid="catalog-metal-silver"]')
+            await page.wait_for_timeout(900)
+            metas = await page.locator('[data-testid^="catalog-meta-"]').all_text_contents()
+            assert metas and all("silver" in m for m in metas[: min(8, len(metas))])
+    
+            await page.fill('[data-testid="catalog-search"]', 'TESTMETA-00299')
+            await page.wait_for_timeout(1200)
+            total_text = await page.inner_text('[data-testid="catalog-total"]')
+            total_value = int(re.search(r"(\d+)", total_text).group(1))
+            # Document current indexed text behavior: tokenized OR under active silver filter.
+            assert total_value == 150
+    
+            await page.fill('[data-testid="catalog-search"]', '00299')
+            await page.wait_for_timeout(1200)
+            numeric_text = await page.inner_text('[data-testid="catalog-total"]')
+            numeric_value = int(re.search(r"(\d+)", numeric_text).group(1))
+            assert numeric_value == 0, "Search must intersect the active silver filter; item299 is gold"
+            async with page.expect_response(lambda r: '/api/products?' in r.url and 'metal_type=' in r.url and r.request.method == 'GET') as unfiltered:
+                await page.click('[data-testid="catalog-metal-all"]')
+            assert (await unfiltered.value).status == 200
+            await page.get_by_text('1 products · at most 40 held per page', exact=True).wait_for(timeout=15000)
+            await page.fill('[data-testid="catalog-search"]', '')
+            await page.get_by_test_id('catalog-next').wait_for(state='visible')
+    
+            async with page.expect_response(
+                lambda r: '/api/products?' in r.url and 'product_code=TESTMETA-00299' in r.url and r.request.method == 'GET'
+            ) as exact_sku:
+                await page.click('[data-testid="catalog-search-sku"]')
+                await page.fill('[data-testid="catalog-search"]', 'TESTMETA-00299')
+            exact_sku_response = await exact_sku.value
+            assert exact_sku_response.status == 200
+            assert (await exact_sku_response.json()).get("total") == 1
+            await page.wait_for_function(
+                """() =&gt; {
+                    const metas = Array.from(document.querySelectorAll('[data-testid^="catalog-meta-"]'));
+                    return metas.some((m) =&gt; (m.textContent || '').includes('TESTMETA-00299'));
+                }""",
+                timeout=15000,
+            )
+            sku_meta = await page.locator('[data-testid^="catalog-meta-"]').first.inner_text()
+            assert 'TESTMETA-00299' in sku_meta
+            async with page.expect_response(
+                lambda r: '/api/products?' in r.url and 'search=' in r.url and 'product_code=' in r.url and r.request.method == 'GET'
+            ) as reset_list:
+                await page.fill('[data-testid="catalog-search"]', '')
+                await page.click('[data-testid="catalog-search-words"]')
+            assert (await reset_list.value).status == 200
+            await page.wait_for_timeout(700)
+    
+            before = await page.evaluate(
+                """() =&gt; ({
+                    dom_nodes: document.querySelectorAll('*').length,
+                    heap_bytes: performance.memory ? performance.memory.usedJSHeapSize : null,
+                    rendered_count: document.querySelectorAll('[data-testid^="catalog-product-"]').length
+                })"""
+            )
+            for _ in range(8):
+                await page.mouse.wheel(0, 900)
+                await page.wait_for_timeout(120)
+            after = await page.evaluate(
+                """() =&gt; ({
+                    dom_nodes: document.querySelectorAll('*').length,
+                    heap_bytes: performance.memory ? performance.memory.usedJSHeapSize : null,
+                    rendered_count: document.querySelectorAll('[data-testid^="catalog-product-"]').length
+                })"""
+            )
+            Path("/app/test_reports/mobile_web_catalog_scroll_metrics_iteration16.json").write_text(
+                json.dumps({"label": "mobile-web", "dataset": 300, "before": before, "after": after}, indent=2)
+            )
+            await page.screenshot(path="/app/test_reports/iteration16_catalog_mobile_web.jpeg", quality=40)
+    
+            await page.click('[data-testid="catalog-create"]')
+            await page.get_by_text('Create your catalogue', exact=True).wait_for(timeout=15000)
+            await page.fill('[data-testid="author-product_code"]', 'TEST-AUTHOR-001')
+            await page.locator('[data-testid="author-title"]').last.fill('TEST Authored Necklace')
+            await page.fill('[data-testid="author-category-custom"]', 'necklace')
+            await page.fill('[data-testid="author-purity"]', '925')
+            await page.fill('[data-testid="author-approx_weight"]', '25-35 g per pair')
+    
+            async with page.expect_file_chooser() as chooser_info:
+                await page.click('[data-testid="author-photo"]')
+            chooser = await chooser_info.value
+            async with page.expect_response(
+                lambda r: '/api/products/upload-image' in r.url and r.request.method == 'POST'
+            ) as upload_info:
+                await chooser.set_files(str(Path('/app/backend/fixtures/catalog-v1/silver.jpg')))
+            upload = await upload_info.value
+            upload_text = await upload.text()
+            Path('/app/test_reports/author_upload_bridge_debug_iteration17.json').write_text(
+                json.dumps(
+                    {
+                        "status": upload.status,
+                        "url": upload.url,
+                        "body": upload_text,
+                        "bridge_events": getattr(context, '_bridge_events', []),
+                    },
+                    indent=2,
+                )
+            )
+&gt;           assert upload.status == 200, f"Upload failed with {upload.status}: {upload_text}"
+E           AssertionError: Upload failed with 422: {"code":"INVALID_IMAGE","detail":"The file is not a valid supported image"}
+E           assert 422 == 200
+E            +  where 422 = &lt;Response url='https://pagination-ui-boost.preview.emergentagent.com/api/products/upload-image' request=&lt;Request url='https://pagination-ui-boost.preview.emergentagent.com/api/products/upload-image' method='POST'&gt;&gt;.status
+
+backend/tests/shared/test_shared_authenticated_ui.py:837: AssertionError</failure></testcase></testsuite></testsuites>

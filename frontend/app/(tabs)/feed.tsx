@@ -50,7 +50,7 @@ export default function FeedScreen() {
       if (refresh || p === 1) {
         setProducts(newProducts);
       } else {
-        setProducts(prev => [...prev, ...newProducts]);
+        setProducts(prev => Array.from(new Map([...prev, ...newProducts].map(p=>[p.id,p])).values()));
       }
       setTotalPages(res.pages || 1);
       setPage(p);
@@ -79,8 +79,8 @@ export default function FeedScreen() {
     const item = products[index];
     if (item) {
       // Pass a stable ordered list of IDs so the viewer shows exactly the tapped product
-      const ids = products.slice(0, 300).map(p => p.id).join(',');
-      router.push({ pathname: '/image-viewer', params: { productId: item.id, startIndex: String(index), ids } });
+      const from=Math.max(0,index-40),ids = products.slice(from,from+100).map(p => p.id).join(',');
+      router.push({ pathname: '/image-viewer', params: { productId: item.id, startIndex: String(index-from), ids } });
     }
   };
 

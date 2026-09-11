@@ -207,7 +207,7 @@ export default function PanelScreen() {
         }
         case 'products': {
           const [prodRes, batchRes] = await Promise.all([
-            api.get('/products?limit=100000&include_hidden=true'),
+            api.get('/products?limit=1&include_hidden=true'),
             api.get('/batches'),
           ]);
           setProducts(prodRes.products || []);
@@ -689,7 +689,7 @@ export default function PanelScreen() {
                 <>
                   <Text style={s.sectionTitle}>PRODUCT MANAGEMENT</Text>
                   <View style={s.menuGrid}>
-                    <TouchableOpacity testID="pm-add" style={s.menuCard} onPress={() => setProductSubView('add')}>
+                    <TouchableOpacity testID="pm-add" style={s.menuCard} onPress={() => router.push('/catalog-author')}>
                       <View style={[s.menuCardIcon, { backgroundColor: Colors.success + '15' }]}><Ionicons name="add-circle" size={28} color={Colors.success} /></View>
                       <Text style={s.menuCardTitle}>Add Product</Text>
                       <Text style={s.menuCardHint}>Add single product with details</Text>
@@ -704,10 +704,10 @@ export default function PanelScreen() {
                       <Text style={s.menuCardTitle}>Import PDF</Text>
                       <Text style={s.menuCardHint}>Import PDF catalogue as products</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity testID="pm-list" style={s.menuCard} onPress={() => { setProductSubView('list'); loadTab('products'); }}>
+                    <TouchableOpacity testID="pm-list" style={s.menuCard} onPress={() => router.push('/product-catalog')}>
                       <View style={[s.menuCardIcon, { backgroundColor: Colors.info + '15' }]}><Ionicons name="grid" size={28} color={Colors.info} /></View>
                       <Text style={s.menuCardTitle}>View All Products</Text>
-                      <Text style={s.menuCardHint}>{products.length} products in catalog</Text>
+                      <Text style={s.menuCardHint}>Search and browse paginated catalog</Text>
                     </TouchableOpacity>
                     <TouchableOpacity testID="pm-batches" style={s.menuCard} onPress={() => { setProductSubView('batches'); loadTab('products'); }}>
                       <View style={[s.menuCardIcon, { backgroundColor: '#A855F715' }]}><Ionicons name="folder" size={28} color="#A855F7" /></View>
@@ -804,7 +804,7 @@ export default function PanelScreen() {
                     <TouchableOpacity testID="pdf-pick-btn" style={[s.pickBtn, { borderColor: '#E91E63' + '40' }]} onPress={pickPdfFile}>
                       <Ionicons name="document-text" size={40} color="#E91E63" />
                       <Text style={{ color: Colors.text, marginTop: 8, fontSize: FontSize.md, fontWeight: '700' }}>Tap to select PDF from device</Text>
-                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>PDF files only — Max 1000MB (1 GB)</Text>
+                      <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 4 }}>Use Reviewed PDF Import for current server limits</Text>
                       <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs }}>Each page will be extracted as a product image</Text>
                       <Text style={{ color: '#E91E63', fontSize: FontSize.xs, marginTop: 4, fontWeight: '600' }}>Chunked upload — reliable for large files</Text>
                     </TouchableOpacity>
@@ -1390,7 +1390,7 @@ export default function PanelScreen() {
                         setLoading(true);
                         try {
                           if (item.key === 'about') { const r = await api.get('/about'); setContentData(r.raw || []); }
-                          else if (item.key === 'ratelist') { const r = await api.get('/rate-list'); setContentData(r.slabs || []); }
+                          else if (item.key === 'ratelist') { router.push('/staff-rates'); }
                           else if (item.key === 'schemes') { const r = await api.get('/schemes?active_only=false'); setContentData(r.schemes || []); }
                           else if (item.key === 'brands') { const r = await api.get('/brands?active_only=false'); setContentData(r.brands || []); }
                           else if (item.key === 'showroom') { const r = await api.get('/showroom'); setContentData(r.floors || []); }
@@ -1439,7 +1439,7 @@ export default function PanelScreen() {
                         <Text style={s.listTitle}>{slab.item_name || slab.slab_name || 'Item'}</Text>
                         <Text style={s.listMeta}>{slab.metal_type} • {slab.category}{slab.subcategory ? ` / ${slab.subcategory}` : ''} • Purity: {slab.purity || '-'} • Wastage: {slab.wastage || '-'} • Labour: {slab.labour_kg || '-'}</Text>
                       </View>
-                      <TouchableOpacity onPress={async () => { await api.delete(`/rate-list/${slab.id}`); setContentData(prev => prev.filter(x => x.id !== slab.id)); }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
+                      <TouchableOpacity testID={`legacy-slab-delete-${slab.id}`} onPress={async () => { try { await api.delete(`/rate-list/${slab.id}?version=${slab.version||0}`); setContentData(prev => prev.filter(x => x.id !== slab.id)); } catch(e:any) { showAlert('Error',e.message); } }}><Ionicons name="trash-outline" size={16} color={Colors.error} /></TouchableOpacity>
                     </View>
                   ))}
                   <View style={s.formCard}>

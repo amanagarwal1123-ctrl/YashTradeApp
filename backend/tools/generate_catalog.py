@@ -31,7 +31,8 @@ def guide(doc):
     text(page, [12*MM, 25*MM, 198*MM, 284*MM],
         "YASH ORNAMENTS | CATALOG AUTHORING GUIDE\n\n"
         "Illustrative sample products only. Import analysis NEVER publishes these examples.\n\n"
-        "Use the companion authoring.json and generate_catalog.py. Change each product's fields and local photo path, then regenerate. "
+        "In the app, open Products > Add Product / Create Catalogue. Fill labelled fields, choose photos, add entries and Export version 1 PDF. "
+        "Advanced users may use companion authoring.json and generate_catalog.py. "
         "Do not edit or move the frame geometry in a PDF editor.\n\n"
         "Required: Product Code (unique SKU), Product Name, Product Type, Category and one valid photograph. "
         "Product Type is gold, silver or diamond for EACH block; a batch may mix all three.\n\n"
@@ -45,7 +46,7 @@ def guide(doc):
         "Geometry: A4 210 x 297 mm. Outer blocks (x0,y0,x1,y1) = (10,22,200,151) and (10,157,200,286) mm. "
         "Photo x=16..96 mm; y=block top+20..100 mm. Text x=102..196 mm. Markers at x=12 mm, y=top+6 and top+127 mm. "
         "Gap: 6 mm. 1 mm = 72/25.4 PDF points. Crop excludes the frame stroke outside the square.\n\n"
-        "Weight: metal weight in grams, e.g. 12.5 g or 10-12 g; positive ascending ranges only. Stone Weight ct is a separate "
+        "Weight: metal grams, e.g. 12.5 g, 10-12 g or 25-35 g per pair; positive ascending ranges only. Stone Weight ct is a separate "
         "positive carat number, not metal weight. Diamond is a product classification, not metal purity. "
         "If specifying purity for diamond jewellery also specify Base Metal.\n\n"
         "Use template_v1 mode. Supplier/scanned PDFs require explicit legacy_pages mode and manual correction/review. "

@@ -1,6 +1,6 @@
 # Private identity linkage export — version 1
 
-No verified website export has been supplied. No production role changes or merges have run.
+Follow-up status (11 September2026): no verified website export has been supplied. No production role changes, account merges, backup/restore or reconciliation have run. This absence did NOT block compatibility, catalog, crop/authoring, lifecycle accounting or synthetic tests. Baseline30796997d3484594c6c5f53965e1c71dd5ed1c86 is publicly verified; follow-up sync/release provenance is separate (RELEASE_READINESS.md).
 Owner target: phone **9999813334**, role **admin**, retaining its existing canonical app user ID and history. This is a proposal until the specific backed-up report is approved. No other website role is authoritative.
 
 ## Minimum website export
@@ -43,3 +43,14 @@ Tool produces proposed stable-ID links, conflicts, role proposals, and a determi
 6. Validate both verified client logins and business-history counts before release. Roll back data from the approved backup only under the same maintenance controls; never restore old sessions or exposed secrets.
 
 **No live apply command is included intentionally.** Duplicate-reference merging and production execution remain blocked on the real export, backup and specific approval. The dry-run tool is safe to run now; it is not proof of completed production migration.
+
+## Exact minimal read-only instructions for the later website stage
+
+1. In the authorized website environment, use an existing read-only database credential, not a new elevated integration key. Confirm the actual identity collection names (staff_users plus the identity-bearing enrollment/customer collection); do not export sessions/drafts/outbox contents. Obtain a consistent snapshot/read timestamp. These steps do not authorize writes.
+2. Project ONLY the fields in the table above. Map source `_id` to string `record_id`, preserve any existing canonical_user_id exactly, and output unknown fields as null. Preserve raw phone for conflict diagnosis. Do not infer missing verification/status/role values from dates or local login success.
+3. Save the UTF-8 array privately as `/private/web-identity.json`, mode0600, outside the repository. Generate a second manifest with source collection names, row count per collection, snapshot time, SHA-256 of the encrypted-transfer plaintext payload and the NAMES of reference fields only. No phones/names/IDs in the manifest. Enumerate collection relationships separately, e.g. outbox.subject_id and enrollment.canonical_user_id.
+4. Produce the app-side minimal export separately with existing canonical `id`/session_version; never use phone as a replacement ID. Record duplicates/missing mappings rather than choosing a winner. Run the offline reconcile_identities command above into `/private/reconciliation/` and share that report only with authorized reviewers.
+5. Agree encrypted transfer recipients, expiry, backup retention and destruction acknowledgement BEFORE transfer. Keep payload, hashes tying PII sets, full backup and private conflict report out of Git/public evidence. Publish only aggregate counts and approval state.
+6. The existing owner target remains9999813334 retaining its canonical ID/history. **Do not create9711881372 as a password admin.** All other role conflicts remain unresolved until explicit report-hash/per-ID mapping approval. Export receipt alone is not merge/promotion approval.
+
+Backup gate: production owner supplies/takes an authorized full consistent backup, checksum/count manifest and verifies restoration to an isolated restore target. No backup/export may be fabricated from synthetic fixtures. Reconciliation execution remains separately gated even after code review and website readiness. Canonical self-service phone change is NOT a substitute for approved identity reconciliation or an admin-targeted phone workflow.

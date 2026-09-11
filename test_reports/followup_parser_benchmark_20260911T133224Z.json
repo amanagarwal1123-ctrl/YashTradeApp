@@ -1,0 +1,29 @@
+{
+  "timestamp_utc": "20260911T133224Z",
+  "scope": "isolated local cgroup benchmark (8GiB/4CPU), non-production entitlement",
+  "concurrency": 1,
+  "products_target": 60,
+  "pages": 32,
+  "rows_detected": 60,
+  "pdf_bytes": 4128423,
+  "warmup": {
+    "baseline_parent_rss_bytes": 111775744,
+    "first_page_elapsed_seconds": 0.4894
+  },
+  "run": {
+    "elapsed_seconds": 54.641,
+    "throughput_pages_per_second": 0.5856,
+    "throughput_rows_per_second": 1.0981
+  },
+  "memory": {
+    "poll_interval_seconds": 0.05,
+    "sample_count": 1086,
+    "peak_parent_rss_bytes": 112250880,
+    "peak_workers_total_rss_bytes": 123473920,
+    "combined_peak_rss_bytes": 235646976
+  },
+  "artifacts": {
+    "authoring_json": "/app/test_reports/followup_benchmark_authoring_60_20260911T133224Z.json",
+    "pdf": "/app/test_reports/followup_benchmark_catalog_60_20260911T133224Z.pdf"
+  }
+}

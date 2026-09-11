@@ -121,3 +121,6 @@ migration-reports/
 review-access*
 backend/import-tmp/
 !backend/.env.example
+/memory/test_credentials.md
+/backups/
+/review-credentials/

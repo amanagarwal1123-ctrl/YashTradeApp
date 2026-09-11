@@ -1,59 +1,55 @@
-# PDF Validation Evidence (shared-v1-2026-09-11)
+# PDF validation evidence — follow-up, 11 September2026
 
-## Fixture under test
-- PDF: `/app/backend/fixtures/catalog-v1/sample.pdf`
-- Manifest: `/app/backend/fixtures/catalog-v1/sample.manifest.json`
-- Parser tests: `/app/backend/tests/shared/test_shared_pdf_media_reconcile.py`
+Build `shared-v1-followup-2026-09-11`. Workspace implementation only; no production rollout. Baseline30796997d3484594c6c5f53965e1c71dd5ed1c86 is verified in GitHub. New commit/pinned links await user-controlled Save to GitHub.
 
-## Structural verification
-- Parsed template pages validated with `analyze_page(..., mode="template_v1")`
-- GUIDE pages return empty rows (page 1 and page 4 in sample)
-- Extracted product codes are exactly:
-  - `SAMPLE-SILVER-001`
-  - `SAMPLE-GOLD-001`
-  - `SAMPLE-DIAMOND-001`
+## Current artifacts (all in this repository)
 
-## Crop dimension verification
-- All extracted masters are exactly `1024 x 1024`
-- Thumbnail generation path is tested by parser thumbnail utility and importer flow tests
+- `backend/fixtures/catalog-v1/sample.pdf` — actual admin download `GET /api/pdf-template/sample.pdf`, attachment Yash-Catalog-Template-v1.pdf.
+- `backend/fixtures/catalog-v1/sample.manifest.json` — regenerated field/geometry fixture manifest.
+- `backend/fixtures/catalog-v1/authoring.json` — advanced editable companion, downloadable `/api/pdf-template/authoring.json`.
+- `backend/tools/generate_catalog.py`, `backend/shared/pdf_schema.py`, `backend/shared/pdf_parser.py`, `backend/tools/parse_catalog_page.py` — SAME version1 generator/schema/parser.
+- `frontend/app/catalog-author.tsx`, `backend/shared/pdf_authoring.py` — labelled photo/field form and POST /api/pdf-template/export. No Python/JSON required for ordinary staff.
+- `frontend/app/pdf-import.tsx`, `frontend/src/components/staff/{ProductFields,SquareCrop,PrivateImage}.tsx` — labelled correction, private page preview, drag+resize crop.
+- `backend/tests/shared/pdf_measure_followup.py`, `pdf_parser_benchmark_followup.py` — executed non-live evidence generators.
 
-## Pixel-comparison evidence (fixture JPEG vs parsed crop)
-Measured using `/app/backend/tests/shared/pdf_measure_report.py`.
+Template layout is unchanged: A4,2 square80mm photograph regions per PRODUCTS page, guide pages ignored, same version markers/field reference. Guide text now explains the app form and grams-per-pair compatibility. No silent new PDF layout/version. Form export max20 entries,32MiB input photos, output within importer cap; form drafts are session-local. Export alone does not publish inventory.
 
-| Product code | Mean absolute pixel diff | Parsed crop | Expected fixture crop |
-|---|---:|---|---|
-| SAMPLE-SILVER-001 | 2.4390 | `/app/test_reports/pdf_crops/SAMPLE-SILVER-001-parsed.png` | `/app/test_reports/pdf_crops/SAMPLE-SILVER-001-expected.png` |
-| SAMPLE-GOLD-001 | 1.6606 | `/app/test_reports/pdf_crops/SAMPLE-GOLD-001-parsed.png` | `/app/test_reports/pdf_crops/SAMPLE-GOLD-001-expected.png` |
-| SAMPLE-DIAMOND-001 | 1.2307 | `/app/test_reports/pdf_crops/SAMPLE-DIAMOND-001-parsed.png` | `/app/test_reports/pdf_crops/SAMPLE-DIAMOND-001-expected.png` |
+## Exact sample/parser evidence
 
-Threshold used in pytest: mean absolute diff `< 8.0` (all pass with large margin).
+`test_reports/followup_pdf_measurements.json`:3 products (silver/gold/diamond),0 row errors, all masters1024×1024 PNG and thumbnails320×320 PNG. Four document pages: guide,2 products,1 product,field-reference guide. Crop mean absolute pixel differences versus contained source references: silver2.4390, gold1.6606, diamond1.2307; mean1.7768. Independent baseline parser/crop check supplied by owner reported the same three typed rows and supports this happy path, not provider/native/release claims.
 
-## Malformed/layout rejection evidence
-- Cropbox-altered PDF is rejected (`CatalogError`)
-- Blank/unknown layout PDF is rejected (`CatalogError`)
+Aggregate3-photo bytes: masters3,616,707; thumbnails384,365; total4,001,072. Offline JPEG92 master+thumb507,598; WebP92 master+thumb304,986. These are sizing experiments, not approved image replacements or claims of equal jewellery-detail quality. Originals and served PNG formats retained. See STORAGE_CAPACITY.md for projections including source/preview/backup exclusions.
 
-## Notes
-- This report validates correctness of sample fixture extraction and crop fidelity.
-- It does **not** claim configured max throughput/memory limits as measured production performance.
+Automated visual PDF inspection found readable/unclipped guide/field reference and three separated square photographs. This is rendered-document inspection, NOT manual Acrobat/Apple Preview/device validation. Common PDF viewer/device sharing checks remain unverified.
 
-## Benchmark evidence (iter12, production generator+parser path)
-- Script: `/app/backend/tests/shared/pdf_benchmark_report.py`
-- Output JSON: `/app/test_reports/pdf_benchmark_iter12.json`
-- Generated PDF: `/app/test_reports/benchmark_catalog_60.pdf`
-- Measured run:
-  - bytes: `4,127,720`
-  - pages: `32`
-  - products: `60`
-  - parser elapsed: `39.321s`
-  - process peak RSS: `447,312 KB`
-- Unproven maxima:
-  - >32 pages / >60 products with mixed-quality real supplier scans
-  - concurrent import-job contention under multi-worker production load
-  - end-to-end storage retry behavior against real object-storage transient failures
+## Executed regression coverage
 
-## Final combined verification
-- `/app/test_reports/pytest/shared_final.xml`: 31 tests passed together (27 backend + 4 authenticated browser journeys).
-- Browser PDF regression now waits for phase `queued` AND the full acknowledged byte count before invoking the test worker. The earlier chunk409 was caused by the test forcibly starting analysis while upload was still running; it was not reproduced after correcting the test. Backend source reconstruction now independently rejects an incomplete manifest even if a local source cache exists.
-- Exact sample download, browser chooser/chunk upload, preview, field correction, exclusion and hidden commit exercised through actual ASGI logic and isolated Mongo. SMS/storage transport are fixture-stubbed; no production customer/financial records were changed and no real SMS was sent.
-- Main fullscreen customer gallery regression now selects an added photograph explicitly; original scan remains a separate selectable photograph.
-- Physical Android/iOS and release-build execution, full negative parser matrix, actual process-kill recovery and live storage outage testing remain unverified.
+Final combined command: `/opt/plugins-venv/bin/python -m pytest /app/backend/tests/shared -q --tb=short --junitxml=/app/test_reports/pytest/followup_combined_after_races.xml` -> **54 passed,0 failed,0 skipped**. Earlier iteration15–17 failures are retained as history, superseded by the final run after fixes; iteration18 adds five controlled race tests. TypeScript `npx tsc --noEmit` passed; final lint/compile evidence is recorded in RELEASE_READINESS.md.
+
+Included cases:
+- Exact three-product parsing, guide exclusion, no analysis-time products, hidden commit/exclusion, idempotent repeated commit, duplicate SKU/update-version handling.
+- Legacy raw grams/per-pair image/title-only edits, ambiguous unchanged optional fields preserved; new ambiguous input rejected. Slab currency/basis/version/role handling.
+- Full chunked upload/status, private owner access, different-owner/customer rejection, private source chunks blocked via /files, source reconstruction after local assembled cache deletion.
+- Crop square/bounds/text protection and90/180/270 normalization comparisons; actual mobile-web PanResponder MOVE and RESIZE changed persisted rectangle while retaining square geometry.
+- Labelled title correction then crop, versioned save, hidden two-row commit; preview read locks no longer conflict with row mutations.
+- Wrong hash/retry/idempotency baseline cases; injected storage outage then successful retry; provider402/generic503 writes recorded unknown; quota/high-watermark and retained references/candidate states.
+- Encrypted PDF safe failure; truncated PDF no worker crash (test allows safe failure OR repaired reviewable output, not unconditional truncation rejection).
+- Form photo upload/entry/export download and text parse, duplicate/unknown field/other-owner photo rejection; catalog navigation/back and media accounting screen.
+- Existing external HTTPS photograph renders without bearer headers while canonical private photo preview uses bearer; external request is intercepted synthetic data (no real third-party call).
+- Concurrent identical chunk uploads preserve one manifest entry/bytecount; concurrent same-version commits create exactly three unique sample products; commit/cancel race has one consistent terminal result. Simulated thumbnail failure after successful master write leaves zero products for that row, recorded unknown thumbnail, then retry produces exactly one complete product. Expired-lease worker-claim-equivalent harness resumes after two checkpointed product rows without duplicating them (not a real OS/process/cloud restart).
+
+**Test transport boundaries:** isolated Mongo fixture; MSG91/storage are test doubles. Five authenticated browser journeys route to real ASGI logic. Chromium omitted multipart File payload in post_data_buffer; test init instrumentation captures the selected File via Request.arrayBuffer and forwards identical multipart bytes (native captured184 bytes vs forwarded695080). This validates UI/backend handling with a controlled transport, not live web upload networking or a real file-provider. No universal OTP/reviewer bypass exists in production.
+
+## Current subprocess/RAM benchmark
+
+Artifact `test_reports/followup_parser_benchmark_20260911T133224Z.json`:60 generated products,32pages,4,128,423bytes. Sequential current per-page subprocess path54.641s;0.5856pages/s,1.0981products/s. Imported-backend parent baseline111,775,744bytes; parent peak112,250,880; child peak123,473,920; sampled COMBINED peak235,646,976bytes (~224.73MiB). Sampling50ms/1086samples; concurrency1. Test container cgroup8GiB/4CPU, NOT production entitlement.
+
+This parent imports backend modules but is not a complete concurrent HTTP+PDF-export+Mongo+provider workload. One import worker loop per backend process; preview/crop/export work may add concurrency. Additional replicas can process more jobs. Full service concurrent/RAM acceptance against actual production CPU/RAM remains a release gate. Historical447,312KB (~437MiB) in-process benchmark is not the current worker limit or a production sizing proof.
+
+## Configured, estimated and unverified limits
+
+- CONFIGURED:64MiB PDF,1MiB chunks,200pages,25second page timeout,512MiB child address-space ceiling,22second CPU limit;4 active imports/admin. Client reads capabilities. No1GB upload claim.
+- MEASURED: sample and60-row fixture above. NOT a measured64MiB/200page maximum or10k-image PDF ingestion promise.
+- SIMULATED: source-cache reconstruction, injected storage failure/retry, isolated concurrency/idempotency cases. No real cloud outage, process kill/restart under load, network partition, worker lease expiry across real replicas or provider key rotation test.
+- UNAVAILABLE: physical Android/iOS builds/file-provider lifetime, background/reopen/OS kill, share/open handoff, gesture/three-button navigation/home indicator, genuine Play reviewer access, actual provider writes/deletion and release-resource load test. Mobile-web screenshots are not native validation.
+- BLOCKED: remote managed storage DELETE/lifecycle completion. Candidate audit does not erase bytes. Active/referenced source chunks remain retained; unreferenced candidates record blocked_provider_unsupported. No source PDF is made public to bypass the gate.

@@ -1,194 +1,172 @@
-<analysis>
-<original_problem_statement>
-The user wants to enhance his Yash Trade jewelry business app. The initial project involved adding numerous features like About Us, live rate scraping, and multi-language support.
+<analysis>### Handover Summary
 
-The current session has been focused on a series of complex, high-priority user requests:
-1.  **Production-Grade PDF Import (1GB):** The user urgently required the ability to upload PDF catalogs up to 1GB. This necessitated a complete re-architecture from a simple file upload to a robust, production-grade chunked and resumable upload system. This involved extensive debugging of frontend caching issues, race conditions, and retry logic.
-2.  **Critical UX/UI Fixes:** The user requested four critical improvements: a cancel option for uploads, zoomable product images, making the chunked upload more reliable, and ensuring uploads continue even if the mobile screen locks.
-3.  **Product Limit Increase:** The user requested the app support up to 100,000 (1 lakh) products, requiring removal of hardcoded limits.
-4.  **Nine UI/UX Refinements:** A large batch of UI improvements including new button layouts, confirmation messages, a new color theme, a floating WhatsApp icon, an My Orders history page, and randomized product listings.
-5.  **AI Try-On Feature:** The user requested a feature for customers to preview jewelry on their own photos. This feature has gone through multiple incorrect iterations (random image generation, simple overlay) and the current implementation attempts to create a realistic composite using the exact user photo and the exact product image.
-</original_problem_statement>
+**original_problem_statement**: Continue the existing implementation to finish the shared backend integration for the Yash Trade App and Website. The new phase (Prepare for 10,000 Photos) requires fixing legacy data compatibility ( weight formats,  labour formats), replacing full-catalog UI downloads with bounded server pagination, implementing a visual draggable/resizable crop UI for PDF imports instead of raw JSON/coordinates, managing Object Storage lifecycles and cost plans for 10,000 photos, and configuring secure release prerequisites (like ) without prematurely running destructive database migrations.
+PRODUCT REQUIREMENTS: 
+- Support legacy pricing/weight formats in updated schemas.
+- Implement server-side pagination and virtualized lists for products.
+- Visual UI for PDF crop extraction.
+- Strict remote deletion and lifecycle policy for Emergent managed object storage.
 
-**User's preferred language**: English
+**User's preferred language**: English (INSTRUCT next agent: ALWAYS respond in English)
 
-**what currently exists?**
--   **Backend:** The monolithic  now includes a sophisticated chunked upload system to handle large files (up to 1GB). It uses a temporary directory to assemble 25MB chunks and a MongoDB collection () to track upload state for resumability. It also features a new endpoint () that uses the Pillow library to composite product images onto user-provided photos. The product query endpoints now support randomization and a limit of 100,000 items. An endpoint to fetch a user's order history () has also been added.
--   **Admin Panel ():** The PDF import UI has been completely overhauled to support the new chunked upload system, showing detailed progress, status, and error messages. It includes logic for upload cancellation and resuming failed uploads.
--   **Mobile App ():**
-    -   A new AI Try-On screen () has been created, which allows users to upload a photo and receive a composite image from the backend.
-    -   Numerous UI/UX enhancements have been implemented: a new, more colorful theme; a floating WhatsApp button; Add to Cart confirmations on both the feed and product detail pages; a My Orders section in the user profile; and a Thank You screen after submitting a cart.
-    -   Product images on the detail page () are now zoomable.
+**what currently exists?**: 
+A unified FastAPI and Expo React Native architecture. The previous agent fully integrated canonical MSG91 SMS OTP authentication, a shared request queue with append-only resolution history, and a chunked resumable PDF parser that extracts square crops. A robust 31-test integration suite via Pytest currently passes locally.
 
-**Last working item**:
-- Last item agent was working: Re-implementing the AI Try-On feature for the third time to meet the user's specific requirements. The user rejected the previous random AI generation and simple overlay approaches. The latest implementation uses the Python Pillow library on the backend to create a composite image by placing the exact selected product image onto the exact user-uploaded photo. The frontend  screen was also rebuilt to support this new flow (upload -> generate -> display composite).
-    - Status: IN PROGRESS
-    - Agent Testing Done: N (The code was just written and services were restarted, but no end-to-end test was performed on this new implementation).
-    - Which testing method agent to use? both. The frontend flow needs to be checked, and the backend image composition result needs to be verified for correctness and quality.
-    - User Testing Done: N
+**Last working item**: 
+- Last item agent was working: The agent just received the Phase 2 prompt (Finish Integration and Prepare for 10,000 Photos). It ran  to get clarification or export data from the user before starting edits.
+- Status: BLOCKED / USER VERIFICATION PENDING
+- Agent Testing Done: Y (for Phase 1 items)
+- Which testing method agent to use? backend testing agent / frontend testing agent / manual test via python/curl.
+- User Testing Done: N
 
-**All Pending/In progress Issue list**:
-  - Issue 1: **AI Try-On Feature Functionality and Quality (P0)**
-     - Attempted fixes:
-        1.  Initial version used OpenAI to generate a random image, which was incorrect.
-        2.  Second version was a simple client-side canvas overlay, which the user rejected as too basic.
-        3.  The current version uses a backend Pillow-based image compositor.
-     - Next debug checklist:
-        1.  Verify that the  screen correctly allows a user to select a product, upload a photo, and trigger the backend process.
-        2.  Confirm the backend  endpoint correctly receives the images, creates a composite, and returns it.
-        3.  Critically evaluate the quality of the output image. Does it look realistic? Is the placement, scale, and rotation of the jewelry correct?
-        4.  The user wants an AI-generated realistic try-on, but the current implementation is a non-AI smart overlay. The next agent must be prepared for the user to potentially reject this implementation as well and may need to investigate actual AI try-on models or APIs.
-     - Why fix this issue and what will be achieved with the fix? This is a major feature request from the user and is the current primary focus.
-     - Status: IN PROGRESS
-     - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix? Both.
-     - Blocked on other issue: None.
+**All Pending/In progress Issue list**: 
+  Issue 1: Backward Compatibility in  schema (P0)
+  Issue 2: Backward Compatibility in  schema (P0)
+  Issue 3: Bloated catalog fetching in  (P1)
+  Issue 4: Unusable UI in  (P1)
+  Issue 5: Orphaned chunks in Object Storage (P1)
 
-  - Issue 2: **Uploads Fail When Mobile Screen Locks (P1)**
-     - Attempted fixes: The agent initially implemented  to solve this. However, it caused the web version of the admin panel to crash and was completely removed as a fix.
-     - Next debug checklist:
-        1.  Re-implement the  hook in .
-        2.  Wrap the hook's activation in a platform check (e.g., ).
-        3.  This will restore the required functionality on mobile without crashing the web panel.
-     - Why fix this issue and what will be achieved with the fix? This is a critical requirement for a mobile app that handles large uploads. The user explicitly requested it (Point 4, Msg 109), and its removal is a regression.
+  Issues Detail:
+  - Issue 1: 
+     - Attempted fixes: None yet in this fork.
+     - Next debug checklist: Modify  -> . The new weight validator rejects historical strings like  and . Allow these without failing unrelated updates.
+     - Why fix this issue and what will be achieved with the fix? Existing products cannot be updated if their old optional fields fail strict new schemas.
      - Status: NOT STARTED
-     - Is recurring issue? Y
-     - Should Test frontend/backend/both after fix? Frontend.
-     - Blocked on other issue: None.
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
+  - Issue 2: 
+     - Attempted fixes: None.
+     - Next debug checklist: Modify . It rejects legacy labour values like . Preserve monetary meaning/units without rejecting old formats.
+     - Why fix this issue and what will be achieved with the fix? Prevents crashes and data loss on existing billing/rate slabs.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
+  - Issue 3: 
+     - Attempted fixes: None.
+     - Next debug checklist: Update  and related backend APIs to use , , and virtualized lists instead of .
+     - Why fix this issue and what will be achieved with the fix? Huge performance lag and memory bloat on devices when loading the entire catalog.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+  - Issue 4: 
+     - Attempted fixes: None.
+     - Next debug checklist: Update  to remove manual JSON coordinate typing. Implement a visual draggable/resizable square crop over an authorized source-page preview.
+     - Why fix this issue and what will be achieved with the fix? Makes the tool usable by non-technical administrative staff.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Frontend
+  - Issue 5:
+     - Attempted fixes: None.
+     - Next debug checklist:  removes local DB records/jobs but doesn't issue explicit  commands to Emergent managed object storage. Add real remote deletion logic for canceled/aborted chunk uploads.
+     - Why fix this issue and what will be achieved with the fix? Prevents runaway storage costs for 10,000+ photos.
+     - Status: NOT STARTED
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Backend
 
-**In progress Task List**:
-None.
+**In progress Task List**: 
+  Task 1: Generate Storage Capacity and Cost Plan
+  Task 2: Configure 
+
+ Task Detail:
+  - Task 1: 
+     - Where to resume: Gather byte counts of a 10,000 item simulation. Add thumbnail-first lazy loading strategy.
+     - What will be achieved with this? Gives the user an accurate architecture estimate before production scaling.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? NA
+  - Task 2: 
+     - Where to resume:  and FastAPI auth dependencies. Establish  for website-BFF integrations, explicitly decoupled from .
+     - What will be achieved with this? Secures S2S integrations.
+     - Status: NOT STARTED
+     - Should Test frontend/backend/both after fix? Backend
 
 **Upcoming and Future Tasks**
-*   **Upcoming Tasks (Carried over from handoff):**
-    *   **P1: Improve Feed Image Quality:** Ensure outer feed/listing images are high-definition and not blurry. (File: , )
-    *   **P1: Implement Global Success Confirmations:** While some were added, the user requested this *across the entire app*. A systematic review is needed.
-    *   **P1: Fix Customer App Back-Navigation:** Ensure the back button behaves predictably and doesn't log the user out.
-
-*   **Future Tasks (From PRD/Handoff):**
-    *   **Rate System History:** Add rate history, intraday update logs, and mini-charts.
-    *   **Push Notifications:** Implement architecture for notifications.
-    *   **Analytics:** Build out the analytics dashboard for admins.
-    *   **Real OTP Integration:** Replace the mocked OTP system with a real SMS provider.
-    *   **Expand Calculator:** Add a Gold calculator.
+    Upcoming Tasks:
+    - P1: Implement PDF authoring form/export utility. Provide a real GUI so staff can input fields/photos and get the correct versioned PDF layout back without writing JSON.
+    - P1: UI Feature Re-audit. Ensure registration dates, daily performance drill-downs, telecaller real names, and Android/iOS safe insets actually exist and work as promised in Prompt 1.
+    - P1: Prepare Play Store review access identities. Create isolated test accounts with static data for Google Play reviewers that bypass real SMS logic but retain identical app behaviors.
+    - P1: Owner Reconciliation (). Use the  data to dry-run map the legacy owner account across web and app WITHOUT executing blindly.
+    - P2: Coordinate Cutover. Setup sequence to force re-authentication and maintain up-time for the website agent integration.
 
 **Completed work in this session**
-- **Production-Grade PDF Import (1GB):**
-  - Implemented a resilient chunked (25MB) upload system with resume capabilities.
-  - Resolved critical bugs including an  error caused by incorrect event handling, a consumed blob issue in the retry logic, and a Metro bundler caching issue that prevented frontend fixes from being served.
-  - Increased NGINX  to 30MB to support the larger chunks.
-- **Product & Feed Enhancements:**
-  - Increased product query limits to 100,000.
-  - Implemented product list randomization on the backend.
-  - Added an Add to Cart button with a confirmation message to the main feed cards.
-- **Major UI/UX Overhaul (9-point list):**
-  - Implemented a new, more colorful application theme.
-  - Added a permanent floating WhatsApp icon linking to a pre-filled chat.
-  - Added an My Orders history section to the user profile, with a corresponding backend endpoint.
-  - Added clear confirmation toasts/messages for Add to Cart (inner page) and Submit Selection.
-  - Reordered buttons on the product detail page and added a visual reaction to the wishlist heart icon.
-- **UX Fixes (4-point list):**
-  - Implemented a Cancel button for uploads using .
-  - Made product images zoomable on the detail page.
+- Unified canonical authentication via MSG91 (replaced old bypasses) (DONE)
+- Unified Request Ledger with append-only resolution history (DONE)
+- Heavy PDF extraction worker utilizing PyMuPDF for perfect square cropping (DONE)
+- Robust 31-test integration suite covering ASGI UI flows, auth race conditions, and resumable PDF uploads (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   - Issue 1: **Uploads stop when the mobile screen locks.** This was explicitly requested by the user, implemented with , and then fully removed to fix a web crash. The fix was not made platform-specific, so the requirement remains unfulfilled.
-     - Debug checklist: Re-introduce  in  behind a  check.
-     - Why to solve this: It's a critical usability feature for large mobile uploads and a regression on a user requirement.
-     - Should Test frontend/backend/both after fix: Frontend.
-     - Is recurring issue? Y
+None unique from the pending issues listed above.
 
 **Known issue recurrence from previous fork**
-N/A
+  - Issue recurrence in previous fork: 0
+  - Recurrence count: 0
+  - Status: RESOLVED
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI, MongoDB, Pydantic, **Pillow (PIL)** for image manipulation.
--   **Frontend (Mobile):** Expo, React Native, Expo Router.  for toasts.
--   **Frontend (Web Panel):** React, CSS.
--   **Large File Uploads:** A custom chunked upload architecture (25MB chunks) with client-side slicing () and server-side assembly.
--   **Upload Management:**  for cancellation, and a backend/frontend system for resuming uploads by checking for already received chunks.
--   **Debugging:** Traced and fixed critical bugs related to JS event objects, consumed blobs in retry loops, and Metro bundler caching ().
+- Frontend: Expo, React Native, React (Admin UI), Expo Router
+- Backend: FastAPI, Pydantic, Motor (Async MongoDB), PyMuPDF (PDF processing)
+- Infrastructure: Emergent Object Storage, MSG91 (Flow API)
 
 **key DB schema**
--   **upload_sessions:**  (New)
--   **carts:** Now includes a  field to differentiate pending carts from  orders.
+  - : {id, phone, role, status, etc.}
+  - : {metal_type, values (currently holds legacy formats like INR 850/kg)}
+  - : {user_id, status, notes_history, assignee, resolver}
 
 **changes in tech stack**
--   **Pillow ()** was added to the backend for server-side image composition.
--   **** was added and then removed from the frontend.
+  - Expanded usage of Pytest/Playwright for ASGI UI routing tests inside backend test environment.
 
-**All files of reference**
--   : Heavily modified with chunked upload endpoints (), an image compositing endpoint (), an order history endpoint (), and product randomization.
--   : Major overhaul to implement the chunked PDF upload UI, including progress bars, status messages, and cancel/resume buttons. The  hook was removed from this file.
--   : New file containing the core logic for chunking, uploading, retrying, and cancelling file uploads.
--   : New screen for the AI Try-On feature. Rewritten multiple times.
--   : Added zoomable images, AI Try-On button, reordered action buttons, and added cart confirmation toast.
--   : Added an Add to Cart button directly on product cards.
--   : Added My Orders list.
--   : Added floating WhatsApp button and new theme colors.
--   : Updated  to 30M.
+**All files of reference** 
+  - : Needs schema validator adjustments for legacy data.
+  - : Needs pagination applied.
+  - : Needs visual crop UI.
+  - Documents: , , , , .
 
-**Areas that need refactoring**:
--   ** and ** are more critical than ever. Their monolithic nature made debugging the upload issues incredibly difficult. They must be broken down into smaller, manageable modules (e.g., ,  for backend; ,  for frontend). The agent should strongly propose this to the user.
--   The  logic needs to be refactored to be platform-specific instead of being completely removed.
+**Areas that need refactoring**: 
+-  fetching  is blocking and inefficient. Needs virtualized lists.
+-  is still bloated but keep refactors limited unless specifically necessary for requested features.
 
 **key api endpoints**
--    (POST): Starts a new chunked upload session.
--    (POST): Uploads a single chunk.
--    (POST): Finalizes the upload and processes the file.
--    (GET): Gets the status and list of received chunks for an upload.
--    (POST): Takes a user image and product image and returns a composite.
--    (GET): Retrieves the user's submitted order history.
+  - : Add/verify , , and sorting features.
+  - : Chunked manifest handler.
 
-**Critical Info for New Agent**
--   **AI Try-On is P0 and Unverified:** The current focus is the AI Try-On feature. The latest implementation (server-side composite with Pillow) has **not been tested or shown to the user**. The user has very specific, high expectations for a realistic AI-generated result, which the current non-generative composite may not meet. Be prepared for another round of feedback on this.
--   **Mobile Uploads Will Fail on Screen-Lock:** The  feature was removed to fix a web crash. This is a **critical regression** that violates a user requirement. A platform-specific fix is needed immediately.
--   **PDF Upload System is Complex:** The chunked upload system has been through many bug fixes (caching, , blob consumption). While it appears stable now, be aware of its history. The core logic is in  and .
--   **Frontend Caching:** A previous major blocker was the Metro bundler caching old versions of frontend files due to . While fixed, always be mindful of caching and instruct the user to do a hard refresh if a frontend change doesn't appear to work.
+**Critical Info for New Agent** 
+- **DO NOT** run destructive migrations automatically. The admin account () and customer mappings MUST only be merged after dry-run review and human approval.
+- Support legacy inputs. The system data contains  and . Updating an existing product/slab must not crash simply because a legacy field doesn't match the new strict schema.
+- Emergent Managed Storage requires exact lifecycle cleanups. The  method must explicitly delete remote storage files, not just local db records.
+- For the  screen, remove the text boxes where admins input  and implement an interactive crop bounding-box over the image preview.
+- Do NOT hardcode URL hostnames in  files; rely on existing tunnel behavior.
 
-**documents created in this job**
--    (updated with all new features and fixes)
+**documents and test reports created in this job** 
+  - , , 
+  - 
+  - 
+  - 
+  - 
+  - 
 
-**Last 10 User Messages and any pending HUMAN messages**
--   **User (Msg 419):** Re-iterates in great detail that the AI Try-On must be a realistic AI-generated preview using the *exact user photo* and *exact selected product*, not a simple overlay or random image. (IN PROGRESS)
--   **User (Msg 408):** Angry feedback that the AI Try-On is generating random, useless images. Demands it be fixed to use the user's photo and the selected product. (IN PROGRESS)
--   **User (Msg 399):** Reports that the Try It On button is not visible on a product. (RESOLVED - was due to a category filter)
--   **User (Msg 358):** Requests two new features: Add to Cart confirmation on the main feed and the AI Try-On feature. (IN PROGRESS)
--   **User (Msg 297):** Provides a large list of 9 UI/UX improvements to be implemented. (RESOLVED)
--   **User (Msg 282):** Reports that the home page is still showing only 50 products after the limit was supposed to be increased. (RESOLVED)
--   **User (Msg 269):** Requests the product limit be increased to 1 lakh (100,000). (RESOLVED)
--   **User (Msg 228):** Reports the PDF upload is still failing on chunk 1 and asks to bring in the troubleshoot agent. (RESOLVED - led to discovery of Metro cache issue)
--   **User (Msg 199):** Reports chunk 1 is still failing and correctly guesses it might be related to the number of chunks. (RESOLVED - led to increasing chunk size)
--   **User (Msg 166):** Shows a screenshot of the PDF upload failing with Upload session not found. (RESOLVED - was the  bug)
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. User: Asked agent to continue implementing Phase 2: Finish Integration and Prepare for 10,000 Photos covering legacy compatibilities, pagination, visual PDF crop UI, storage cost plan, and pre-release setup.
+ 2. Agent: Ran  to ask questions regarding the provided identity exports or clarifications for the next step.
+ **PENDING HUMAN MESSAGE**: User has not yet responded to the  tool trigger. When the fork resumes, evaluate if you can proceed with non-blocked P0 items (like Schema compatibility and Pagination) while awaiting explicit human approval for S2S configurations or identity mapping.
 
 **Project Health Check:**
--   **Working:** The core app, the 9 UI/UX features, and the chunked PDF upload system (on desktop).
--   **Broken / Needs Verification:**
-    -   The AI Try-On feature is the highest priority and is unverified.
-    -   The large PDF upload workflow is **broken on mobile** because uploads will fail when the screen locks (due to the removal of ).
--   **Mocked:** Phone OTP authentication is still mocked.
+- Broken:  UX is too raw for non-tech users.  is bloated loading 100k products. Legacy validation blocking old records.
+- Mocked: Pytest test fixtures bypass actual MSG91 SMS limits.
 
-**3rd Party Integrations**
--   **OpenAI GPT Image 1:** Used for the (now defunct) generative AI try-on. The API key is accessed via Emergent LLM Key. The current implementation does not use it.
--   **Pillow (PIL):** Used in the backend for image manipulation in the current try-on implementation.
--   **Yahoo Finance:** Used via web scraping for live rates.
--   **Emergent Object Storage:** Used for all media file uploads.
+**3rd Party Integrations** 
+  • MSG91 Flow API (Requires User Auth Key)
+  • Emergent Managed Object Storage
 
-**Testing status**
--   Testing agent used after significant changes: NO (The agent last used the testing agent before the major PDF bug fixes, the 9 UI/UX features, and the AI Try-on feature were implemented).
--   Troubleshoot agent used after agent stuck in loop: YES (Used to diagnose the Metro bundler caching issue).
--   Test files created: None.
--   Known regressions: The removal of  has reintroduced the bug where uploads fail on mobile screen lock.
+**Testing status** 
+  - Testing agent used after significant changes: YES
+  - Troubleshoot agent used after agent stuck in loop: YES (Used to debug Pytest-Asyncio MongoDB loop disconnections)
+  - Test files created:  (31 tests total passing locally)
+  - Known regressions: Strict schema validations breaking old db records.
 
 **Credentials to test flow:**
--   **Admin:** Phone: , OTP: 
--   **Customer (Mobile App):** Phone: , OTP: 
+  See . However, since real SMS is forced in production flows, manual testing may require reading the OTP from the backend logs or using the Pytest intercepted setups.
 
 **What agent forgot to execute**
-- The agent correctly identified the  crash on web but failed to implement a platform-specific fix, leading to a regression of a user-requested feature (uploads continuing on screen lock).
-- The agent has not run the testing agent after a very large number of significant changes and bug fixes, increasing the risk of other regressions.
-
-</analysis>
+- The agent was interrupted by a new massive prompt and paused with . It hasn't started the UI form refactors, legacy data adjustments, pagination, or storage lifecycles. Ensure these are targeted immediately in the new fork.</analysis>

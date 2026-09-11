@@ -1,0 +1,72 @@
+{
+  "scope": "workspace canonical database; NOT verified production inventory",
+  "read_only": true,
+  "groups": {
+    "external_url_references": {
+      "unique_references": 12,
+      "known_bytes": 0,
+      "unknown_size_objects": 12
+    },
+    "masters": {
+      "unique_references": 424,
+      "known_bytes": 590882,
+      "unknown_size_objects": 421
+    },
+    "thumbnails": {
+      "unique_references": 424,
+      "known_bytes": 17716,
+      "unknown_size_objects": 421
+    },
+    "manual_photos": {
+      "unique_references": 0,
+      "known_bytes": 0,
+      "unknown_size_objects": 0
+    }
+  },
+  "samples": [
+    {
+      "kind": "masters",
+      "attempted": 3,
+      "read_ok": 3,
+      "read_failed": 0,
+      "bytes": 590882,
+      "seconds": 1.2940416860010373,
+      "upstream_read_seconds": [
+        0.391628,
+        0.205853,
+        0.208243
+      ],
+      "jpeg92_bytes": 800401,
+      "webp92_bytes": 650870
+    },
+    {
+      "kind": "thumbnails",
+      "attempted": 3,
+      "read_ok": 3,
+      "read_failed": 0,
+      "bytes": 17716,
+      "seconds": 0.7451979960005701,
+      "upstream_read_seconds": [
+        0.291074,
+        0.169049,
+        0.255773
+      ],
+      "jpeg92_bytes": 34758,
+      "webp92_bytes": 27718
+    },
+    {
+      "kind": "manual_photos",
+      "attempted": 0,
+      "read_ok": 0,
+      "read_failed": 0,
+      "bytes": 0,
+      "seconds": 0,
+      "upstream_read_seconds": [],
+      "jpeg92_bytes": 0,
+      "webp92_bytes": 0
+    }
+  ],
+  "backups": "unavailable: no approved production backup inventory",
+  "complete_provider_inventory": false,
+  "compression": "Offline estimates only; no asset replaced/uploaded"
+}

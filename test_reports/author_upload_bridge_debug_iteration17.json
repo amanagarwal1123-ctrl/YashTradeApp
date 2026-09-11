@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "url": "https://pagination-ui-boost.preview.emergentagent.com/api/products/upload-image",
+  "body": "{\"url\":\"/api/files/yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266.jpg\",\"storage_path\":\"yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266.jpg\",\"thumbnail_path\":\"yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266-thumb.jpg\",\"content_type\":\"image/jpeg\",\"permanent\":true}",
+  "bridge_events": [
+    {
+      "url": "/api/products/upload-image",
+      "method": "POST",
+      "native_len": 184,
+      "forwarded_len": 695080,
+      "native_prefix_hex": "2d2d2d2d2d2d5765624b6974466f726d",
+      "native_suffix_hex": "7670344f69554b4b684a65422d2d0d0a",
+      "queue_count_before_pop": 1,
+      "used_fallback": true
+    }
+  ]
+}

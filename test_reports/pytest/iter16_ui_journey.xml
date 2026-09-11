@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="6.201" timestamp="2026-09-11T13:16:43.226734+00:00" hostname="agent-env-14c982ce-fcba-4f94-8821-ec2bc44c4db3"><testcase classname="tests.shared.test_shared_authenticated_ui" name="test_admin_mobile_web_catalog_author_export_and_media_usage" time="6.139"><failure message="assert 0 &gt;= 1">api_client = &lt;httpx.AsyncClient object at 0xfdc65dbe7610&gt;
+isolated_db = {'db': AsyncIOMotorDatabase(Database(MongoClient(host=['localhost:27017'], document_class=dict, tz_aware=False, connec...x03\x00\x01+\tM\x84\x00\x00\x00\x00IEND\xaeB`\x82', 'image/png'), ...}, 'sent_otps': {('9999813334', 'login'): '0766'}}
+seeded_users = {'u_admin': {'_id': ObjectId('6aa3ff3b0c7bd15d363b4597'), 'account_status': 'active', 'created_at': '2026-09-11T13:16:...5d363b459c'), 'account_status': 'active', 'created_at': '2026-09-11T13:16:43.533304+00:00', 'id': 'u_cust2', ...}, ...}
+
+    @pytest.mark.asyncio
+    async def test_admin_mobile_web_catalog_author_export_and_media_usage(api_client, isolated_db, seeded_users):
+        """Admin mobile-web routed journey: catalog(&lt;=40/page,next/prev/filter/search,DOM/heap) -&gt; author upload/export parse -&gt; media usage."""
+        if async_playwright is None:
+            pytest.skip("Playwright is not importable in this Python environment")
+    
+        await _seed_ui_data(isolated_db)
+        await _seed_catalog_metadata(isolated_db, total=300)
+    
+        pw, browser, context, page = await _start_routed_browser(api_client)
+        try:
+            await _login_via_otp_ui(page, isolated_db, "9999813334", "panel")
+            await page.click('[data-testid="panel-tab-products"]')
+            await page.wait_for_selector('[data-testid="pm-list"]', timeout=15000)
+            await page.click('[data-testid="pm-list"]')
+            await page.wait_for_selector('[data-testid="catalog-title"]', timeout=15000)
+    
+            await page.wait_for_selector('[data-testid^="catalog-product-"]', timeout=15000)
+            rendered = await page.locator('[data-testid^="catalog-product-"]').count()
+            assert 1 &lt;= rendered &lt;= 40, f"virtualized render count should stay &lt;=40, got {rendered}"
+    
+            async with page.expect_response(lambda r: "/api/products?page=2&amp;limit=40" in r.url and r.request.method == "GET") as page2_info:
+                await page.click('[data-testid="catalog-next"]')
+            assert (await page2_info.value).status == 200
+    
+            async with page.expect_response(lambda r: "/api/products?page=1&amp;limit=40" in r.url and r.request.method == "GET") as page1_info:
+                await page.click('[data-testid="catalog-prev"]')
+            assert (await page1_info.value).status == 200
+    
+            await page.click('[data-testid="catalog-metal-silver"]')
+            await page.wait_for_timeout(900)
+            metas = await page.locator('[data-testid^="catalog-meta-"]').all_text_contents()
+            assert metas and all("silver" in m for m in metas[: min(8, len(metas))])
+    
+            await page.fill('[data-testid="catalog-search"]', 'TESTMETA-00299')
+            await page.wait_for_timeout(1200)
+            total_text = await page.inner_text('[data-testid="catalog-total"]')
+            total_value = int(re.search(r"(\d+)", total_text).group(1))
+            # Document current indexed text behavior: tokenized OR under active silver filter.
+            assert total_value == 150
+    
+            await page.fill('[data-testid="catalog-search"]', '299')
+            await page.wait_for_timeout(1200)
+            numeric_text = await page.inner_text('[data-testid="catalog-total"]')
+            numeric_value = int(re.search(r"(\d+)", numeric_text).group(1))
+&gt;           assert numeric_value &gt;= 1
+E           assert 0 &gt;= 1
+
+backend/tests/shared/test_shared_authenticated_ui.py:601: AssertionError</failure></testcase></testsuite></testsuites>

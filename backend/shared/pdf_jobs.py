@@ -22,6 +22,7 @@ from . import core as c
 from .commerce import validate_product
 from .pdf_parser import thumbnail
 from .pdf_schema import contract
+from .media_lifecycle import tracked_put, audit_candidates
 
 router = APIRouter(prefix="/api", tags=["Reviewed PDF import v1"])
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/catalog-v1"
@@ -82,6 +83,10 @@ class Init(BaseModel):
 @router.post("/pdf-upload/init")
 async def init(req: Init, user=Depends(c.admin)):
     lim = limits()
+    if await c.db.import_jobs.count_documents({"owner_id": user["id"], "phase": {"$in": ["uploading", "queued", "analyzing", "review", "paused"]}}) >= 4:
+        identity = c.digest(f"{user['id']}:{req.batch_id}:{req.sha256}:{req.mode}")[:32]
+        if not await c.db.import_jobs.find_one({"id": identity}, {"_id": 0}):
+            c.fail(429, "ACTIVE_IMPORT_LIMIT", "Finish or cancel an active import (maximum four)")
     if not req.filename.lower().endswith(".pdf"):
         c.fail(422, "PDF_REQUIRED", "Select a PDF file")
     if req.file_size > lim["max_bytes"]:
@@ -126,7 +131,7 @@ async def chunk(jid: str, chunk_index: int = Query(ge=0), file: UploadFile = Fil
                 c.fail(409, "CHUNK_CONFLICT", "Previously acknowledged chunk differs")
             return {"received": chunk_index, "duplicate": True}
         path = f"yash-trade/imports/{jid}/chunks/{chunk_index}"
-        await asyncio.to_thread(c.put_object, path, data, "application/octet-stream")
+        await tracked_put(path, data, "application/octet-stream", "pdf_chunk", user["id"], jid)
         result = await c.db.import_jobs.update_one({"id": jid, "phase": "uploading", f"manifest.{chunk_index}": {"$exists": False}},
             {"$set": {f"manifest.{chunk_index}": {"path": path, "sha256": checksum, "size": len(data)}, "updated_at": c.stamp()},
              "$inc": {"bytes_received": len(data)}})
@@ -241,7 +246,7 @@ async def correct(jid: str, rid: str, req: Correction, user=Depends(c.admin)):
             image_path = result["crop_image"]
             data = Path(image_path).read_bytes()
             path = f"yash-trade/imports/{jid}/previews/{rid}-{req.version+1}.png"
-            await asyncio.to_thread(c.put_object, path, data, "image/png")
+            await tracked_put(path, data, "image/png", "pdf_preview", user["id"], jid)
             changes.update(preview_path=path, crop_points=req.crop_points)
             values, errors = validate_product(changes.get("fields", row["fields"]))
             changes.update(fields=values, errors=errors)
@@ -309,8 +314,8 @@ async def commit_row(job, row, publish, user):
         data, _ = await asyncio.to_thread(c.get_object, row["preview_path"])
         prefix = f"yash-trade/products/imported/{row['id']}"
         master, thumb = prefix + ".png", prefix + "-thumb.png"
-        await asyncio.to_thread(c.put_object, master, data, "image/png")
-        await asyncio.to_thread(c.put_object, thumb, thumbnail(data), "image/png")
+        await tracked_put(master, data, "image/png", "import_master", user["id"], job["id"])
+        await tracked_put(thumb, thumbnail(data), "image/png", "thumbnail", user["id"], job["id"])
         action = "updated" if old else "created"
         fields.update(storage_path=master, thumbnail_path=thumb, visibility="all" if publish else "hidden",
             source_type="pdf_template" if job["mode"] == "template_v1" else "pdf_legacy_reviewed",
@@ -332,6 +337,11 @@ async def commit_row(job, row, publish, user):
 
 
 async def assemble(job):
+    async with c.lock("import-source:" + job["id"], seconds=180, wait_seconds=10):
+        return await assemble_locked(job)
+
+
+async def assemble_locked(job):
     manifest = job.get("manifest", {})
     if (len(manifest) != job["total_chunks"] or job.get("bytes_received") != job["file_size"]
             or any(str(i) not in manifest for i in range(job["total_chunks"]))):
@@ -400,7 +410,7 @@ async def process_job(job):
             for row in result["rows"]:
                 rid = c.digest(f"{jid}:{page}:{row['block_id']}")[:32]
                 path = f"yash-trade/imports/{jid}/previews/{rid}.png"
-                await asyncio.to_thread(c.put_object, path, Path(row.pop("image_file")).read_bytes(), "image/png")
+                await tracked_put(path, Path(row.pop("image_file")).read_bytes(), "image/png", "pdf_preview", job["owner_id"], jid)
                 await c.db.import_rows.update_one({"_id": rid}, {"$setOnInsert": {"id": rid, "job_id": jid,
                     **row, "preview_path": path, "version": 0, "excluded": False, "duplicate_policy": "skip"}}, upsert=True)
             await c.db.import_jobs.update_one({"id": jid, "lease": lease}, {"$set": {"next_page": page+1, "updated_at": c.stamp()}})
@@ -456,6 +466,7 @@ async def cleanup_temporary():
     cutoff = (c.now()-timedelta(days=limits()["temporary_retention_days"])).isoformat()
     await c.db.import_jobs.update_many({"phase": {"$in": ["uploading", "paused", "error"]}, "updated_at": {"$lt": cutoff}},
         {"$set": {"phase": "expired", "updated_at": c.stamp()}})
+    await audit_candidates()
     for directory in TEMP.iterdir():
         if not directory.is_dir() or directory.is_symlink():
             continue

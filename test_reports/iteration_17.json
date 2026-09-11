@@ -1,0 +1,77 @@
+{
+  "summary": "Executed targeted follow-up verification for routed author flow, exact SKU behavior, crop drag/resize, offline rotation checks, parser memory benchmark, and PDF measurement outputs. Final combined suite ran with one remaining routed upload failure.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/products/upload-image (routed browser -> ASGI)",
+        "issue": "Routed multipart body arrives truncated (184 bytes; boundary-only) and returns INVALID_IMAGE 422, while direct API upload with same silver.jpg succeeds 200.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin product-catalog -> catalog-author photo upload",
+        "issue": "Author flow still blocks at photo upload due routed multipart truncation; export/media usage segment cannot complete in same routed journey.",
+        "affected_testIDs": [
+          "catalog-create",
+          "author-photo",
+          "author-photo-preview"
+        ]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "product-catalog",
+        "issues": [
+          "Web DOM rendered_count remains 6 with FlatList virtualization; browser DOM does not hold full 40 rows simultaneously (expected virtualization behavior)."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/backend/tests/shared/pdf_parser_benchmark_followup.py",
+    "/app/backend/tests/shared/pdf_measure_followup.py",
+    "/app/test_reports/author_upload_bridge_debug_iteration17.json",
+    "/app/test_reports/mobile_web_catalog_scroll_metrics_iteration16.json",
+    "/app/test_reports/followup_parser_benchmark_20260911T133224Z.json",
+    "/app/test_reports/followup_pdf_measurements.json",
+    "/app/test_reports/pytest/followup_crop_ui.xml",
+    "/app/test_reports/pytest/followup_legacy_rotation.xml",
+    "/app/test_reports/pytest/followup_author_ui_bridge.xml",
+    "/app/test_reports/pytest/iter17_shared_full_with_ui.xml"
+  ],
+  "action_items": [
+    "Fix routed multipart bridge so file bytes survive browser->ASGI forwarding (current post_data_buffer body is truncated).",
+    "After bridge fix, rerun test_admin_mobile_web_catalog_author_export_and_media_usage to complete export parse + media usage UI assertions.",
+    "Decide whether author upload should be covered by direct ASGI route shim alternative when browser runtime does not expose fetch/FormData body capture.",
+    "If needed, add route-level multipart raw-body capture support independent of Playwright request.post_data_buffer semantics."
+  ],
+  "critical_code_review_comments": [
+    "Routed bridge currently depends on request.post_data_buffer; evidence shows multipart payload length only 184 bytes for image upload, indicating missing binary file content.",
+    "Exact SKU endpoint behavior is correct on backend for product_code=TESTMETA-09999 (total=1) while words search remains Mongo text OR tokenized (full SKU returns 10000 in 10k dataset).",
+    "Crop interaction coverage now performs real move + resize gestures and validates saved square coordinates changed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/backend/tests/shared/pdf_parser_benchmark_followup.py",
+    "/app/backend/tests/shared/pdf_measure_followup.py",
+    "/app/test_reports/iteration_17.json"
+  ],
+  "success_rate": {
+    "backend": "97.96% (48/49 in /app/backend/tests/shared)",
+    "frontend": "80% (4/5 routed Playwright-authenticated UI tests in shared suite)"
+  },
+  "seed_data_creation": "Isolated only: synthetic catalog metadata, temporary admin2 for control upload, benchmark authoring/pdf artifacts, and temporary parser outputs. No live DB mutation.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Transports remain MOCKED in isolated tests (SMS + storage + routed browser->ASGI). tsc passed (yarn tsc --noEmit). Combined suite path: /app/test_reports/pytest/iter17_shared_full_with_ui.xml (1 fail).",
+  "rca_of_issue": "Repro: direct isolated API upload of silver.jpg succeeded (200), then routed Playwright author upload returned 422 INVALID_IMAGE. Captured evidence in /app/test_reports/author_upload_bridge_debug_iteration17.json shows multipart forwarded body length=184 bytes with boundary signature and no file payload; queue_count_before_pop=0 and fallback not used. This indicates the browser-route bridge (request.post_data_buffer path) is dropping/omitting real file bytes in routed mode, causing backend image verification to fail despite valid source file."
+}

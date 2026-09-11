@@ -1,38 +1,30 @@
-# Yash Trade shared backend — implementation handoff
+# Yash Trade shared-v1 follow-up — 11 September2026
 
-## Request and constraints
-Implement canonical phone OTP identity/roles/profiles for the app and separate enrollment website; secure staff/customer integration, unified queries and IST metrics, billing rates, permanent product photos, privacy/deletion controls, and a reviewed resumable native PDF importer with actual sample/generator/tests. Preserve existing records and working catalog/rewards/banner flows.
-
-No verified website export has been provided. Phone 9999813334 is the intended admin, retaining its existing app ID and history. Production reconciliation is **dry-run only** until a backup, conflict report and owner approval of that exact migration exist. Do not create a password/default admin or infer other roles from website records.
+## Problem / constraints
+Finish shared backend integration and prepare for10000photos without redoing architecture, duplicating database/media authority, losing genuine records, exposing secrets or premature rollout. Preserve owner9999813334 canonical ID/history. No9711881372 password-admin creation, no universal OTP, no production merge without specific report-hash approval/restored backup. Website private export must not block independent app work.
 
 ## Architecture and implementation
-- New `backend/shared/` modules: core, auth, people, queries, commerce, PDF schema/parser/jobs, route installation. Canonical routes replace unsafe legacy registrations; existing catalog/rewards remain in oversized server.py.
-- Auth: persistent purpose-bound hashed four-digit challenges using existing MSG91 Flow sender, cooldown/attempt limits, single use, canonical role/current-user checks, revocable session versions/families, rotating refresh. Old fixed-OTP environment flags cannot enable a bypass. Startup no longer seeds identities or silently backfills verification.
-- Identity: grant-backed enrollment, profile whitelist, stable-ID phone change with revocation, admin-only staff directory/conversion, last-admin guard, same-subject service-key exchange; paginated customer directory.
-- Requests: full staff queue including unassigned, pagination beyond 200, atomic claims/versioned events, separate resolver/editor, canonical history/status adapters, reopening, IST cohort/throughput metrics and drilldown. Telecaller Requests is primary; CRM remains separate; billing queries read-only.
-- Commerce: versioned admin/billing rates/slabs, permanent validated photo upload, original scan plus added-photo selection in both detail and fullscreen gallery. Separate AI assistant retained with owned history and reporting.
-- Deletion: local anonymization/revocation, tombstones, website deletion outbox. External provider/website erasure is NOT claimed complete.
-- PDF: actual v1 A4 sample, JSON authoring generator, guide ignored, two blocks/page, silver/gold/diamond fields and geometric 1024² masters/320² thumbnails. Chunk manifests/hashes, native-compatible file APIs, durable job leases/checkpoints, review/crop/exclude/duplicate policy, hidden idempotent commit, pause/resume/cancel. No silent whole-page fallback or OCR claim.
-- Migration: offline dry-run tool and synthetic linkage fixture; private minimum export contract. No production apply command or live migration run.
+Expo SDK54 React Native app + canonical FastAPI/Motor Mongo; existing Emergent managed binary storage. Shared core/auth/people/queries/commerce/catalog/units/pdf_jobs/pdf_authoring/media_lifecycle/media_cache modules replace relevant legacy routes; remaining server/panel functionality preserved.
+- Baseline OTP/grants/revocable15minute access/30day refresh families, same-subject staff exchange, role/last-admin guards, local deletion/tombstones/outbox preserved. STAFF_SERVICE_KEY remains absent and now must also differ from enrollment credential.
+- Legacy grams/per-pair normalize only on explicit valid writes; unchanged historical optional fields do not block title/photo updates. Structured INR labour amount/basis with old labelled adapter; ambiguity flagged, no implicit scaling; old slab controls versions/display corrected.
+- Catalog limit<=100, stable created_at/id order from page1, indexed words/exact SKU, separate discovery. Admin product-catalog FlatList40/page; thumbnail-first/private images. New catalog-author form accepts photos/fields, saves hidden product or exports exact v1 PDF. Same generator/schema/sample; no second PDF layout.
+- Owner-only upright source page geometry/PNG, labelled review, actual drag/resize crop. Fixed GET-preview mutation-lock contention and new-screen back stack duplication. Source assembly independently locked.
+- Managed-write intent/bytes/hash ledger, unknown outcomes, budgets/high-watermarks, media-usage UI; candidate audit protects referenced/shared/source media. Provider DELETE unavailable; remote_deleted never true. Byte-bounded16MiB/60second internal public-byte cache with authorization before EVERY fetch and HTTP private,no-store.
+- Customer date/assignment controls, named telecaller/assignee/resolver options, daily/range drilldowns. Canonical analytics/dashboard retained. No admin-targeted customer phone change; self-service subject only.
 
-## Verification
-- 27 backend tests passed together (`iter12_final_results.xml`).
-- Four authenticated mobile-web journeys passed (`iter13_authenticated_ui.xml`) using real ASGI logic and isolated Mongo, with test-only SMS/storage interception. Admin PDF test was corrected to wait for acknowledged full upload before worker execution; passes (`iter13_corrected_upload.xml`).
-- Sample exactly three products; crop pixel MAE 1.23–2.44. Benchmark 32 pages/60 products, 4,127,720 bytes, 39.321s, 447,312KB peak RSS. Configured 64MiB/200-page maximum is NOT proven.
-- TypeScript and Python compile pass. Physical Android/iOS, Expo Go device and release-build tests not run.
+## Verification / evidence
+54 shared tests passed together,5 routed mobile-web journeys; final JUnit test_reports/pytest/followup_combined_after_races.xml. Isolated SMS/storage doubles; browser File multipart capture fixes test bridge omission, not production bypass. Actual crop move/resize and rotatedPDF tests pass. Added controlled PDFchunk/commit/cancel races, master-success/thumb-fail recovery and simulated expired-lease checkpoint resume. Six real read-only managed-storage reads total608598bytes; no livewrite/SMS/deletion/rotation.
+10000synthetic metadata rows/100pages/unique IDs,100rowpayload62040bytes; exacttimings test_reports/catalog_10k_benchmark_iteration16.json. Browser scrolling metrics test_reports/mobile_web_catalog_scroll_metrics_iteration16.json (not native RAM). Sample3products/noerrors1024master320thumb, MAE2.439/1.6606/1.2307. Current60product/32page4,128,423byte subprocess fixture54.641s; parent+child235,646,976byte peak/concurrency1 excludes fullserviceworkload. TypeScript/lint/compile checked. Physical devices/provider failure chaos unavailable.
 
-## P0 release gates still pending
-Final combined suite: **31 passed** (`test_reports/pytest/shared_final.xml`). Idempotent index setup retries only AutoReconnect transport errors; no business tests are retried/suppressed. Authenticated browser startup waits for painted content rather than a short cold-bundle timeout.
-
-1. Website project changes and cross-deployment verification; no identity export/backup/approved reconciliation applied.
-2. Secret rotation and separate STAFF_SERVICE_KEY provisioning (missing locally); controlled real SMS verification.
-3. Production rollout and repository sync/new implementation commit verification. Current branch main; observed HEAD `1d18a772c6c058e8917d969615f1495ad2c6345d` is pre-change baseline, not this implementation. No remote configured. Observed production build `2026.09.09-integration-v7`, exact deployed commit unknown.
-4. Isolated Play-review role identities/sample data and private external credentials handoff; NOT provisioned.
-5. Complete cross-system/provider deletion, retention and privacy/Data Safety audit; remote object-storage purge/orphan cleanup confirmation.
-6. Remaining PDF negative/chaos/native-device matrix and resource-limit validation under real deployment budget.
+## P0 release gates
+1. Save to GitHub is user-controlled/unavailable to agent; branchmain local baseline30796997d3484594c6c5f53965e1c71dd5ed1c86 publicly verified beforeediting, NOT newimplementationcommit. Follow-upSHA/pinnedlinks pending action. No productiondeploy; previewbuildshared-v1-followup-2026-09-11 commitunrecorded; production independent lastv7 commitunknown.
+2. Authorized production+website secrets, separate staffkey/rotation, genuine MSG91dispatch+receipt.
+3. Account-specific storage/DB/bandwidth/readwrite/CPU/RAM/backup costs unknown; supportedDELETE or owner-approved single-store plan required. No purchase/migration authorized. Complete production inventory/controlledproviderwrite+readback/recovery testpending.
+4. Minimal private identityexport, verifiedrestorablebackup, conflict/hashmappingapproval; later websiteBFF/UIstaging, coordinatedcutover/reauthentication. No actualreconciliation.
+5. Privatelyprovisioned isolated Playreview roles/data; externaldeletion/privacyretention verification; physicalAndroid/iOSfiles/sharing/background/navigation; fullservice/resourcechaos tests.
 
 ## P1/P2
-Remove dormant legacy handlers/UI and finish modularizing server/panel. Improve drag-based crop editing and filter UX; admin sync status widget. Future push/WhatsApp fallback, enrollment alerts, analytics and gold calculator remain backlog.
+P1: finish genuine-provider/device/full-serviceacceptance when inputs available; durableauthoringdrafts if needed. Cleanup dormant legacy panel sections without breaking preserved flows. P2: optional optimizedservingvariants after detailreview, stablelogicalmedia-ID migration onlyifapproved, furthercursor/snapshotpaging if livecatalogeditvolume requires it. No recommendation to expand paidresources without actualentitlement/inventory.
 
-## References
-`YASH_SHARED_API_CONTRACT.md`, `WEBSITE_HANDOFF.md`, `IDENTITY_EXPORT_CONTRACT.md`, `RELEASE_READINESS.md`, `PDF_VALIDATION_EVIDENCE.md`, generated `contracts/openapi.shared-v1.json`; `backend/fixtures/catalog-v1/`, `backend/tools/generate_catalog.py`, `backend/tools/reconcile_identities.py`; test reports/JUnit/screenshots iterations 11–13. No production/reviewer credentials belong in this repository.
+## Handoff
+All five rootdocs updated: YASH_SHARED_API_CONTRACT.md, WEBSITE_HANDOFF.md, IDENTITY_EXPORT_CONTRACT.md, PDF_VALIDATION_EVIDENCE.md, RELEASE_READINESS.md. Additional STORAGE_CAPACITY.md. Regenerated contracts/openapi.shared-v1.json and sample.pdf/sample.manifest.json. WEBSITE_HANDOFF includes endpoint/body/header/response maps, nonsecretconfigurationnames, minimalread-onlyexportinstructions and stagebothclients-beforelivecutover sequence. No privateexports/backups/reviewcredentials inGit.

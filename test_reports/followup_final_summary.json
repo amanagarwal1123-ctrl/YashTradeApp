@@ -1,0 +1,97 @@
+{
+  "case": "shared-v1 follow-up implementation and verification",
+  "status": "workspace-tested; release-gated",
+  "build": "shared-v1-followup-2026-09-11",
+  "combined_tests": {
+    "passed": 54,
+    "failed": 0,
+    "skipped": 0,
+    "elapsed_seconds_reported": 123.23,
+    "non_failing_python_warnings": 9,
+    "authenticated_mobile_web_journeys": 5,
+    "junit": "/app/test_reports/pytest/followup_combined_after_races.xml",
+    "command": "/opt/plugins-venv/bin/python -m pytest /app/backend/tests/shared -q --tb=short --junitxml=/app/test_reports/pytest/followup_combined_after_races.xml"
+  },
+  "static_checks": {
+    "typescript": "passed npx tsc --noEmit",
+    "python_compile": "passed shared and tools",
+    "changed_frontend_and_shared_python_lint": "passed",
+    "openapi_paths": 116,
+    "running_openapi_exact_json_match": true,
+    "running_schema_path": "/api/openapi.json"
+  },
+  "preview_check": {
+    "restarted": true,
+    "painted": true,
+    "render_exceptions_captured": 0,
+    "warnings": "Existing RN web shadow/pointerEvents deprecations and Expo SDK54 patch-alignment suggestions; see RELEASE_READINESS.md"
+  },
+  "test_transport_boundaries": {
+    "database": "isolated synthetic Mongo fixtures, not genuine records",
+    "sms": "test-only intercepted MSG91 transport",
+    "object_writes": "test-only managed-store transport",
+    "browser": "390x844 Chromium routed into real ASGI logic; selected File bytes captured by test bridge because intercepted Chromium post_data_buffer omits File bodies; intercepted external HTTPS legacy image receives no Authorization, canonical preview receives Bearer",
+    "native_devices": "not run",
+    "process_restart": "simulated lease/checkpoint/source-cache reconstruction, not real OS/cloud restart"
+  },
+  "real_provider_inventory": {
+    "report": "/app/test_reports/media_inventory_followup.json",
+    "final_read_attempts": 6,
+    "final_read_successes": 6,
+    "bytes_read": 608598,
+    "total_inventory_complete": false,
+    "production_equivalence_verified": false,
+    "live_uploads": 0,
+    "remote_deletions": 0
+  },
+  "performance_reports": [
+    "/app/test_reports/catalog_10k_benchmark_iteration16.json",
+    "/app/test_reports/mobile_web_catalog_scroll_metrics_iteration16.json",
+    "/app/test_reports/followup_pdf_measurements.json",
+    "/app/test_reports/followup_parser_benchmark_20260911T133224Z.json"
+  ],
+  "resolved_findings": [
+    "Legacy unchanged optional fields blocked unrelated product edits",
+    "Slab labour currency/basis validation and display",
+    "Unbounded primary product panel and random first-page pagination",
+    "Raw JSON/point-coordinate staff PDF editing",
+    "Missing form-based v1 PDF authoring",
+    "Legacy external HTTPS images are preserved without forwarding canonical credentials",
+    "Private source-preview lock contended with versioned row edits",
+    "Corrupt PNG SyntaxError returned500",
+    "New screen Back navigation created duplicate panel stack entries",
+    "Routed test multipart script defined but did not invoke its capture function; fixed IIFE and verified actual selected file bytes"
+  ],
+  "repository": {
+    "branch": "main",
+    "verified_pre_change_baseline": "30796997d3484594c6c5f53965e1c71dd5ed1c86",
+    "implementation_commit": null,
+    "implementation_commit_url": null,
+    "new_remote_sync_verified": false,
+    "blocker": "User-controlled Save to GitHub action unavailable to this session; public main still baseline on final read-only check"
+  },
+  "runtime": {
+    "preview": "https://pagination-ui-boost.preview.emergentagent.com",
+    "preview_recorded_commit": "unrecorded",
+    "production_changes_performed": false,
+    "production_app_last_independent_build": "2026.09.09-integration-v7",
+    "production_website_last_independent_build": "2026.09.10-login-v10",
+    "production_recorded_commits": "unknown"
+  },
+  "remaining_gates": [
+    "New repository commit/sync/pinned links via normal owner-controlled workflow",
+    "Authorized separate STAFF_SERVICE_KEY provisioning and app/website secret rotation",
+    "Genuine MSG91 dispatch and handset receipt verification",
+    "Account-specific storage/database/traffic/operations/compute/backup entitlements and cost confirmation",
+    "Provider-supported remote deletion and completion verification or separately approved single-store migration",
+    "Approved production-equivalent object write/readback/rotation/recovery tests",
+    "Private identity exports, restorable backup and exact report-hash/per-ID reconciliation approval",
+    "Private isolated reusable Play review role access",
+    "Actual cross-system/provider erasure and retention acknowledgements",
+    "Android/iOS build/device file-provider/sharing/background/navigation acceptance",
+    "Full concurrent backend/worker/authoring/provider load against actual production resources",
+    "Later website implementation/staging against final contract and agreed coordinated cutover"
+  ],
+  "historical_reports": ["iteration_15.json", "iteration_16.json", "iteration_17.json", "iteration_18.json", "iteration_19.json"],
+  "historical_failures_superseded_by_final_combined_pass": true
+}

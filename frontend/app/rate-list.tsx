@@ -99,8 +99,8 @@ export default function RateListScreen() {
                 <Text style={st.detailValue}>{slab.wastage || '-'}</Text>
               </View>
               <View style={st.detailCell}>
-                <Text style={st.detailLabel}>{t.labour}</Text>
-                <Text style={[st.detailValue, { color: Colors.gold }]}>{slab.labour_kg || '-'}</Text>
+                <Text style={st.detailLabel}>Labour / basis</Text>
+                <Text testID={`rate-labour-${slab.id}`} style={[st.detailValue, { color: Colors.gold }]}>{slab.labour_display || slab.labour_kg || '-'}{slab.unit_review_required ? ' · Review units' : ''}</Text>
               </View>
             </View>
           </View>

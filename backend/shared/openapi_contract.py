@@ -43,21 +43,34 @@ def install_openapi(app):
                 **{k: integer for k in ["file_size", "bytes_received", "total_chunks", "pages_processed", "product_count", "version"]},
                 "total_pages": {"type": ["integer", "null"]}, "received_chunk_indices": arr(integer), "limits": {"type": "object"}, "result": ref("ImportCommitResult"), "error": {"type": ["string", "null"]}}),
         }
+        definitions.update({
+            "CanonicalProduct": obj({**{k: text for k in ["id", "product_code", "title", "category", "metal_type", "approx_weight", "purity", "stock_status", "visibility", "storage_path", "thumbnail_path", "created_at", "updated_at"]}, "version": integer, "images": arr(text), "tags": arr(text)}, ["id", "version"]),
+            "CanonicalProductPage": obj({**pagination, "products": arr(ref("CanonicalProduct")), "mode": text, "sort": text}),
+            "LabourAmount": obj({"currency": {"type": "string", "const": "INR"}, "amount": text, "basis": {"type": "string", "enum": ["kg", "10g", "piece"]}}, ["currency", "amount", "basis"]),
+            "CanonicalSlab": obj({"id": text, "version": integer, "item_name": text, "metal_type": text, "labour": {"anyOf": [ref("LabourAmount"), {"type": "null"}]}, "labour_kg": {}, "labour_display": text, "unit_review_required": {"type": "boolean"}, "is_deleted": {"type": "boolean"}}),
+            "CanonicalSlabs": obj({"slabs": arr(ref("CanonicalSlab"))}),
+            "SourcePageGeometry": obj({"width_points": {"type": "number"}, "height_points": {"type": "number"}, "rotation": {"type": "integer", "const": 0}, "coordinate_space": text}),
+        })
         doc.setdefault("components", {}).setdefault("schemas", {}).update(definitions)
         response_map = {("/api/auth/me", "get"): "CanonicalUser", ("/api/auth/refresh", "post"): "CanonicalTokens",
             ("/api/auth/profile", "put"): "CanonicalUser", ("/api/requests", "get"): "CanonicalRequestPage",
             ("/api/requests/my", "get"): "CanonicalRequestPage", ("/api/requests/{rid}/history", "get"): "CanonicalHistory",
             ("/api/customers", "get"): "CanonicalCustomerPage", ("/api/integrations/staff", "get"): "CanonicalStaffDirectory",
-            ("/api/pdf-upload/{jid}/status", "get"): "ImportJobStatus", ("/api/pdf-upload/{jid}/commit", "post"): "ImportCommitResult"}
+            ("/api/pdf-upload/{jid}/status", "get"): "ImportJobStatus", ("/api/pdf-upload/{jid}/commit", "post"): "ImportCommitResult",
+            ("/api/products", "get"): "CanonicalProductPage", ("/api/products", "post"): "CanonicalProduct",
+            ("/api/products/{pid}", "put"): "CanonicalProduct", ("/api/rate-list", "get"): "CanonicalSlabs",
+            ("/api/rate-list", "post"): "CanonicalSlab", ("/api/rate-list/{sid}", "put"): "CanonicalSlab", ("/api/rate-list/{sid}", "delete"): "CanonicalSlab"}
         for path, operations in doc["paths"].items():
             for method, operation in operations.items():
                 if method not in {"get", "post", "put", "patch", "delete"}:
                     continue
-                for code in ("401", "403", "409", "422", "503"):
+                for code in ("401", "402", "403", "409", "413", "422", "428", "429", "503"):
                     operation.setdefault("responses", {})[code] = {"description": "Canonical JSON error", "content": {"application/json": {"schema": ref("SharedError")}}}
                 model = response_map.get((path, method))
                 if model:
                     operation["responses"]["200"] = {"description": "Canonical response", "content": {"application/json": {"schema": ref(model)}}}
+        doc["paths"]["/api/pdf-template/export"]["post"]["responses"]["200"] = {"description": "Version 1 PDF attachment, private/no-store", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}}
+        doc["paths"]["/api/pdf-upload/{jid}/pages/{page}/image"]["get"]["responses"]["200"] = {"description": "Private upright page PNG, or geometry JSON when metadata=true", "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}, "application/json": {"schema": ref("SourcePageGeometry")}}}
         app.openapi_schema = doc
         return doc
     app.openapi = schema

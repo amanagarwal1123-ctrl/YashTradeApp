@@ -1,0 +1,16 @@
+{
+  "label": "mobile-web",
+  "dataset": 300,
+  "before": {
+    "dom_nodes": 248,
+    "heap_bytes": 20500000,
+    "scroll_top": 0,
+    "rendered_count": 6
+  },
+  "after": {
+    "dom_nodes": 361,
+    "heap_bytes": 20500000,
+    "scroll_top": 7072,
+    "rendered_count": 14
+  }
+}

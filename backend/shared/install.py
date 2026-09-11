@@ -9,12 +9,15 @@ from .auth import router as auth
 from .people import router as people
 from .queries import router as queries
 from .commerce import router as commerce
+from .catalog import router as catalog
+from .pdf_authoring import router as pdf_authoring
+from .media_lifecycle import router as media_lifecycle
 from .pdf_jobs import router as pdf, worker_loop
 
 
 def install_shared(app, legacy, db, sender, put, get):
     c.configure(db, sender, put, get)
-    routers = [auth, people, queries, commerce, pdf]
+    routers = [auth, people, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
     replacement_names = {
         "health", "send_otp", "verify_otp", "get_me", "update_profile", "phone_change_request", "phone_change_verify",
         "delete_account_request", "delete_account_confirm", "integration_upsert_enrollment", "integration_get_customer",
@@ -23,6 +26,7 @@ def install_shared(app, legacy, db, sender, put, get):
         "list_requests", "update_request", "get_request_history", "update_product", "serve_file", "get_latest_rates",
         "update_rates", "create_rate_slab", "update_rate_slab", "delete_rate_slab", "seed_data", "seed_expand",
         "pdf_upload_init", "pdf_upload_chunk", "pdf_upload_complete", "pdf_upload_status", "import_pdf_to_batch",
+        "list_products", "create_product", "get_rate_list",
     }
     legacy.routes[:] = [r for r in legacy.routes if r.name not in replacement_names]
     for router in routers:
@@ -30,6 +34,10 @@ def install_shared(app, legacy, db, sender, put, get):
     app.include_router(legacy)
     from .openapi_contract import install_openapi
     install_openapi(app)
+
+    @app.get("/api/openapi.json", include_in_schema=False)
+    async def public_contract():
+        return app.openapi()
 
     @app.on_event("startup")
     async def start_worker():
@@ -74,7 +82,8 @@ def install_shared(app, legacy, db, sender, put, get):
     async def health():
         return {"status": "ok", "build": c.BUILD, "commit": os.environ.get("BUILD_COMMIT", "unrecorded"),
             "capabilities": {"canonical_auth": 1, "enrollment_grants": 1, "staff_directory": 1, "query_ledger": 1,
-                             "rates_versioning": 1, "pdf_template": 1},
+                             "rates_versioning": 1, "pdf_template": 1, "legacy_units": 1, "catalog_pagination": 1,
+                             "pdf_authoring": 1, "pdf_source_preview": 1, "media_accounting": 1, "managed_delete": 0},
             "configuration": {k: bool(os.environ.get(k)) for k in ["JWT_SECRET", "MSG91_AUTHKEY", "ENROLLMENT_INTEGRATION_KEY", "STAFF_SERVICE_KEY"]}}
 
     @app.post("/api/ai/reports", tags=["AI moderation"])

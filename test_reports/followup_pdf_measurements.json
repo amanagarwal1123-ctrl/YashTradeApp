@@ -1,0 +1,93 @@
+{
+  "scope": "offline-only; originals unchanged; no uploads",
+  "counts": {
+    "masters_png": 3,
+    "thumbs_png": 3,
+    "errors_total": 0,
+    "expected_master_size": [
+      1024,
+      1024
+    ],
+    "expected_thumb_size": [
+      320,
+      320
+    ]
+  },
+  "aggregate_bytes": {
+    "png_masters": 3616707,
+    "png_thumbs": 384365,
+    "png_total": 4001072,
+    "jpeg92_masters": 454545,
+    "webp92_masters": 269138,
+    "jpeg92_thumbs": 53053,
+    "webp92_thumbs": 35848,
+    "jpeg92_total_estimate": 507598,
+    "webp92_total_estimate": 304986
+  },
+  "crop_quality": {
+    "mae_mean": 1.7768,
+    "mae_max": 2.439
+  },
+  "rows": [
+    {
+      "product_code": "SAMPLE-SILVER-001",
+      "source_fixture": "/app/backend/fixtures/catalog-v1/silver.jpg",
+      "errors_count": 0,
+      "master_png_bytes": 1292298,
+      "thumb_png_bytes": 136064,
+      "master_size": [
+        1024,
+        1024
+      ],
+      "thumb_size": [
+        320,
+        320
+      ],
+      "mae": 2.439,
+      "jpeg92_master_bytes": 171262,
+      "webp92_master_bytes": 109062,
+      "jpeg92_thumb_bytes": 20826,
+      "webp92_thumb_bytes": 15338
+    },
+    {
+      "product_code": "SAMPLE-GOLD-001",
+      "source_fixture": "/app/backend/fixtures/catalog-v1/gold.jpg",
+      "errors_count": 0,
+      "master_png_bytes": 1174687,
+      "thumb_png_bytes": 122554,
+      "master_size": [
+        1024,
+        1024
+      ],
+      "thumb_size": [
+        320,
+        320
+      ],
+      "mae": 1.6606,
+      "jpeg92_master_bytes": 147145,
+      "webp92_master_bytes": 86136,
+      "jpeg92_thumb_bytes": 15651,
+      "webp92_thumb_bytes": 10678
+    },
+    {
+      "product_code": "SAMPLE-DIAMOND-001",
+      "source_fixture": "/app/backend/fixtures/catalog-v1/diamond.jpg",
+      "errors_count": 0,
+      "master_png_bytes": 1149722,
+      "thumb_png_bytes": 125747,
+      "master_size": [
+        1024,
+        1024
+      ],
+      "thumb_size": [
+        320,
+        320
+      ],
+      "mae": 1.2307,
+      "jpeg92_master_bytes": 136138,
+      "webp92_master_bytes": 73940,
+      "jpeg92_thumb_bytes": 16576,
+      "webp92_thumb_bytes": 9832
+    }
+  ]
+}

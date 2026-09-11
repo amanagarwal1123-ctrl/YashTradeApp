@@ -41,6 +41,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
   useFocusEffect(useCallback(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, [load]));
   useEffect(() => { const s = AppState.addEventListener('change', state => { if (state === 'active') load(); }); return () => s.remove(); }, [load]);
   useEffect(() => { api.get('/requests/catalog').then(r => setTypes(r.types)).catch((e: any) => setError(e.message)); }, []);
+  useEffect(() => { if(user && user.role!=='customer')api.get('/requests/staff-options').then(r=>setStaff(r.users)).catch(e=>setError(e.message)); }, [user]);
   useEffect(() => { setPage(1); }, [search, status, view, type, assignee, resolver, createdFrom, createdTo, minAge, maxAge]);
   const open = async (id: string) => {
     setBusy(true); setNote('');
@@ -74,7 +75,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
             <Text style={[ui.text, r.top_performer && ui.success]}>{r.name}{r.top_performer ? ' · Top resolver' : ''}</Text>
             <Text testID={`performance-count-${r.id}`} style={ui.muted}>Resolved {r.resolved} / {r.team_resolved} team resolutions{ '\n' }Assigned cohort: {r.resolved_from_assigned} resolved / {r.assigned_workload} assigned · {r.open_workload} open{ '\n' }Active days {r.active_days} / {r.calendar_days} calendar days</Text>
             <Button id={`performance-drilldown-${r.id}`} title="Show handled queries" onPress={() => { setPeriodResolver(r.id); setResolver(''); setStatus('all'); setPage(1); }}/>
-            {Object.entries(r.daily).map(([day, d]: any) => <Text key={day} testID={`daily-${r.id}-${day}`} style={ui.muted}>{day}: {d.resolved} completed · {d.work_events} work events</Text>)}
+            {Object.entries(r.daily).map(([day, d]: any) => <View key={day}><Text testID={`daily-${r.id}-${day}`} style={ui.muted}>{day}: {d.resolved} completed · {d.work_events} work events</Text><Button id={`daily-drilldown-${r.id}-${day}`} title={`View completions on ${day}`} onPress={()=>{setStart(day);setEnd(day);setPeriodResolver(r.id);setResolver('');setStatus('all');setPage(1);}}/></View>)}
           </View>)}
         </View>}
         <Input id="request-search" label="Search name, phone, shop or place" value={search} onChange={setSearch}/>
@@ -86,7 +87,8 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
           <View style={ui.row}><Button id="request-type-all" title="All types" active={!type} onPress={() => setType('')}/>{types.map(t => <Button key={t} id={`request-type-${t}`} title={`${t.replace(/_/g,' ')} (${data?.open_counts_by_type?.[t] || 0})`} active={t === type} onPress={() => setType(t)}/>)}</View>
           <Input id="request-created-from" label="Created from YYYY-MM-DD (optional)" value={createdFrom} onChange={setCreatedFrom}/><Input id="request-created-to" label="Created to YYYY-MM-DD (optional)" value={createdTo} onChange={setCreatedTo}/>
           <Input id="request-min-age" label="Minimum pending minutes" value={minAge} onChange={setMinAge}/><Input id="request-max-age" label="Maximum pending minutes" value={maxAge} onChange={setMaxAge}/>
-          <Input id="request-assignee" label="Assignee ID (optional)" value={assignee} onChange={setAssignee}/><Input id="request-resolver" label="Resolver ID (optional)" value={resolver} onChange={setResolver}/>
+          <Text testID="request-assignee-label" style={ui.label}>ASSIGNEE</Text><View style={ui.row}><Button id="request-assignee-all" title="All assignees" active={!assignee} onPress={()=>setAssignee('')}/>{staff.map(s=><Button key={s.id} id={`request-assignee-${s.id}`} title={s.name||'Unnamed staff member'} active={assignee===s.id} onPress={()=>{setView('all');setAssignee(s.id);}}/>)}</View>
+          <Text testID="request-resolver-label" style={ui.label}>RESOLVER</Text><View style={ui.row}><Button id="request-resolver-all" title="All resolvers" active={!resolver} onPress={()=>setResolver('')}/>{staff.map(s=><Button key={s.id} id={`request-resolver-${s.id}`} title={s.name||'Unnamed staff member'} active={resolver===s.id} onPress={()=>setResolver(s.id)}/>)}</View>
           <View style={ui.row}>{['oldest','newest','longest_wait'].map(s => <Button id={`request-sort-${s}`} key={s} title={s.replace('_',' ')} active={s === sort} onPress={() => setSort(s)}/>)}</View>
         </View>}
         <Text testID="request-total" style={ui.label}>{data?.total ?? '—'} MATCHING QUERIES</Text>

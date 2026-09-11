@@ -20,6 +20,12 @@ TYPE_ALIASES = {"price_enquiry": "ask_price", "price_inquiry": "ask_price", "cal
 IST = ZoneInfo("Asia/Kolkata")
 
 
+@router.get("/requests/staff-options")
+async def staff_options(user=Depends(c.staff)):
+    rows = await c.db.users.find({"role": {"$in": ["admin", "telecaller", "executive"]}}, {"_id": 0, "id": 1, "name": 1, "role": 1}).sort([("name", 1), ("id", 1)]).limit(500).to_list(500)
+    return {"users": [{**r, "role": c.role(r["role"])} for r in rows], "limit": 500}
+
+
 def status(raw):
     value = ALIASES.get(raw, raw)
     if value not in STATUSES:

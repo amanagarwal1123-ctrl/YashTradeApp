@@ -1,0 +1,61 @@
+{
+  "summary": "Added and executed new follow-up regression coverage (backend + routed mobile-web UI) for media lifecycle, PDF robustness/rebuild, 10k benchmark semantics, and catalog/author/media-usage journey. Full shared combined suite executed with exact counts.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/products?page=1&limit=40&include_hidden=true&search=299&metal_type=silver",
+        "issue": "Returned total=0 in routed UI run because active silver filter excludes SKU TESTMETA-00299 (gold). Current behavior is consistent with filter+search intersection but blocked one assertion in the new UI journey test."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin mobile-web routed journey: panel -> products -> product-catalog -> search",
+        "issue": "New test test_admin_mobile_web_catalog_author_export_and_media_usage currently fails at numeric search assertion (expected >=1, got 0) with active silver filter.",
+        "affected_testIDs": [
+          "catalog-search",
+          "catalog-metal-silver",
+          "catalog-total"
+        ]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/pytest/iter16_followup_regressions.xml",
+    "/app/test_reports/pytest/iter16_ui_journey.xml",
+    "/app/test_reports/pytest/iter16_shared_full_with_ui.xml",
+    "/app/test_reports/catalog_10k_benchmark_iteration16.json",
+    "/app/test_reports/iteration16_preview_load_mobile.jpeg"
+  ],
+  "action_items": [
+    "Decide expected product-catalog numeric search semantics under active metal filter (test expectation vs intended UX/API behavior).",
+    "If expected behavior is filtered intersection, update the failing UI test assertion accordingly; if not, adjust backend search/filter handling.",
+    "Re-run full shared suite after resolving the single failing routed UI assertion."
+  ],
+  "critical_code_review_comments": [
+    "10k benchmark test now records OR-tokenized full-SKU search semantics explicitly and uses nearest-rank p95 formula ceil(0.95*n)-1.",
+    "Benchmark explain output is sanitized to avoid environment/private namespace details while preserving execution evidence.",
+    "Media lifecycle tests confirm blocked_provider_unsupported is preserved where provider DELETE is unavailable and references/chunks are retained."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/test_reports/iteration_16.json"
+  ],
+  "success_rate": {
+    "backend": "97.83% (45/46 in full shared combined run)",
+    "frontend": "80% (4/5 routed Playwright UI tests passed in full shared combined run)"
+  },
+  "seed_data_creation": "Synthetic isolated_db-only data: 10k product metadata rows for benchmark, 300 catalog rows for routed mobile-web test, temporary media assets/import jobs/chunks. No live DB seed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Auth/SMS/storage transports in tests remain MOCKED (MSG91 dispatch + object storage) via isolated ASGI fixtures. TypeScript check passed (yarn tsc --noEmit). Full shared run path: /app/test_reports/pytest/iter16_shared_full_with_ui.xml.",
+  "rca_of_issue": "Repro: login admin via routed ASGI helper -> panel products -> pm-list -> apply silver filter -> search '299'. API request /api/products?...search=299&metal_type=silver returns total=0 because candidate SKU TESTMETA-00299 is gold. This caused single failing assertion in the new routed UI journey test; backend appears to apply filter+search intersection as implemented."
+}

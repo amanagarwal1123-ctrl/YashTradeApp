@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://yash-tryon-test.preview.emergentagent.com"
+API_URL="https://pagination-ui-boost.preview.emergentagent.com"
 
 # Login
 TOKEN=$(curl -s -X POST "$API_URL/api/auth/verify-otp" \

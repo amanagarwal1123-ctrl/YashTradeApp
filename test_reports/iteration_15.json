@@ -1,0 +1,75 @@
+{
+  "summary": "Ran shared regression verification with new follow-up coverage (legacy weights/labour, 10k catalog benchmark, PDF authoring gates, private source preview). Full shared suite rerun with routed-browser tests reproduced one authenticated admin UI failure after selector update.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/pdf-upload/{jid}/rows/{rid}",
+        "issue": "During authenticated admin routed-browser flow, saving edited ProductFields title consistently returns 409 VERSION_CONFLICT and blocks expected UI title update assertion.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/products/upload-image",
+        "issue": "Corrupt PNG path can raise unhandled SyntaxError (500) instead of mapped 422 INVALID_IMAGE because SyntaxError is not caught in image_bytes().",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PDF import review editor",
+        "issue": "After switching authenticated UI test to labelled ProductFields input, save action fails due backend 409; corrected title never appears in UI.",
+        "testID": "pdf-fields-{rowId}-title",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Admin login -> Panel -> Products -> PDF import -> Edit row -> Save corrected fields",
+        "issue": "PATCH conflict interrupts reviewed PDF correction flow in routed-browser journey.",
+        "affected_testIDs": [
+          "pdf-edit-{rowId}",
+          "pdf-fields-{rowId}-title",
+          "pdf-save-fields-{rowId}"
+        ]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/test_reports/pytest/iter15_shared_full.xml",
+    "/app/test_reports/pytest/iter15_shared_full_with_ui.xml",
+    "/app/test_reports/pytest/iter15_followup_regressions.xml",
+    "/app/test_reports/catalog_10k_benchmark_iteration15.json",
+    "/app/test_reports/iteration15_preview_login_mobile.jpeg"
+  ],
+  "action_items": [
+    "Fix PDF reviewed-row correction conflict path so admin ProductFields save succeeds reliably in routed-browser flow.",
+    "Handle PNG parser SyntaxError in upload_image validation and map to 422 INVALID_IMAGE.",
+    "Re-run full 31 shared tests (including 4 routed-browser journeys) after fix to confirm zero failures.",
+    "Review /opt/plugins-venv dependency drift if using that runtime for Playwright pytest execution."
+  ],
+  "critical_code_review_comments": [
+    "image_bytes() catches UnidentifiedImageError/OSError but not SyntaxError from PIL PNG verify path, allowing 500 leakage.",
+    "PDF review save path appears version-sensitive under active UI polling; conflict handling/reload UX likely needs stabilization.",
+    "Catalog pagination behavior stayed deterministic under 10k synthetic records with capped limit=100 and no random page-1 drift in catalog mode."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_shared_authenticated_ui.py",
+    "/app/backend/tests/shared/test_shared_followup_regressions.py",
+    "/app/test_reports/iteration_15.json"
+  ],
+  "success_rate": {
+    "backend": "94% (34 passed / 36 executed incl. one known routed-browser failure path + one environment AutoReconnect occurrence)",
+    "frontend": "75% (3/4 routed-browser journeys passed in Playwright-enabled run; preview load sanity passed)"
+  },
+  "seed_data_creation": "Created only synthetic isolated_db records (10k metadata products, temporary slabs/users/import jobs/media assets) and wrote benchmark artifact; no production DB mutation.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Auth/SMS/storage in tests are fixture-backed and MOCKED (MSG91 transport + object storage). Root venv run passes API suites; Playwright-enabled /opt/plugins-venv run reproduces admin PDF correction conflict. 10k catalog benchmark artifact saved for evidence.",
+  "rca_of_issue": "Reproduction (admin routed-browser): login via OTP -> panel products -> pdf import sample -> edit first row title using labelled ProductFields input -> save. Observed PATCH /api/pdf-upload/{jid}/rows/{rid} returns 409 before title update is reflected, causing assertion timeout. Probable stale row version or race in reviewed-row correction lifecycle under periodic status polling. Also observed separate backend RCA: corrupt PNG during upload triggers PIL SyntaxError uncaught by image_bytes exception mapping, returning 500 instead of controlled 422."
+}

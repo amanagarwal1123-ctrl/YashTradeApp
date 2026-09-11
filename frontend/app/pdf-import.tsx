@@ -6,6 +6,8 @@ import { api, authenticatedFetch, getToken, resolveFileUrl } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { downloadSample, pickPDF, PickedPDF, resumeStore, uploadPDF } from '../src/pdfClient';
 import { Button, Input, ui } from '../src/components/staff/Controls';
+import ProductFields from '../src/components/staff/ProductFields';
+import SquareCrop from '../src/components/staff/SquareCrop';
 
 function ProtectedPreview({ row }: { row: any }) {
   const [uri,setUri]=useState('');
@@ -21,8 +23,8 @@ function ProtectedPreview({ row }: { row: any }) {
 }
 
 function ReviewRow({row,jobId,reload,onError}:{row:any;jobId:string;reload:()=>Promise<void>;onError:(s:string)=>void}) {
-  const [editing,setEditing]=useState(false),[fields,setFields]=useState(JSON.stringify(row.fields,null,2));
-  const [crop,setCrop]=useState<string>((row.crop_points||[]).join(', ')),[busy,setBusy]=useState(false);
+  const [editing,setEditing]=useState(false),[fields,setFields]=useState(row.fields);
+  const [busy,setBusy]=useState(false);
   const save=async(body:any)=>{setBusy(true);try{await api.patch(`/pdf-upload/${jobId}/rows/${row.id}`,{version:row.version,...body});setEditing(false);await reload();}catch(e:any){onError(e.message);}finally{setBusy(false);}};
   return <View testID={`pdf-row-${row.id}`} style={ui.card}>
     <ProtectedPreview row={row}/><Text testID={`pdf-code-${row.id}`} style={ui.label}>{row.fields.product_code||'Code required'} · {row.fields.metal_type||'Type required'}</Text>
@@ -32,8 +34,8 @@ function ReviewRow({row,jobId,reload,onError}:{row:any;jobId:string;reload:()=>P
     {row.existing_product&&<View style={ui.card}><Text style={ui.text}>Existing product: {row.existing_product.title}</Text><Text style={ui.muted}>Explicit duplicate decision required before overwriting. Default: Skip.</Text><View style={ui.row}>
       <Button id={`pdf-skip-${row.id}`} title="Skip existing" active={row.duplicate_policy==='skip'} disabled={busy} onPress={()=>save({duplicate_policy:'skip'})}/><Button id={`pdf-update-${row.id}`} title="Confirm update existing" active={row.duplicate_policy==='update'} disabled={busy} onPress={()=>save({duplicate_policy:'update',expected_product_version:row.existing_product.version||0})}/></View></View>}
     <View style={ui.row}><Button id={`pdf-exclude-${row.id}`} title={row.excluded?'Include row':'Exclude row'} disabled={busy} onPress={()=>save({excluded:!row.excluded})}/><Button id={`pdf-edit-${row.id}`} title="Review all fields & crop" onPress={()=>setEditing(!editing)}/></View>
-    {editing&&<><Input id={`pdf-fields-${row.id}`} label="All product fields (editable JSON)" value={fields} onChange={setFields} multiline/><Button id={`pdf-save-fields-${row.id}`} title="Save corrected fields" disabled={busy} onPress={()=>{try{save({fields:JSON.parse(fields)});}catch{onError('Product fields must be valid JSON');}}}/>
-      <Input id={`pdf-crop-${row.id}`} label="Square photo rectangle: x0, y0, x1, y1 in PDF points" value={crop} onChange={setCrop}/><Text style={ui.muted}>Adjust inside the photograph, not into labels or adjacent products. Equal width and height required. The preview updates after the server commits.</Text><Button id={`pdf-save-crop-${row.id}`} title="Apply square crop" disabled={busy} onPress={()=>save({crop_points:crop.split(',').map(n=>Number(n.trim()))})}/></>}
+    {editing&&<><ProductFields id={`pdf-fields-${row.id}`} fields={fields} onChange={setFields}/><Button id={`pdf-save-fields-${row.id}`} title="Save corrected fields" disabled={busy} onPress={()=>save({fields})}/>
+      <SquareCrop id={row.id} jobId={jobId} page={row.page} initial={row.crop_points} disabled={busy} onSave={points=>save({crop_points:points})}/></>}
     {row.commit_result&&<Text testID={`pdf-row-result-${row.id}`} style={ui.success}>{row.commit_result.status}: {row.commit_result.reason||row.commit_result.product_id}</Text>}
   </View>;
 }
@@ -55,7 +57,7 @@ export default function PDFImport() {
   return <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={false} onRefresh={load}/>}>
     <Button id="pdf-back" title="Back to products" onPress={()=>router.replace('/panel')}/><Text testID="pdf-title" style={ui.title}>Reviewed PDF import</Text><Text style={ui.muted}>Choose template → Upload → Analyze → Review → Confirm drafts. Nothing is customer-visible during analysis.</Text>
     {!!error&&<Text testID="pdf-error" style={ui.error}>{error}</Text>}
-    <View style={ui.row}><Button id="pdf-download-sample" title="Download Sample PDF" icon="download-outline" onPress={()=>downloadSample().catch(e=>setError(e.message))}/><Button id="pdf-select" title="Select PDF" icon="document-outline" disabled={busy} onPress={async()=>{try{const picked=await pickPDF();if(picked)setFile(picked);}catch(e:any){setError(e.message);}}}/></View>
+    <View style={ui.row}><Button id="pdf-author" title="Create a catalogue PDF" icon="create-outline" onPress={()=>router.push('/catalog-author')}/><Button id="pdf-download-sample" title="Download Sample PDF" icon="download-outline" onPress={()=>downloadSample().catch(e=>setError(e.message))}/><Button id="pdf-select" title="Select PDF" icon="document-outline" disabled={busy} onPress={async()=>{try{const picked=await pickPDF();if(picked)setFile(picked);}catch(e:any){setError(e.message);}}}/></View>
     <Text testID="pdf-limits" style={ui.muted}>{caps?`Configured limit: ${caps.limits.max_bytes/1024/1024} MB · ${caps.limits.max_pages} pages · ${caps.limits.chunk_bytes/1024/1024} MB chunks`:'Loading actual server limits…'}{ '\n' }Template v1 uses 1024×1024 masters and 320×320 thumbnails. Configured limits are not measured performance guarantees.</Text>
     {!jobId&&<><Text style={ui.label}>CHOOSE BATCH</Text><View style={ui.row}>{batches.map(b=><Button key={b.id} id={`pdf-batch-${b.id}`} title={b.name} active={batchId===b.id} onPress={()=>setBatchId(b.id)}/>)}</View><Input id="pdf-new-batch-name" label="Or create a batch" value={batchName} onChange={setBatchName}/><Button id="pdf-create-batch" title="Create batch" disabled={!batchName.trim()} onPress={async()=>{try{const b=await api.post('/batches',{name:batchName,metal_type:'mixed'});setBatches([...batches,b]);setBatchId(b.id);setBatchName('');}catch(e:any){setError(e.message);}}}/>
       <View style={ui.row}><Button id="pdf-mode-template" title="Template v1" active={mode==='template_v1'} onPress={()=>setMode('template_v1')}/><Button id="pdf-mode-legacy" title="Explicit legacy pages" active={mode==='legacy_pages'} onPress={()=>setMode('legacy_pages')}/></View>{mode==='legacy_pages'&&<Text style={ui.error}>Manual legacy mode: each nonblank page needs field correction and photo review. No OCR or automatic publication.</Text>}</>}

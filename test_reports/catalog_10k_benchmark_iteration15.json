@@ -1,0 +1,233 @@
+{
+  "dataset_size": 10000,
+  "page_limit": 100,
+  "pages_checked": 100,
+  "unique_ids": 10000,
+  "stable_page_1": true,
+  "latency_ms_p50": 28.356,
+  "latency_ms_p95": 32.644,
+  "payload_bytes_p50": 38440,
+  "payload_bytes_p95": 38440,
+  "concurrency": 8,
+  "explain": {
+    "explainVersion": "1",
+    "queryPlanner": {
+      "namespace": "shared_test_e573e738fc.products",
+      "indexFilterSet": false,
+      "parsedQuery": {
+        "$text": {
+          "$search": "TESTMETA-09999",
+          "$language": "english",
+          "$caseSensitive": false,
+          "$diacriticSensitive": false
+        }
+      },
+      "queryHash": "ABB1A8C4",
+      "planCacheKey": "18409E43",
+      "optimizationTimeMillis": 0,
+      "maxIndexedOrSolutionsReached": false,
+      "maxIndexedAndSolutionsReached": false,
+      "maxScansToExplodeReached": false,
+      "winningPlan": {
+        "stage": "TEXT_MATCH",
+        "indexPrefix": {},
+        "indexName": "catalog_search_v1",
+        "parsedTextQuery": {
+          "terms": [
+            "09999",
+            "testmeta"
+          ],
+          "negatedTerms": [],
+          "phrases": [],
+          "negatedPhrases": []
+        },
+        "textIndexVersion": 3,
+        "inputStage": {
+          "stage": "FETCH",
+          "inputStage": {
+            "stage": "OR",
+            "inputStages": [
+              {
+                "stage": "IXSCAN",
+                "keyPattern": {
+                  "_fts": "text",
+                  "_ftsx": 1
+                },
+                "indexName": "catalog_search_v1",
+                "isMultiKey": true,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "backward",
+                "indexBounds": {}
+              },
+              {
+                "stage": "IXSCAN",
+                "keyPattern": {
+                  "_fts": "text",
+                  "_ftsx": 1
+                },
+                "indexName": "catalog_search_v1",
+                "isMultiKey": true,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "backward",
+                "indexBounds": {}
+              }
+            ]
+          }
+        }
+      },
+      "rejectedPlans": []
+    },
+    "executionStats": {
+      "executionSuccess": true,
+      "nReturned": 10000,
+      "executionTimeMillis": 11,
+      "totalKeysExamined": 10001,
+      "totalDocsExamined": 10000,
+      "executionStages": {
+        "stage": "TEXT_MATCH",
+        "nReturned": 10000,
+        "executionTimeMillisEstimate": 2,
+        "works": 10003,
+        "advanced": 10000,
+        "needTime": 2,
+        "needYield": 0,
+        "saveState": 10,
+        "restoreState": 10,
+        "isEOF": 1,
+        "indexPrefix": {},
+        "indexName": "catalog_search_v1",
+        "parsedTextQuery": {
+          "terms": [
+            "09999",
+            "testmeta"
+          ],
+          "negatedTerms": [],
+          "phrases": [],
+          "negatedPhrases": []
+        },
+        "textIndexVersion": 3,
+        "docsRejected": 0,
+        "inputStage": {
+          "stage": "FETCH",
+          "nReturned": 10000,
+          "executionTimeMillisEstimate": 2,
+          "works": 10003,
+          "advanced": 10000,
+          "needTime": 2,
+          "needYield": 0,
+          "saveState": 10,
+          "restoreState": 10,
+          "isEOF": 1,
+          "docsExamined": 10000,
+          "alreadyHasObj": 0,
+          "inputStage": {
+            "stage": "OR",
+            "nReturned": 10000,
+            "executionTimeMillisEstimate": 2,
+            "works": 10003,
+            "advanced": 10000,
+            "needTime": 2,
+            "needYield": 0,
+            "saveState": 10,
+            "restoreState": 10,
+            "isEOF": 1,
+            "dupsTested": 10001,
+            "dupsDropped": 1,
+            "inputStages": [
+              {
+                "stage": "IXSCAN",
+                "nReturned": 1,
+                "executionTimeMillisEstimate": 0,
+                "works": 2,
+                "advanced": 1,
+                "needTime": 0,
+                "needYield": 0,
+                "saveState": 10,
+                "restoreState": 10,
+                "isEOF": 1,
+                "keyPattern": {
+                  "_fts": "text",
+                  "_ftsx": 1
+                },
+                "indexName": "catalog_search_v1",
+                "isMultiKey": true,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "backward",
+                "indexBounds": {},
+                "keysExamined": 1,
+                "seeks": 1,
+                "dupsTested": 1,
+                "dupsDropped": 0
+              },
+              {
+                "stage": "IXSCAN",
+                "nReturned": 10000,
+                "executionTimeMillisEstimate": 2,
+                "works": 10001,
+                "advanced": 10000,
+                "needTime": 0,
+                "needYield": 0,
+                "saveState": 10,
+                "restoreState": 10,
+                "isEOF": 1,
+                "keyPattern": {
+                  "_fts": "text",
+                  "_ftsx": 1
+                },
+                "indexName": "catalog_search_v1",
+                "isMultiKey": true,
+                "isUnique": false,
+                "isSparse": false,
+                "isPartial": false,
+                "indexVersion": 2,
+                "direction": "backward",
+                "indexBounds": {},
+                "keysExamined": 10000,
+                "seeks": 1,
+                "dupsTested": 10000,
+                "dupsDropped": 0
+              }
+            ]
+          }
+        }
+      },
+      "allPlansExecution": []
+    },
+    "command": {
+      "find": "products",
+      "filter": {
+        "$text": {
+          "$search": "TESTMETA-09999"
+        }
+      },
+      "$db": "shared_test_e573e738fc"
+    },
+    "serverInfo": {
+      "host": "agent-env-14c982ce-fcba-4f94-8821-ec2bc44c4db3",
+      "port": 27017,
+      "version": "7.0.42",
+      "gitVersion": "fa4dac0a7dc223c9c60b18af198ca38f1ff72bb4"
+    },
+    "serverParameters": {
+      "internalQueryFacetBufferSizeBytes": 104857600,
+      "internalQueryFacetMaxOutputDocSizeBytes": 104857600,
+      "internalLookupStageIntermediateDocumentMaxSizeBytes": 104857600,
+      "internalDocumentSourceGroupMaxMemoryBytes": 104857600,
+      "internalQueryMaxBlockingSortMemoryUsageBytes": 104857600,
+      "internalQueryProhibitBlockingMergeOnMongoS": 0,
+      "internalQueryMaxAddToSetBytes": 104857600,
+      "internalDocumentSourceSetWindowFieldsMaxMemoryBytes": 104857600,
+      "internalQueryFrameworkControl": "forceClassicEngine"
+    },
+    "ok": 1.0
+  }
+}

@@ -163,7 +163,8 @@ async def legacy_disable(ref: str, user=Depends(c.admin)):
 @router.get("/customers")
 async def customers(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
                     search: str = "", account_status: str = "", login_state: str = "",
-                    onboarding_status: str = "", assigned_to: str = "", user=Depends(c.admin)):
+                    onboarding_status: str = "", assigned_to: str = "", registered_from: str = "", registered_to: str = "",
+                    login_from: str = "", login_to: str = "", user=Depends(c.admin)):
     query = {"role": "customer"}
     if search:
         query["$or"] = [{k: {"$regex": re.escape(search[:120]), "$options": "i"}}
@@ -175,7 +176,12 @@ async def customers(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=
     if onboarding_status:
         query["onboarding_status"] = onboarding_status
     if assigned_to:
-        query["assigned_salesperson"] = assigned_to
+        query["assigned_salesperson"] = {"$in": [None, ""]} if assigned_to == "unassigned" else assigned_to
+    from .queries import date_bounds
+    for field, lo, hi in [("registered_at", registered_from, registered_to), ("last_mobile_login_at", login_from, login_to)]:
+        if lo or hi:
+            lower, upper, _ = date_bounds(lo, hi)
+            query[field] = {"$gte": lower, "$lt": upper}
     total = await c.db.users.count_documents(query)
     rows = await c.db.users.find(query, {"_id": 0}).sort([("created_at", -1), ("id", 1)]).skip((page-1)*limit).limit(limit).to_list(limit)
     return {"customers": [{**c.public_user(u), "number": (page-1)*limit+i+1} for i, u in enumerate(rows)],

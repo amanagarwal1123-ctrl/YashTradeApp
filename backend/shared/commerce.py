@@ -12,6 +12,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from . import core as c
+from .units import weight_text, labour_value, slab_view
 
 router = APIRouter(prefix="/api", tags=["Rates and permanent media"])
 PRODUCT_FIELDS = set("product_code title description metal_type category subcategory approx_weight purity selling_touch "
@@ -29,13 +30,11 @@ def validate_product(fields, required=True):
     metal = data.get("metal_type")
     if metal and metal not in {"silver", "gold", "diamond"}:
         errors.append("metal_type: gold, silver or diamond required")
-    weight = data.get("approx_weight", "")
-    if weight and not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?(?:\s*-\s*[0-9]+(?:\.[0-9]+)?)?\s*g", str(weight)):
-        errors.append("approx_weight: metal weight must be a number or ascending range followed by g")
-    elif weight:
-        nums = [float(n) for n in re.findall(r"[0-9]+(?:\.[0-9]+)?", weight)]
-        if any(n <= 0 for n in nums) or len(nums) == 2 and nums[0] > nums[1]:
-            errors.append("approx_weight: positive ascending range required")
+    if "approx_weight" in data:
+        try:
+            data["approx_weight"] = weight_text(data["approx_weight"])
+        except ValueError as exc:
+            errors.append(str(exc))
     purity = str(data.get("purity", "")).strip()
     if purity:
         base = data.get("base_metal") if metal == "diamond" else metal
@@ -75,6 +74,8 @@ def validate_product(fields, required=True):
             errors.append(f"{k}: true or false required")
     if "tags" in data and (not isinstance(data["tags"], list) or any(not isinstance(t, str) for t in data["tags"])):
         errors.append("tags: array of strings required")
+    if "images" in data and (not isinstance(data["images"], list) or len(data["images"]) > 20 or any(not isinstance(v, str) for v in data["images"])):
+        errors.append("images: at most 20 uploaded image URLs required")
     return data, errors
 
 
@@ -93,17 +94,23 @@ def image_bytes(data):
             out = io.BytesIO()
             im.save(out, "JPEG", quality=92)
             return out.getvalue()
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError, Image.DecompressionBombError):
         c.fail(422, "INVALID_IMAGE", "The file is not a valid supported image")
 
 
 @router.post("/products/upload-image")
 async def upload_image(file: UploadFile = File(...), user=Depends(c.admin)):
+    from .media_lifecycle import tracked_put
     data = image_bytes(await file.read(8 * 1024 * 1024 + 1))
     path = f"yash-trade/products/manual/{secrets.token_hex(16)}.jpg"
-    await asyncio.to_thread(c.put_object, path, data, "image/jpeg")
-    await c.db.media_assets.insert_one({"path": path, "owner_id": user["id"], "purpose": "product", "created_at": c.stamp()})
-    return {"url": f"/api/files/{path}", "storage_path": path, "content_type": "image/jpeg", "permanent": True}
+    await tracked_put(path, data, "image/jpeg", "manual_master", user["id"])
+    with Image.open(io.BytesIO(data)) as image:
+        image.thumbnail((320, 320))
+        output = io.BytesIO(); image.save(output, "JPEG", quality=90)
+    thumb = path.removesuffix(".jpg") + "-thumb.jpg"
+    await tracked_put(thumb, output.getvalue(), "image/jpeg", "thumbnail", user["id"])
+    await c.db.media_assets.update_one({"path": path}, {"$set": {"thumbnail_path": thumb}})
+    return {"url": f"/api/files/{path}", "storage_path": path, "thumbnail_path": thumb, "content_type": "image/jpeg", "permanent": True}
 
 
 @router.put("/products/{pid}")
@@ -119,6 +126,10 @@ async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
     if set(updates) - PRODUCT_FIELDS:
         c.fail(422, "READ_ONLY_FIELD", "Unsupported product field; original scan cannot be replaced here")
     validated, errors = validate_product({**old, **updates}, required=False)
+    changed = {k for k, v in updates.items() if v != old.get(k)}
+    if changed & {"metal_type", "base_metal"}:
+        changed.add("purity")
+    errors = [e for e in errors if e.split(":", 1)[0] in changed]
     data = {key: validated[key] for key in updates}
     if errors:
         c.fail(422, "PRODUCT_VALIDATION", "; ".join(errors))
@@ -130,6 +141,10 @@ async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
         asset = await c.db.media_assets.find_one({"path": url.removeprefix("/api/files/")})
         if not asset:
             c.fail(422, "INVALID_MEDIA", "Unknown product image")
+    if "images" in data and not old.get("storage_path"):
+        first = data["images"][0].removeprefix("/api/files/") if data["images"] else ""
+        asset = await c.db.media_assets.find_one({"path": first}, {"_id": 0}) or {}
+        data["thumbnail_path"] = asset.get("thumbnail_path", "")
     try:
         doc = await c.db.products.find_one_and_update({"id": pid, "version": expected if "version" in old else {"$exists": False}},
             {"$set": {**data, "updated_at": c.stamp()}, "$inc": {"version": 1}},
@@ -143,22 +158,27 @@ async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
 
 @router.get("/files/{path:path}")
 async def media(path: str, authorization: str | None = Header(None)):
+    # Source chunks and import previews are only accessible through owner-bound job routes.
+    if path.startswith("yash-trade/imports/"):
+        c.fail(404, "MEDIA_NOT_FOUND", "Use the private owner-authorized import endpoint")
     if ".." in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
         c.fail(404, "MEDIA_NOT_FOUND", "Image not found")
     # Private uploads and previews never inherit public catalog access.
-    product = await c.db.products.find_one({"$or": [{"storage_path": path}, {"thumbnail_path": path}, {"original_source_storage_path": path},
-        {"images": f"/api/files/{path}"}]}, {"_id": 0, "visibility": 1, "is_deleted": 1})
-    banner = await c.db.banners.find_one({"image_url": f"/api/files/{path}"}, {"_id": 0, "is_active": 1})
-    public = product and product.get("visibility") != "hidden" and not product.get("is_deleted") or banner and banner.get("is_active")
+    product = await c.db.products.find_one({"visibility": {"$ne": "hidden"}, "is_deleted": {"$ne": True},
+        "$or": [{"storage_path": path}, {"thumbnail_path": path}, {"original_source_storage_path": path},
+        {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1})
+    banner = None if product else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
+    public = bool(product or banner)
     if not public:
         user = await c.current_user(authorization)
         if user["role"] != "admin":
             c.fail(403, "MEDIA_PRIVATE", "This media is private")
     try:
-        data, content_type = await asyncio.to_thread(c.get_object, path)
+        from .media_cache import cached_get
+        data, content_type = await cached_get(path, bool(public))
     except Exception:
         c.fail(404, "MEDIA_NOT_FOUND", "Image could not be loaded")
-    return Response(data, media_type=content_type, headers={"Cache-Control": "public, max-age=300" if public else "private, no-store"})
+    return Response(data, media_type=content_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 async def latest():
@@ -234,14 +254,15 @@ async def rates_write(updates: dict, user=Depends(c.billing)):
 
 @router.post("/rate-list")
 async def slab_create(fields: dict, user=Depends(c.billing)):
-    allowed = {"metal_type", "item_name", "category", "subcategory", "purity", "wastage", "labour_kg", "order"}
-    if set(fields) - allowed or fields.get("metal_type") not in {"silver", "gold", "diamond"}:
+    allowed = {"metal_type", "item_name", "category", "subcategory", "purity", "wastage", "labour_kg", "labour", "order"}
+    if set(fields) - allowed or not str(fields.get("item_name", "")).strip() or fields.get("metal_type") not in {"silver", "gold", "diamond"}:
         c.fail(422, "INVALID_SLAB", "Supply valid rate-list fields and product type")
     validate_slab(fields)
+    normalize_slab_write(fields)
     doc = {"id": secrets.token_hex(16), **fields, "version": 0, "created_at": c.stamp(),
            "events": [{"actor_id": user["id"], "at": c.stamp(), "type": "created"}]}
     await c.db.rate_slabs.insert_one(dict(doc))
-    return doc
+    return slab_view(doc)
 
 
 @router.put("/rate-list/{sid}")
@@ -249,19 +270,22 @@ async def slab_update(sid: str, fields: dict, user=Depends(c.billing)):
     expected = fields.pop("version", None)
     if expected is None:
         c.fail(428, "VERSION_REQUIRED", "Send the rate-list item version")
-    allowed = {"metal_type", "item_name", "category", "subcategory", "purity", "wastage", "labour_kg", "order", "is_deleted"}
+    allowed = {"metal_type", "item_name", "category", "subcategory", "purity", "wastage", "labour_kg", "labour", "order", "is_deleted"}
     if set(fields) - allowed:
         c.fail(422, "INVALID_SLAB", "Unknown rate-list field")
     old = await c.db.rate_slabs.find_one({"id": sid}, {"_id": 0})
     if not old:
         c.fail(404, "SLAB_NOT_FOUND", "Rate-list item not found")
-    validate_slab({**old, **fields})
+    changed = {k for k, v in fields.items() if v != old.get(k)}
+    validate_slab({**old, **fields}, changed)
+    if changed & {"labour", "labour_kg"}:
+        normalize_slab_write(fields)
     doc = await c.db.rate_slabs.find_one_and_update({"id": sid, "version": expected if "version" in old else {"$exists": False}},
         {"$set": {**fields, "updated_at": c.stamp()}, "$inc": {"version": 1}, "$push": {"events": {
             "actor_id": user["id"], "at": c.stamp(), "changes": fields}}}, projection={"_id": 0}, return_document=ReturnDocument.AFTER)
     if not doc:
         c.fail(409, "VERSION_CONFLICT", "Rate-list item changed; refresh")
-    return doc
+    return slab_view(doc)
 
 
 @router.delete("/rate-list/{sid}")
@@ -269,10 +293,38 @@ async def slab_delete(sid: str, version: int, user=Depends(c.billing)):
     return await slab_update(sid, {"version": version, "is_deleted": True}, user)
 
 
-def validate_slab(fields):
-    if not str(fields.get("item_name", "")).strip():
+def validate_slab(fields, changed=None):
+    keys = set(fields) if changed is None else changed
+    if "item_name" in keys and not str(fields.get("item_name", "")).strip():
         c.fail(422, "INVALID_SLAB", "Rate-list item name is required")
-    for key in ("labour_kg", "wastage"):
-        value = fields.get(key)
-        if value not in (None, "") and not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?%?", str(value)):
-            c.fail(422, "INVALID_SLAB", f"{key} must be non-negative numeric text")
+    if "metal_type" in keys and fields.get("metal_type") not in {"silver", "gold", "diamond"}:
+        c.fail(422, "INVALID_SLAB", "Invalid product type")
+    value = fields.get("wastage")
+    if "wastage" in keys and value not in (None, "") and not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?%?", str(value)):
+        c.fail(422, "INVALID_SLAB", "wastage must be non-negative numeric text")
+    for key in keys & {"labour", "labour_kg"}:
+        try:
+            labour_value(fields.get(key))
+        except ValueError as exc:
+            c.fail(422, "AMBIGUOUS_LABOUR_UNIT", str(exc))
+
+
+def normalize_slab_write(fields):
+    if "labour" in fields or "labour_kg" in fields:
+        try:
+            value = labour_value(fields.get("labour", fields.get("labour_kg")))
+            if "labour" in fields and "labour_kg" in fields and labour_value(fields["labour_kg"]) != value:
+                c.fail(422, "LABOUR_UNIT_CONFLICT", "Send one consistent labour amount/basis")
+        except ValueError as exc:
+            c.fail(422, "AMBIGUOUS_LABOUR_UNIT", str(exc))
+        fields["labour"] = value
+        fields["labour_kg"] = f"INR {value['amount']}/{value['basis']}" if value else ""
+
+
+@router.get("/rate-list")
+async def slabs(metal_type: str = ""):
+    query = {"is_deleted": {"$ne": True}}
+    if metal_type:
+        query["metal_type"] = metal_type
+    docs = await c.db.rate_slabs.find(query, {"_id": 0, "events": 0}).sort([("order", 1), ("id", 1)]).limit(1000).to_list(1000)
+    return {"slabs": [slab_view(doc) for doc in docs]}
