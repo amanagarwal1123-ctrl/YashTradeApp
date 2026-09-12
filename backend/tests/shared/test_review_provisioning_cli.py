@@ -31,16 +31,21 @@ def bearer(session):
     return {"Authorization": f"Bearer {session['token']}"}
 
 
-def cli(review_env, *flags, env_overrides=None, expect_ok=True):
+def cli(review_env, *flags, env_overrides=None, expect_ok=True, expect_code=None):
+    """Run the operator tool as a real subprocess. expect_code: 0 (stdout JSON), 1 (blocked, stderr JSON) or
+    2 (verification failed/incomplete, stdout JSON). expect_ok is shorthand for 0 / 1."""
+    code = expect_code if expect_code is not None else (0 if expect_ok else 1)
     env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]}
     env.update(env_overrides or {})
     proc = subprocess.run([sys.executable, str(TOOL), "--expected-review-db", env["REVIEW_DB_NAME"] or review_env["name"], *flags],
                           cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120)
-    if expect_ok:
-        assert proc.returncode == 0, proc.stderr[-400:].replace(review_env["name"], "<review-db>")
-        return json.loads(proc.stdout), proc.stderr
-    assert proc.returncode == 1
-    return json.loads(proc.stderr.strip().splitlines()[-1]), proc.stderr
+    assert proc.returncode == code, (proc.returncode, proc.stderr[-400:].replace(review_env["name"], "<review-db>"))
+    if code == 1:
+        return json.loads(proc.stderr.strip().splitlines()[-1]), proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["outcome"] == "ok" if code == 0 else out["outcome"] in {"verification_failed", "verification_incomplete"}
+    assert "status" not in out or isinstance(out["status"], dict)  # the account-status table is never overwritten by the run result
+    return out, proc.stderr
 
 
 def keys_from(stderr):
@@ -98,7 +103,7 @@ async def test_cli_fails_closed_on_missing_or_unsafe_review_configuration(review
                              ({"REVIEW_DB_NAME": review_env["primary"].name}, ("--provision",)),
                              ({"MONGO_URL": ""}, ("--status",))):
         blocked, _ = cli(review_env, *flags, env_overrides=overrides, expect_ok=False)
-        assert blocked["status"] == "blocked" and blocked["error_type"] == "ValueError"
+        assert blocked["outcome"] == "blocked" and blocked["error_type"] == "ValueError"
     mismatch = subprocess.run([sys.executable, str(TOOL), "--expected-review-db", "some_other_db", "--provision"], cwd=BACKEND,
                               env={**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]},
                               capture_output=True, text=True, timeout=120)
@@ -172,12 +177,12 @@ async def test_cli_private_note_rotate_revoke_and_reset(api_client, review_env, 
         private_dir.rmdir()
 
 
-def test_verify_step_checks_role_scope_and_closes_the_session(monkeypatch):
+def test_verify_step_checks_role_scope_logout_and_session_reuse(monkeypatch):
     sys.path.insert(0, str(BACKEND / "tools"))
     import provision_review_access as tool
     import httpx
 
-    calls = []
+    calls, closed = [], set()
 
     class Response:
         def __init__(self, status, body):
@@ -188,8 +193,8 @@ def test_verify_step_checks_role_scope_and_closes_the_session(monkeypatch):
             return self._body
 
     class FakeClient:
-        def __init__(self, **_):
-            pass
+        def __init__(self, **kwargs):
+            assert kwargs.get("follow_redirects") is False
 
         def __enter__(self):
             return self
@@ -198,27 +203,194 @@ def test_verify_step_checks_role_scope_and_closes_the_session(monkeypatch):
             return False
 
         def post(self, url, json=None, headers=None):
-            calls.append(("POST", url.rsplit("/", 2)[-2:], bool(headers)))
+            calls.append(("POST", url))
             if url.endswith("/auth/review/login"):
-                if json["reviewer_id"] == "store-review-admin":
-                    return Response(200, {"token": "t1", "review_environment": True})
-                if json["reviewer_id"] == "store-review-billing":
-                    return Response(200, {"token": "t2", "review_environment": True})
+                tokens = {"store-review-admin": "t1", "store-review-billing": "t2", "store-review-telecaller": "t4"}
+                if json["reviewer_id"] in tokens:
+                    return Response(200, {"token": tokens[json["reviewer_id"]], "review_environment": True})
                 return Response(401, {"code": "REVIEW_CREDENTIALS_INVALID"})
+            token = headers["Authorization"].split()[1]
+            if token == "t4":
+                return Response(503, {"code": "SERVICE_UNAVAILABLE"})  # logout intercepted/failing
+            closed.add(token)
             return Response(200, {"logged_out": True})
 
         def get(self, url, headers=None):
-            if headers["Authorization"] == "Bearer t1":
-                return Response(200, {"role": "admin", "review_environment": True})
-            return Response(200, {"role": "customer", "review_environment": True})  # wrong role for billing
+            token = headers["Authorization"].split()[1]
+            if token in closed:
+                return Response(401, {"code": "SESSION_REVOKED"})
+            roles = {"t1": "admin", "t2": "customer", "t4": "telecaller"}  # t2 = wrong role for billing
+            return Response(200, {"role": roles[token], "review_environment": True})
 
     monkeypatch.setattr(httpx, "Client", FakeClient)
-    results = tool._verify_issued("https://backend.example/api/", {"store-review-admin": "k1", "store-review-billing": "k2", "store-review-customer": "k3"})
+    results = tool._verify_issued("https://backend.example/api/", {"store-review-admin": "k1", "store-review-billing": "k2",
+                                                                    "store-review-customer": "k3", "store-review-telecaller": "k4"})
     assert results["store-review-admin"] == {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}
-    assert results["store-review-billing"]["ok"] is False and results["store-review-billing"]["role"] == "customer"
+    assert results["store-review-billing"]["ok"] is False and results["store-review-billing"]["step"] == "role"
     assert results["store-review-customer"] == {"ok": False, "step": "login", "http_status": 401, "code": "REVIEW_CREDENTIALS_INVALID"}
-    assert ("POST", ["auth", "logout"], True) in calls and calls.count(("POST", ["auth", "logout"], True)) == 2
-    assert "k1" not in json.dumps(results) and "k2" not in json.dumps(results)
+    # A failed logout is never reported as a closed session or a PASS.
+    assert results["store-review-telecaller"]["ok"] is False and results["store-review-telecaller"]["session_closed"] is False
+    assert results["store-review-telecaller"]["step"] == "logout" and results["store-review-telecaller"]["http_status"] == 503
+    assert all(url.startswith("https://backend.example/api/") for _, url in calls)
+    dumped = json.dumps(results)
+    assert "k1" not in dumped and "k2" not in dumped and "k4" not in dumped
+    # Only an explicit https /api origin (or a loopback test server) may receive keys.
+    for bad in ("http://backend.example/api", "https://backend.example/", "https://backend.example/api?x=1",
+                "https://user:pw@backend.example/api", "ftp://backend.example/api", "https://backend.example/api#f"):
+        with pytest.raises(ValueError):
+            tool._validate_target(bad)
+    assert tool._validate_target("https://backend.example/api/") == "https://backend.example/api"
+    assert tool._validate_target("http://127.0.0.1:8001/api") == "http://127.0.0.1:8001/api"
+
+
+def test_verify_note_recovery_appends_results_without_mutation(monkeypatch, tmp_path):
+    sys.path.insert(0, str(BACKEND / "tools"))
+    import provision_review_access as tool
+    import httpx
+
+    class Response:
+        def __init__(self, status, body):
+            self.status_code, self._body, self.headers = status, body, {"content-type": "application/json"}
+
+        def json(self):
+            return self._body
+
+    class FakeClient:
+        def __init__(self, **_): self.closed = set()
+        def __enter__(self): return self
+        def __exit__(self, *_): return False
+
+        def post(self, url, json=None, headers=None):
+            if url.endswith("/auth/review/login"):
+                return Response(200, {"token": "tok-" + json["reviewer_id"], "review_environment": True})
+            self.closed.add(headers["Authorization"])
+            return Response(200, {"logged_out": True})
+
+        def get(self, url, headers=None):
+            if headers["Authorization"] in self.closed:
+                return Response(401, {})
+            return Response(200, {"role": "customer" if "customer" in headers["Authorization"] else "admin", "review_environment": True})
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    note = tmp_path / "note.txt"
+    note.write_text("\n".join(tool._note_lines("production", "https://backend.example/api", "rev_db",
+                                               {"store-review-customer": "key-c-000000000000000000000000000",
+                                                "store-review-admin": "key-a-000000000000000000000000000"}, [], None,
+                                               verification_error="ConnectError while contacting https://backend.example/api")))
+    assert "NOT COMPLETED" in note.read_text() and "--verify-note" in note.read_text()
+    # The note's own header pins environment + review database: mismatches are refused before any request.
+    with pytest.raises(ValueError, match="issued for PRODUCTION"):
+        tool._verify_note(str(note), "https://backend.example/api", "preview", "rev_db")
+    with pytest.raises(ValueError, match="review database differs"):
+        tool._verify_note(str(note), "https://backend.example/api", "production", "other_db")
+    results = tool._verify_note(str(note), "https://backend.example/api", "production", "rev_db")
+    assert results == {"store-review-customer": {"ok": True, "role": "customer", "review_environment": True, "session_closed": True},
+                       "store-review-admin": {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}}
+    text = note.read_text()
+    assert "VERIFICATION RE-RUN" in text and text.count("PASS") == 2 and "key-c-000000000000000000000000000" in text
+
+
+@pytest.fixture
+def live_server(review_env):
+    """The real backend as a separate HTTP process bound to the disposable production double + review copy,
+    so the CLI's --verify/--verify-note exercise genuine network sign-in, /auth/me, sign-out and reuse checks."""
+    import socket
+    import time
+    import httpx
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]}
+    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+                            cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    base = f"http://127.0.0.1:{port}/api"
+    try:
+        for _ in range(60):
+            try:
+                if httpx.get(f"{base}/health/live", timeout=2).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            assert proc.poll() is None, "backend process exited during startup"
+            time.sleep(0.5)
+        else:
+            pytest.fail("live backend did not start")
+        assert httpx.get(f"{base}/health", timeout=5).json()["flows"]["review"]["ready"] is True
+        yield base
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_env, live_server, api_client):
+    """Exit 0 only when EVERY issued key is proven end-to-end; 2 when verification fails or cannot complete;
+    keys are never lost on a failed verification and production issuance never prints them."""
+    private_dir = Path("/tmp") / f"yash-review-live-{uuid.uuid4().hex[:8]}"
+    note1, note2, note3 = (private_dir / n for n in ("issued.txt", "rotated-offline.txt", "nothing-issued.txt"))
+    dead_port_url = "http://127.0.0.1:9/api"  # discard port: connection refused, never a redirect or a server
+    try:
+        # Production issuance without a private note is refused before any account exists.
+        refused, _ = cli(review_env, "--provision", "--environment", "production", expect_ok=False)
+        assert "requires --write-note" in refused["detail"]
+        assert await review_env["db"].review_accounts.count_documents({}) == 0
+        # Full path: provision + seed + verify against the live HTTP backend -> exit 0, all four roles proven.
+        out, err = cli(review_env, "--provision", "--seed", "--status", "--environment", "production", "--api-base-url", live_server,
+                       "--verify", "--write-note", str(note1))
+        assert out["outcome"] == "ok" and out["verified_all"] is True and out["all_four_roles_verified"] is True
+        assert sorted(out["verified_accounts"]) == sorted(ROLES) and out["issued_accounts"] == sorted(ROLES)
+        assert all(r == {"ok": True, "role": ROLES[rid], "review_environment": True, "session_closed": True} for rid, r in out["verification"].items())
+        assert len(out["status"]["accounts"]) == 4  # account table survives beside the run outcome
+        assert keys_from(err) == {} and "ONE-TIME" not in err
+        text1 = note1.read_text()
+        keys = {m.group(1): m.group(2) for m in re.finditer(r"Reviewer ID: (\S+)\s+Role: .+?Access key: (\S+)$", text1, re.M)}
+        assert set(keys) == set(ROLES) and "PRODUCTION" in text1 and text1.count("PASS") == 4 and "FAIL" not in text1
+        assert not any(k in json.dumps(out) for k in keys.values())
+        # Every verification session was closed on the server: the audit shows logins and logouts, no live sessions leak.
+        assert await review_env["db"].review_access_log.count_documents({"event": "review_login_succeeded", "success": True}) == 4
+        # Recovery re-verification of the stored note against the live backend: exit 0, results appended, nothing mutated.
+        before = {row["reviewer_id"]: row["secret_hash"] async for row in review_env["db"].review_accounts.find({})}
+        again, _ = cli(review_env, "--verify-note", str(note1), "--environment", "production", "--api-base-url", live_server)
+        assert again["verified_all"] is True and again["note_updated"] == str(note1) and "VERIFICATION RE-RUN" in note1.read_text()
+        assert {row["reviewer_id"]: row["secret_hash"] async for row in review_env["db"].review_accounts.find({})} == before
+        wrong_env, _ = cli(review_env, "--verify-note", str(note1), "--environment", "preview", "--api-base-url", live_server, expect_ok=False)
+        assert "issued for PRODUCTION" in wrong_env["detail"]
+        mixed, _ = cli(review_env, "--verify-note", str(note1), "--provision", "--environment", "production", "--api-base-url", live_server, expect_ok=False)
+        assert "read-only" in mixed["detail"]
+        # A revoked account makes the recorded verification FAIL -> exit 2, never a silent PASS.
+        cli(review_env, "--revoke", "store-review-telecaller")
+        failed, _ = cli(review_env, "--verify-note", str(note1), "--environment", "production", "--api-base-url", live_server, expect_code=2)
+        assert failed["outcome"] == "verification_failed" and failed["verified_all"] is False
+        assert failed["verification"]["store-review-telecaller"] == {"ok": False, "step": "login", "http_status": 401, "code": "REVIEW_CREDENTIALS_INVALID"}
+        assert sorted(failed["verified_accounts"]) == sorted(set(ROLES) - {"store-review-telecaller"})
+        assert re.search(r"store-review-telecaller\s+FAIL\s+\{.*\"step\": \"login\"", note1.read_text())
+        # Transport failure during --verify: the rotated key is already in the note (marked NOT COMPLETED), exit 2,
+        # and the key itself works - proving nothing was lost. --verify-note then completes the proof (exit 0).
+        incomplete, err2 = cli(review_env, "--rotate", "store-review-admin", "--environment", "production", "--api-base-url", dead_port_url,
+                               "--verify", "--write-note", str(note2), expect_code=2)
+        assert incomplete["outcome"] == "verification_incomplete" and incomplete["verification_error"] == "ConnectError"
+        assert incomplete["rotated"] == "store-review-admin" and incomplete["verified_accounts"] == [] and keys_from(err2) == {}
+        text2 = note2.read_text()
+        assert "NOT COMPLETED" in text2 and "ConnectError" in text2 and "--verify-note" in text2 and stat.S_IMODE(note2.stat().st_mode) == 0o600
+        new_admin = re.search(r"Reviewer ID: store-review-admin\s+Role: .+?Access key: (\S+)$", text2, re.M).group(1)
+        assert new_admin != keys["store-review-admin"]
+        assert (await login(api_client, "store-review-admin", new_admin)).status_code == 200
+        assert (await login(api_client, "store-review-admin", keys["store-review-admin"])).status_code == 401
+        await review_env["db"].otp_limits.delete_many({})  # synthetic review copy only: the 5/min per-account limit is covered elsewhere
+        recovered, _ = cli(review_env, "--verify-note", str(note2), "--environment", "production", "--api-base-url", live_server)
+        assert recovered["verified_all"] is True and recovered["verified_accounts"] == ["store-review-admin"]
+        # --verify with nothing issued cannot prove anything: exit 2 (incomplete) and no note file is left behind.
+        nothing, _ = cli(review_env, "--provision", "--environment", "production", "--api-base-url", live_server, "--verify",
+                         "--write-note", str(note3), expect_code=2)
+        assert nothing["outcome"] == "verification_incomplete" and "verification_skipped" in nothing and not note3.exists()
+    finally:
+        for f in private_dir.glob("*"):
+            f.unlink()
+        if private_dir.exists():
+            private_dir.rmdir()
 
 
 async def test_review_ai_assistant_is_genuine_but_bounded_and_isolated(api_client, review_env, seeded_users, login_helper, monkeypatch):

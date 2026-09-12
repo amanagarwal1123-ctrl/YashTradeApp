@@ -209,7 +209,7 @@ export default function SmsDiagnostics() {
       {/* Send test */}
       <Text style={st.sectionTitle}>SEND TEST SMS</Text>
       <View style={st.card}>
-        <Text style={st.hint}>Sends a real OTP SMS through the exact production path (uses one MSG91 credit). Delivery is confirmed against MSG91's log at +6s, +20s and +60s.</Text>
+        <Text style={st.hint}>Sends a real OTP SMS through the exact production path (uses one MSG91 credit). Delivery is confirmed against MSG91&apos;s log at +6s, +20s and +60s.</Text>
         <View style={st.testRow}>
           <TextInput
             testID="sms-test-phone"

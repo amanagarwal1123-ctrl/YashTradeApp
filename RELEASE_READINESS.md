@@ -1,5 +1,22 @@
 # Release readiness — follow-up NOT production-ready
 
+## Release pass — 12 September 2026 (final packaging of `shared-v1-review-fonts-2026-09-12`)
+
+Settled owner decisions for this pass: **Yarn** is the only package manager (lockfile `frontend/yarn.lock`; `package-lock.json` removed); `frontend/app/review-access.tsx` is tracked; `WEBSITE_RELEASE_HANDOFF.zip` is the deliverable; one **preview** SMS to 9999813334 was authorised and sent; the agent owns the `.env` name declarations. Recorded in `memory/PRD.md` so they are not reopened.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Reviewer provisioning CLI strictness | `outcome` (run result) separated from `status` (account table); logout must return `logged_out=true` **and** the old token must be rejected (401) or the account is FAIL; keys are written to the private note **before** network verification; `--verify-note` read-only recovery (no DB, header pins environment + review database); exit **0/1/2** contract; Windows wrapper `-VerifyNote`, exit-code messages, production issuance requires `-NotePath` | `test_review_provisioning_cli.py` **8/8** incl. `test_cli_verify_against_live_backend_returns_strict_exit_codes` (real uvicorn process: provision+verify → 0; revoked key → 2 `verification_failed`; unreachable backend → 2 `verification_incomplete` with the rotated key intact and usable; `--verify-note` → 0; wrong environment / mixed flags / production without note → 1) |
+| Placeholder configuration cannot act | `SET_IN_PUBLISH_SECRETS` for `REVIEW_DB_NAME` → review `ready=false`, reviewer login 503, **no database created**; for `STAFF_SERVICE_KEY` → 503 `CONFIGURATION_REQUIRED`; for `BUILD_COMMIT` → `commit:"unrecorded"`; CLI refuses before touching Mongo | `test_placeholder_configuration.py` **2/2** (backend started as a separate process with placeholder values) |
+| `.env` declarations (names only) | `backend/.env`: `STAFF_SERVICE_KEY` (placeholder, fails closed), `REVIEW_DB_NAME=jewellers_app_review` (working preview review DB, ≠ `DB_NAME`), `BUILD_COMMIT` (placeholder → unrecorded); `frontend/.env`: `EXPO_PUBLIC_PRODUCTION_BACKEND_URL=https://yash-tryon-test.emergent.host`. Existing working values preserved. Sequence: declare → republish → owner edits values in Secrets → republish | `/api/health` on preview: `flows.review.ready=true`, `flows.staff.ready=false (STAFF_SERVICE_KEY)`, `commit:"unrecorded"` — configuration checks only |
+| Release backend origin | `frontend/app.config.js`: `NODE_ENV=production` (Publish web export, store builds) resolves `extra.backendUrl` to `https://yash-tryon-test.emergent.host`; a `*.preview.emergentagent.com` or empty value is never shipped; development preview unchanged | `NODE_ENV=production expo config --type public` → `extra.backendUrl=https://yash-tryon-test.emergent.host`; `src/__tests__/appConfig.test.ts` 5/5. **The deployed bundle itself is verified only after the owner publishes** (check `Constants.expoConfig.extra.backendUrl` / network calls in the released app) |
+| GitHub packaging | Root `.gitignore` rule `review-access*` (which hid the reviewer screen) narrowed to private notes `*review-access*.txt|log|bak` + explicit `!frontend/app/review-access.tsx`; `package-lock.json` deleted; `frontend/README.md` uses Yarn | `git check-ignore`: screen not ignored, `preview-review-access.txt` still ignored. **Clean checkout** (fresh copy without `node_modules`): `yarn install --frozen-lockfile` OK (23 s), `yarn test` **38/38** (5 suites), `tsc --noEmit` clean, `yarn lint` — 1 pre-existing error (`SmsDiagnostics.tsx` unescaped apostrophe) fixed; see `test_reports/clean_checkout_2026-09-12.txt` |
+| Reviewer screen + role destinations | Jest: login link → `/review-access`; customer → `/(tabs)`, admin & billing → `/panel`, telecaller → `/telecaller`; server decides the role; 503/429/401 messages; key masking; back | `src/__tests__/reviewAccessScreen.test.tsx` 8/8; live preview: testing-agent run (see `test_reports/iteration_23.json`) |
+| PREVIEW SMS test (authorised, one SMS) | `POST /api/auth/send-otp` login/mobile for 9999813334 on the **preview** backend: **dispatch** HTTP 200, MSG91 accepted (`sms_log` `91fda9b6-…`); **receipt** per MSG91 delivery report `Delivered` 19:47:25 IST (provider report, not handset confirmation); **OTP verification** not performed by the agent; **role routing** not verified (preview record is `customer`). Not production evidence | `PRODUCTION_ADMIN_RECOVERY.md` → Status |
+| Handoff package | `WEBSITE_RELEASE_HANDOFF.zip` (repo root, also `test_reports/`): 7 Markdown docs + `contracts/openapi.shared-v1.json` + `HANDOFF_MANIFEST.json` (per-file sha256, schema checksum, build identity, Expo identity, baseline `6a6cddd` vs local implementation commit `2daa3ff` vs final source-tree digest, deployment/test status). No `.env`, credentials, OTPs, private notes or customer data | manifest inside the zip |
+
+**Still pending (owner):** Save to GitHub (final SHA), first republish (registers names), Secrets values + second republish, `Recover-OwnerAdmin.ps1` dry-run/apply/confirm, `Provision-ReviewAccess.ps1 -Environment production … -Verify`, production OTP test on app + both website domains with `/auth/me` role=admin on the SAME canonical ID, physical-device checks. **Production login is unverified.**
+
 ## Review-fonts build — 12 September 2026 (`shared-v1-review-fonts-2026-09-12`)
 
 **What changed in this build**
@@ -20,9 +37,9 @@
 
 | Stage | State |
 |---|---|
-| Local completion | Done: code, tests (backend + Jest), docs, OpenAPI regenerated (123 paths), preview provisioning verified |
-| GitHub publication | **Pending** — owner's Save to GitHub creates the implementation commit; HEAD `6a6cddd` is the pre-change pin |
-| Production deployment | **Pending** — owner: Secrets (`STAFF_SERVICE_KEY`, `REVIEW_DB_NAME`, `BUILD_COMMIT`) → Redeploy → health checks → recovery dry-run/apply → review provisioning → real OTP test |
+| Local completion | Done: code, tests (backend + Jest, clean-checkout Yarn install/test/tsc/lint), docs, OpenAPI regenerated, preview provisioning verified, handoff zip |
+| GitHub publication | **Pending** — owner's Save to GitHub creates the final source commit; `6a6cddd` is the pre-change baseline (website pin), `2daa3ff` the local review-fonts implementation commit; neither is the final release commit |
+| Production deployment | **Pending** — owner: first republish (names) → Secrets (`STAFF_SERVICE_KEY`, `REVIEW_DB_NAME`, `BUILD_COMMIT`, frontend `EXPO_PUBLIC_BACKEND_URL`) → second republish → health checks (configuration only) → recovery dry-run/apply → review provisioning → production OTP test with role confirmation |
 | Physical-device verification | **Pending** — Android/iOS build from Publish: icon font on a previously failing device, reviewer sign-in, OTP login as admin |
 
 ## Owner-login recovery update — 12 September 2026

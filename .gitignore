@@ -62,6 +62,8 @@ chainlit.md
 
 # Archive files and large assets
 **/*.zip
+# Owner-approved release deliverable for the website team (rebuilt by backend/tools/build_release_handoff.py; no secrets inside)
+!/WEBSITE_RELEASE_HANDOFF.zip
 **/*.tar.gz
 **/*.tar
 **/*.tgz
@@ -118,7 +120,12 @@ credentials.json
 private/
 identity-exports/
 migration-reports/
-review-access*
+# Private reviewer-credential notes written by tools/provision_review_access.py (any folder, any name containing
+# "review-access" with a .txt/.log/.bak extension). The app screen frontend/app/review-access.tsx IS source code and is tracked.
+*review-access*.txt
+*review-access*.log
+*review-access*.bak
+!frontend/app/review-access.tsx
 backend/import-tmp/
 !backend/.env.example
 /memory/test_credentials.md

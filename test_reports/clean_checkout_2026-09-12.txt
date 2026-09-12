@@ -1,0 +1,30 @@
+# Clean-checkout verification — 12 September 2026 (Yarn is the only package manager)
+# Fresh copy of frontend/ WITHOUT node_modules/.expo/.metro-cache -> /tmp/clean-checkout/frontend
+
+## yarn install --frozen-lockfile
+yarn install v1.22.22
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+[4/4] Building fresh packages...
+Done in 22.89s.
+INSTALL_EXIT=0
+
+## yarn test (jest --ci), yarn tsc --noEmit, yarn lint (after SmsDiagnostics apostrophe fix)
+JEST START 2026-09-12T14:28:36Z
+PASS src/__tests__/appConfig.test.ts
+PASS src/fonts/__tests__/fallbackFont.test.ts
+PASS src/fonts/__tests__/iconFontLoader.test.ts
+PASS src/__tests__/reviewAccessScreen.test.tsx
+PASS src/fonts/__tests__/IconFontGate.test.tsx
+Test Suites: 5 passed, 5 total
+Tests:       38 passed, 38 total
+Time:        2.392 s, estimated 5 s
+JEST_EXIT=0
+TSC START
+TSC_EXIT=0
+LINT START
+env: export EXPO_PUBLIC_ENROLLMENT_URL EXPO_TUNNEL_SUBDOMAIN EXPO_PACKAGER_HOSTNAME EXPO_PUBLIC_BACKEND_URL EXPO_USE_FAST_RESOLVER METRO_CACHE_ROOT EXPO_PACKAGER_PROXY_URL EXPO_PUBLIC_PRIVACY_URL EXPO_DEVTOOLS_ORIGIN EXPO_PUBLIC_PRODUCTION_BACKEND_URL
+✖ 28 problems (0 errors, 28 warnings)
+LINT_EXIT=0
+END 2026-09-12T14:28:44Z

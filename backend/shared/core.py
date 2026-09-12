@@ -146,10 +146,26 @@ def fail(status, code, detail):
 
 
 def secret(name):
-    value = os.environ.get(name, "").strip()
+    value = setting(name)
     if len(value) < 32:
         fail(503, "CONFIGURATION_REQUIRED", f"Server requires a strong {name}")
     return value
+
+
+# Bootstrap placeholders declared in the preview .env so the platform registers the key NAME.
+# They are never valid configuration: a setting that carries one is treated as absent.
+PLACEHOLDER_MARKERS = ("SET_IN_PUBLISH_SECRETS", "PLACEHOLDER", "REPLACE_ME", "CHANGE_ME", "UNCONFIGURED")
+
+
+def is_placeholder(value):
+    upper = (value or "").strip().upper()
+    return not upper or any(marker in upper for marker in PLACEHOLDER_MARKERS)
+
+
+def setting(name):
+    """Configured value of an environment setting, or "" when missing or a bootstrap placeholder."""
+    value = os.environ.get(name, "").strip()
+    return "" if is_placeholder(value) else value
 
 
 def digest(value):

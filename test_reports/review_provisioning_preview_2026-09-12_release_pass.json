@@ -1,0 +1,317 @@
+{
+  "note": "Preview reviewer keys rotated + verified against the deployed preview backend (release pass). No secrets.",
+  "runs": {
+    "store-review-admin": {
+      "review_db": "jewellers_app_review",
+      "primary_db_untouched": true,
+      "environment": "preview",
+      "rotated": "store-review-admin",
+      "status": {
+        "accounts": [
+          {
+            "reviewer_id": "store-review-admin",
+            "user_id": "review-admin-0001",
+            "role": "admin",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.332899+00:00",
+            "rotated_at": "2026-09-12T14:34:42.194775+00:00",
+            "last_login_at": "2026-09-12T11:35:14.779176+00:00"
+          },
+          {
+            "reviewer_id": "store-review-billing",
+            "user_id": "review-billing-0001",
+            "role": "billing_executive",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.777705+00:00",
+            "rotated_at": "2026-09-12T11:35:17.565644+00:00",
+            "last_login_at": "2026-09-12T11:35:17.940026+00:00"
+          },
+          {
+            "reviewer_id": "store-review-customer",
+            "user_id": "review-customer-0001",
+            "role": "customer",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.101560+00:00",
+            "rotated_at": "2026-09-12T14:34:40.516510+00:00",
+            "last_login_at": "2026-09-12T14:34:40.992719+00:00"
+          },
+          {
+            "reviewer_id": "store-review-telecaller",
+            "user_id": "review-telecaller-0001",
+            "role": "telecaller",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.555309+00:00",
+            "rotated_at": "2026-09-12T11:35:15.969056+00:00",
+            "last_login_at": "2026-09-12T11:35:16.355250+00:00"
+          }
+        ],
+        "dataset": {
+          "users": 10,
+          "products": 12,
+          "requests": 8
+        }
+      },
+      "note_written": "/tmp/yash-private/preview-store-review-admin.txt",
+      "verification": {
+        "store-review-admin": {
+          "ok": true,
+          "role": "admin",
+          "review_environment": true,
+          "session_closed": true
+        }
+      },
+      "verified_all": true,
+      "issued_accounts": [
+        "store-review-admin"
+      ],
+      "verified_accounts": [
+        "store-review-admin"
+      ],
+      "unchanged_accounts": [
+        "store-review-billing",
+        "store-review-customer",
+        "store-review-telecaller"
+      ],
+      "all_four_roles_verified": false,
+      "outcome": "ok"
+    },
+    "store-review-billing": {
+      "review_db": "jewellers_app_review",
+      "primary_db_untouched": true,
+      "environment": "preview",
+      "rotated": "store-review-billing",
+      "status": {
+        "accounts": [
+          {
+            "reviewer_id": "store-review-admin",
+            "user_id": "review-admin-0001",
+            "role": "admin",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.332899+00:00",
+            "rotated_at": "2026-09-12T14:34:42.194775+00:00",
+            "last_login_at": "2026-09-12T14:34:42.613726+00:00"
+          },
+          {
+            "reviewer_id": "store-review-billing",
+            "user_id": "review-billing-0001",
+            "role": "billing_executive",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.777705+00:00",
+            "rotated_at": "2026-09-12T14:34:45.519593+00:00",
+            "last_login_at": "2026-09-12T11:35:17.940026+00:00"
+          },
+          {
+            "reviewer_id": "store-review-customer",
+            "user_id": "review-customer-0001",
+            "role": "customer",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.101560+00:00",
+            "rotated_at": "2026-09-12T14:34:40.516510+00:00",
+            "last_login_at": "2026-09-12T14:34:40.992719+00:00"
+          },
+          {
+            "reviewer_id": "store-review-telecaller",
+            "user_id": "review-telecaller-0001",
+            "role": "telecaller",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.555309+00:00",
+            "rotated_at": "2026-09-12T14:34:43.857625+00:00",
+            "last_login_at": "2026-09-12T14:34:44.288691+00:00"
+          }
+        ],
+        "dataset": {
+          "users": 10,
+          "products": 12,
+          "requests": 8
+        }
+      },
+      "note_written": "/tmp/yash-private/preview-store-review-billing.txt",
+      "verification": {
+        "store-review-billing": {
+          "ok": true,
+          "role": "billing_executive",
+          "review_environment": true,
+          "session_closed": true
+        }
+      },
+      "verified_all": true,
+      "issued_accounts": [
+        "store-review-billing"
+      ],
+      "verified_accounts": [
+        "store-review-billing"
+      ],
+      "unchanged_accounts": [
+        "store-review-admin",
+        "store-review-customer",
+        "store-review-telecaller"
+      ],
+      "all_four_roles_verified": false,
+      "outcome": "ok"
+    },
+    "store-review-customer": {
+      "review_db": "jewellers_app_review",
+      "primary_db_untouched": true,
+      "environment": "preview",
+      "rotated": "store-review-customer",
+      "status": {
+        "accounts": [
+          {
+            "reviewer_id": "store-review-admin",
+            "user_id": "review-admin-0001",
+            "role": "admin",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.332899+00:00",
+            "rotated_at": "2026-09-12T11:35:14.370540+00:00",
+            "last_login_at": "2026-09-12T11:35:14.779176+00:00"
+          },
+          {
+            "reviewer_id": "store-review-billing",
+            "user_id": "review-billing-0001",
+            "role": "billing_executive",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.777705+00:00",
+            "rotated_at": "2026-09-12T11:35:17.565644+00:00",
+            "last_login_at": "2026-09-12T11:35:17.940026+00:00"
+          },
+          {
+            "reviewer_id": "store-review-customer",
+            "user_id": "review-customer-0001",
+            "role": "customer",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.101560+00:00",
+            "rotated_at": "2026-09-12T14:34:40.516510+00:00",
+            "last_login_at": "2026-09-12T11:35:13.175966+00:00"
+          },
+          {
+            "reviewer_id": "store-review-telecaller",
+            "user_id": "review-telecaller-0001",
+            "role": "telecaller",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.555309+00:00",
+            "rotated_at": "2026-09-12T11:35:15.969056+00:00",
+            "last_login_at": "2026-09-12T11:35:16.355250+00:00"
+          }
+        ],
+        "dataset": {
+          "users": 10,
+          "products": 12,
+          "requests": 8
+        }
+      },
+      "note_written": "/tmp/yash-private/preview-store-review-customer.txt",
+      "verification": {
+        "store-review-customer": {
+          "ok": true,
+          "role": "customer",
+          "review_environment": true,
+          "session_closed": true
+        }
+      },
+      "verified_all": true,
+      "issued_accounts": [
+        "store-review-customer"
+      ],
+      "verified_accounts": [
+        "store-review-customer"
+      ],
+      "unchanged_accounts": [
+        "store-review-admin",
+        "store-review-billing",
+        "store-review-telecaller"
+      ],
+      "all_four_roles_verified": false,
+      "outcome": "ok"
+    },
+    "store-review-telecaller": {
+      "review_db": "jewellers_app_review",
+      "primary_db_untouched": true,
+      "environment": "preview",
+      "rotated": "store-review-telecaller",
+      "status": {
+        "accounts": [
+          {
+            "reviewer_id": "store-review-admin",
+            "user_id": "review-admin-0001",
+            "role": "admin",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.332899+00:00",
+            "rotated_at": "2026-09-12T14:34:42.194775+00:00",
+            "last_login_at": "2026-09-12T14:34:42.613726+00:00"
+          },
+          {
+            "reviewer_id": "store-review-billing",
+            "user_id": "review-billing-0001",
+            "role": "billing_executive",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.777705+00:00",
+            "rotated_at": "2026-09-12T11:35:17.565644+00:00",
+            "last_login_at": "2026-09-12T11:35:17.940026+00:00"
+          },
+          {
+            "reviewer_id": "store-review-customer",
+            "user_id": "review-customer-0001",
+            "role": "customer",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.101560+00:00",
+            "rotated_at": "2026-09-12T14:34:40.516510+00:00",
+            "last_login_at": "2026-09-12T14:34:40.992719+00:00"
+          },
+          {
+            "reviewer_id": "store-review-telecaller",
+            "user_id": "review-telecaller-0001",
+            "role": "telecaller",
+            "enabled": true,
+            "revoked_at": null,
+            "created_at": "2026-09-12T11:12:21.555309+00:00",
+            "rotated_at": "2026-09-12T14:34:43.857625+00:00",
+            "last_login_at": "2026-09-12T11:35:16.355250+00:00"
+          }
+        ],
+        "dataset": {
+          "users": 10,
+          "products": 12,
+          "requests": 8
+        }
+      },
+      "note_written": "/tmp/yash-private/preview-store-review-telecaller.txt",
+      "verification": {
+        "store-review-telecaller": {
+          "ok": true,
+          "role": "telecaller",
+          "review_environment": true,
+          "session_closed": true
+        }
+      },
+      "verified_all": true,
+      "issued_accounts": [
+        "store-review-telecaller"
+      ],
+      "verified_accounts": [
+        "store-review-telecaller"
+      ],
+      "unchanged_accounts": [
+        "store-review-admin",
+        "store-review-billing",
+        "store-review-customer"
+      ],
+      "all_four_roles_verified": false,
+      "outcome": "ok"
+    }
+  }
+}

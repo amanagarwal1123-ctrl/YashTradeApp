@@ -1,6 +1,5 @@
 """Non-mutating configuration checks. Readiness never proves SMS delivery or a role."""
 import asyncio
-import os
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -20,7 +19,7 @@ CONFIG_KEYS = (*SECRET_KEYS, "MSG91_AUTHKEY", "MSG91_TEMPLATE_ID", "MONGO_URL", 
 
 
 def configuration():
-    values = {key: os.environ.get(key, "").strip() for key in CONFIG_KEYS}
+    values = {key: c.setting(key) for key in CONFIG_KEYS}  # bootstrap placeholders count as absent
     valid = {key: bool(value) for key, value in values.items()}
     for key in SECRET_KEYS:
         valid[key] = len(values[key]) >= 32
@@ -55,8 +54,9 @@ async def readiness():
     flows["review"] = {"ready": not review_issues, "issues": review_issues, "optional": True}
     ready = all(flow["ready"] for name, flow in flows.items() if name != "review")
     config["REVIEW_DB_NAME"] = c.review_configured()
+    config["BUILD_COMMIT"] = bool(c.setting("BUILD_COMMIT"))
     return {"status": "ok" if ready else "not_ready", "ready": ready,
-            "build": c.BUILD, "commit": os.environ.get("BUILD_COMMIT", "unrecorded"),
+            "build": c.BUILD, "commit": c.setting("BUILD_COMMIT") or "unrecorded",
             "capabilities": CAPABILITIES, "configuration": config, "flows": flows,
             "database_ready": database_ready, "sms_delivery_verified": False,
             "account_role_verified": False, "key_matching_verified_by_this_check": False}

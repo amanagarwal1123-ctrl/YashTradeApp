@@ -4,16 +4,24 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 ## Get started
 
-1. Install dependencies
+1. Install dependencies (Yarn 1.x is the declared package manager — `packageManager` in package.json; `yarn.lock` is the only lockfile)
 
    ```bash
-   npm install
+   yarn install --frozen-lockfile
    ```
 
 2. Start the app
 
    ```bash
-   npx expo start
+   yarn expo start
+   ```
+
+3. Run the unit tests, type check and lint
+
+   ```bash
+   yarn test
+   yarn tsc --noEmit
+   yarn lint
    ```
 
 In the output, you'll find options to open the app in a
@@ -30,7 +38,7 @@ You can start developing by editing the files inside the **app** directory. This
 When you're ready, run:
 
 ```bash
-npm run reset-project
+yarn reset-project
 ```
 
 This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.

@@ -27,8 +27,10 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
-# Optional isolated store-review database. Absent => review login is refused (never production).
-REVIEW_DB_NAME = os.environ.get('REVIEW_DB_NAME', '').strip()
+# Optional isolated store-review database. Absent OR a bootstrap placeholder (e.g. SET_IN_PUBLISH_SECRETS)
+# => review login is refused (503 REVIEW_UNAVAILABLE); production data is never used as a fallback.
+from shared.core import setting as _setting  # noqa: E402
+REVIEW_DB_NAME = _setting('REVIEW_DB_NAME')
 if REVIEW_DB_NAME and REVIEW_DB_NAME == os.environ['DB_NAME']:
     raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME")
 review_db = client[REVIEW_DB_NAME] if REVIEW_DB_NAME else None
@@ -91,7 +93,7 @@ DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
     Lets /api/health on the deployed domain show exactly what the deployment secrets are missing."""
-    present = {k: bool(os.environ.get(k, '').strip()) for k in DEPLOY_ENV_KEYS}
+    present = {k: bool(_setting(k)) for k in DEPLOY_ENV_KEYS}  # bootstrap placeholders count as missing
     warnings = []
     if not present['MSG91_AUTHKEY']:
         warnings.append("MSG91_AUTHKEY is missing — no real OTP SMS can be sent from this server")

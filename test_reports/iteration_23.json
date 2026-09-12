@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 23 final release-pass verification against live preview (backend + frontend). Backend: /api/health returns 503 not_ready per contract (staff placeholder), /api/health/live=200, flows.review.ready=true & flows.staff.ready=false with issues=['STAFF_SERVICE_KEY'], commit='unrecorded', configuration.REVIEW_DB_NAME=true / BUILD_COMMIT=false, sms_delivery_verified=false, account_role_verified=false; POST /api/auth/review/login unknown reviewer -> 401 REVIEW_CREDENTIALS_INVALID; malformed body -> 422; GET /api/fonts/ionicons.ttf -> 200 with 389724-byte body (Cloudflare re-encodes content-length, verified by len(body)); /api/customers/search, /api/requests and /api/integrations/deletions gate returns 401 without bearer/integration-key. Shared release-pass suites: tests/shared/test_review_provisioning_cli.py + test_placeholder_configuration.py + test_review_access_isolation.py -> 18 passed in 63s (matches expected 8+2+8; CLI live test started a temporary uvicorn subprocess as designed). Frontend jest: 5 suites / 38 tests passed (reviewAccessScreen.test.tsx + appConfig.test.ts included). Live-preview UI at 390x844: /login shows 'Store reviewer access' link (testID review-access-link) -> /review-access renders title 'Store reviewer access', notice 'Synthetic review environment', reviewer-id-input / reviewer-key-input / review-login-btn / review-back-btn / review-notice testIDs, SIGN IN disabled until id>=3 & key>=20; back button returns to login. All FOUR reviewer roles signed in successfully with the gold 'STORE-REVIEW ENVIRONMENT' banner visible: customer -> '/(tabs)' (Expo Router resolves to '/'), admin -> '/panel' (ADMIN header), billing -> '/panel' (BILLING_EXECUTIVE header), telecaller -> '/telecaller'. One negative attempt (junk 40-char key on store-review-customer) surfaced testID review-login-error='Reviewer ID or access key is incorrect' and stayed on /review-access. No SMS/OTP was ever sent. Reviewer keys were read programmatically from /tmp/yash-private/*.txt, never written to logs/screenshots/report; the key field was left masked (eye toggle never tapped before screenshots). No .env or supervisor changes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/fonts/ionicons.ttf",
+        "issue": "Cloudflare edge re-encodes the response (chunked/gzip) and strips upstream 'content-length: 389724'. Body byte-length still equals 389724 so integrity is verifiable, but strict clients relying on the Content-Length header through the CDN will not see it. Same finding as iteration 22."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "react-native-web style props (informational)",
+        "issue": "react-native-web still emits deprecation warnings for shadow* props and props.pointerEvents on this preview. UI renders correctly; consider migrating to boxShadow and style.pointerEvents to silence. Reference: touched files unaffected; global concern only."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration23_live_preview.py",
+    "/app/test_reports/pytest/iteration23_live_preview.xml",
+    "/app/test_reports/pytest/iteration23_shared_release_pass.xml",
+    "/app/test_reports/iteration23_login_mobile.jpeg",
+    "/app/test_reports/iteration23_customer_landing.jpeg",
+    "/app/test_reports/iteration23_admin_landing.jpeg",
+    "/app/test_reports/iteration23_billing_landing.jpeg",
+    "/app/test_reports/iteration23_telecaller_landing.jpeg",
+    "/app/test_reports/iteration23_wrong_key.jpeg"
+  ],
+  "action_items": [
+    "Nothing blocking. Optional: audit react-native-web deprecation warnings (shadow*/pointerEvents) in shared UI files; not exposed by this release pass but seen on the preview console."
+  ],
+  "critical_code_review_comments": [
+    "Reviewer sign-in flow (frontend/app/review-access.tsx) correctly gates the SIGN IN button on id>=3 chars AND key>=20 chars, forwards role-specific navigation (telecaller -> /telecaller, admin/billing_executive -> /panel, else /(tabs)) and preserves masked TextInput by default; no info leak through error messages.",
+    "Backend /api/health readiness contract behaves exactly as documented for placeholder-aware configuration (STAFF_SERVICE_KEY=SET_IN_PUBLISH_SECRETS -> flows.staff.ready=false, overall status=not_ready -> HTTP 503). External uptime monitors should target /api/health/live (200)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration23_live_preview.py",
+    "/app/test_reports/iteration_23.json"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 iteration23 live-preview endpoint tests + 18/18 shared release-pass tests)",
+    "frontend": "100% (5 jest suites / 38 tests + live-preview UI: link, /review-access testIDs, 4 role sign-ins with banner, wrong-key error)"
+  },
+  "seed_data_creation": "No seed data created. Reviewer credentials were read privately from /tmp/yash-private/preview-store-review-<role>.txt (customer/admin/billing/telecaller). Keys were never printed, logged or included in screenshots (secureTextEntry left ON).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Live preview backend https://yash-trade-backend.preview.emergentagent.com/api is healthy for review flow (review.ready=true, staff.ready=false=expected placeholder). Use /api/health/live for uptime; /api/health returns 503 by design in preview. Reviewer creds live only in /tmp/yash-private/preview-store-review-*.txt inside this container — read via `python re.search`, never print. Four roles all working: customer->/(tabs), admin->/panel, billing->/panel, telecaller->/telecaller, gold banner visible on all. Rate limits: 5 wrong attempts/min per reviewer_id, 30/min per IP; keep negative tests to a single junk attempt after successful sign-ins. Jest: 5/38 green. Shared release-pass suite runtime ~63s (CLI live test spins a temporary uvicorn on a random loopback port).",
+  "rca_of_issue": "No new issues found. Prior iteration 22 finding (GET /api/customers/{uid} 422 INVALID_PHONE for unknown canonical IDs) was not in scope this iteration — still pending main-agent fix per iteration 22 RCA."
+}

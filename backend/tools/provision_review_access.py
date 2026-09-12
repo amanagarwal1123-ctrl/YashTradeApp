@@ -12,14 +12,22 @@ Examples (run from backend/):
   python tools/provision_review_access.py --expected-review-db yash_review --provision --seed \
       --environment production --api-base-url https://<backend-host>/api --verify \
       --write-note /private/yash-review-access.txt
+  python tools/provision_review_access.py --expected-review-db yash_review --verify-note /private/yash-review-access.txt \
+      --environment production --api-base-url https://<backend-host>/api      # recovery: re-verify stored keys, no DB access
   python tools/provision_review_access.py --expected-review-db yash_review --reset-data
   python tools/provision_review_access.py --expected-review-db yash_review --rotate store-review-admin
   python tools/provision_review_access.py --expected-review-db yash_review --revoke store-review-customer
+
+Exit codes: 0 = requested work done (and, when --verify/--verify-note was given, EVERY key proved: sign-in,
+/auth/me role + review scope, sign-out, old session rejected); 1 = blocked before any change (bad config,
+unsafe note path, mismatched environment); 2 = keys were issued/kept but verification FAILED or was INCOMPLETE
+(the private note says which; recover with --verify-note). stdout JSON carries `outcome`; the account table is `status`.
 """
 import argparse
 import asyncio
 import json
 import os
+import re
 import stat
 import sys
 from datetime import datetime, timezone
@@ -40,47 +48,112 @@ ROLE_LABELS = {"customer": "Customer (retail jeweller)", "admin": "Admin (owner 
                "telecaller": "Telecaller (follow-up desk)", "billing_executive": "Billing executive"}
 
 
+def _validate_target(api_base_url):
+    """Only an explicit HTTPS origin whose path is exactly /api may receive reviewer keys (plain HTTP is
+    allowed for loopback test servers only). Redirects are never followed."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(api_base_url.strip())
+    loopback = parts.hostname in {"localhost", "127.0.0.1", "::1", "testserver"}
+    if parts.scheme != "https" and not (parts.scheme == "http" and loopback):
+        raise ValueError("--api-base-url must be an https:// URL (http:// only for localhost test servers)")
+    if not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("--api-base-url must be a bare origin plus /api, without credentials, query or fragment")
+    if parts.path.rstrip("/") != "/api":
+        raise ValueError("--api-base-url must end in /api (the canonical backend base)")
+    return f"{parts.scheme}://{parts.netloc}/api"
+
+
 def _verify_issued(api_base_url, issued):
     """Sign in once with every key issued in THIS run against the deployed backend, confirm the role
-    and review scope, then log that session out. Returns per-account results without secrets."""
+    and review scope, log out and prove the old session is rejected. Never marks a failed step PASS.
+    Returns per-account results without secrets; raises on transport failure so the caller can keep
+    the already-persisted note and report an incomplete verification."""
     import httpx
 
-    base = api_base_url.rstrip("/")
+    base = _validate_target(api_base_url)
     roles = {a["reviewer_id"]: role for role, a in review_seed.ACCOUNTS.items()}
     results = {}
-    with httpx.Client(timeout=20) as http:
+
+    def code_of(response):
+        return response.json().get("code") if response.headers.get("content-type", "").startswith("application/json") else None
+
+    with httpx.Client(timeout=20, follow_redirects=False) as http:
         for reviewer_id, secret in issued.items():
             expected_role = roles.get(reviewer_id)
             login = http.post(f"{base}/auth/review/login", json={"reviewer_id": reviewer_id, "access_key": secret})
             if login.status_code != 200:
-                results[reviewer_id] = {"ok": False, "step": "login", "http_status": login.status_code,
-                                        "code": (login.json().get("code") if login.headers.get("content-type", "").startswith("application/json") else None)}
+                results[reviewer_id] = {"ok": False, "step": "login", "http_status": login.status_code, "code": code_of(login)}
                 continue
             body = login.json()
             headers = {"Authorization": f"Bearer {body['token']}"}
             me = http.get(f"{base}/auth/me", headers=headers)
-            ok = (me.status_code == 200 and me.json().get("review_environment") is True and body.get("review_environment") is True
-                  and (expected_role is None or me.json().get("role") == expected_role))
-            http.post(f"{base}/auth/logout", headers=headers)
-            results[reviewer_id] = {"ok": ok, "role": me.json().get("role") if me.status_code == 200 else None,
-                                    "review_environment": me.json().get("review_environment") if me.status_code == 200 else None,
-                                    "session_closed": True}
+            role = me.json().get("role") if me.status_code == 200 else None
+            scope_ok = me.status_code == 200 and me.json().get("review_environment") is True and body.get("review_environment") is True
+            role_ok = expected_role is not None and role == expected_role
+            logout = http.post(f"{base}/auth/logout", headers=headers)
+            logout_ok = logout.status_code == 200 and logout.json().get("logged_out") is True
+            rejected = http.get(f"{base}/auth/me", headers=headers).status_code == 401
+            session_closed = logout_ok and rejected
+            failed_step = None if (scope_ok and role_ok and session_closed) else (
+                "me" if not scope_ok else "role" if not role_ok else "logout" if not logout_ok else "session_reuse")
+            results[reviewer_id] = {"ok": failed_step is None, "role": role, "review_environment": scope_ok, "session_closed": session_closed,
+                                    **({"step": failed_step, "http_status": logout.status_code if failed_step == "logout" else me.status_code} if failed_step else {})}
     return results
 
 
-def _note_target(path):
-    """Validate the private note location BEFORE any key is issued, so a refused path never loses a key."""
+def _restrict_windows_acl(path):
+    """Owner-only ACL on Windows via icacls; verified by reading the ACL back. Raises when it cannot be enforced."""
+    import subprocess
+    user = os.environ.get("USERNAME") or os.getlogin()
+    domain = os.environ.get("USERDOMAIN", "")
+    principal = f"{domain}\\{user}" if domain else user
+    mode = "(OI)(CI)(F)" if Path(path).is_dir() else "(R,W)"
+    result = subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{principal}:{mode}"], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise PermissionError(f"Could not restrict {path} to the current user (icacls failed)")
+    listing = subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
+    others = [line for line in listing.splitlines()[1:] if line.strip() and user.lower() not in line.lower()
+              and "successfully processed" not in line.lower()]
+    if others:
+        raise PermissionError(f"{path} still grants access to other principals; refusing to store keys there")
+
+
+def _private(path, directory=False):
+    """Best-effort owner-only permissions: POSIX mode bits, Windows ACL (enforced + verified)."""
+    if os.name == "nt":
+        _restrict_windows_acl(path)
+        return
+    Path(path).chmod(stat.S_IRWXU if directory else (stat.S_IRUSR | stat.S_IWUSR))
+
+
+def _reserve_note(path):
+    """Create the private note BEFORE any key is issued: validates the location, creates the parent
+    directory privately, creates the file exclusively (never overwrites) with owner-only permissions
+    and proves it is writable. A refused/unwritable destination therefore never loses a key."""
     target = Path(path).expanduser().resolve()
     repo_root = ROOT.parent.resolve()
     if target == repo_root or repo_root in target.parents:
         raise ValueError("Refusing to write reviewer credentials inside the repository; choose a private folder")
     if target.exists():
         raise FileExistsError("Note already exists; choose a new file name so an older note is never overwritten silently")
+    if not target.parent.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _private(target.parent, directory=True)
+    fd = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("YASH TRADE - STORE-REVIEW ACCESS (PRIVATE) - RESERVED, no keys issued yet\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        target.unlink(missing_ok=True)
+        raise
+    _private(target)
     return target
 
 
-def _write_note(target, environment, api_base_url, review_db, issued, unchanged, verification):
-    target.parent.mkdir(parents=True, exist_ok=True)
+def _note_lines(environment, api_base_url, review_db, issued, unchanged, verification, verification_error=None):
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         "YASH TRADE - STORE-REVIEW ACCESS (PRIVATE - DO NOT COMMIT, SCREENSHOT OR PASTE INTO CHAT)",
@@ -103,8 +176,17 @@ def _write_note(target, environment, api_base_url, review_db, issued, unchanged,
     if unchanged:
         lines += ["", "  Existing accounts whose key was NOT changed in this run (use --rotate <reviewer_id> to issue a new key):",
                   *[f"    - {rid}" for rid in unchanged]]
-    if verification is not None:
-        lines += ["", "VERIFICATION AGAINST THE DEPLOYED BACKEND (sign-in, /auth/me role check, sign-out)"]
+    lines += ["", "VERIFICATION AGAINST THE DEPLOYED BACKEND (sign-in, /auth/me role check, sign-out, old session rejected)"]
+    if verification is None:
+        if verification_error:
+            lines += [f"  NOT COMPLETED - {verification_error}",
+                      "  The keys above ARE issued and stored (hashed) on the server but are UNVERIFIED.",
+                      "  Recovery: fix connectivity, then run the same tool with",
+                      f"    --expected-review-db {review_db} --verify-note <this file> --api-base-url {api_base_url or '<https://backend-host>/api'} --environment {environment}",
+                      "  which signs in with each key from this file and appends the results here. Never paste keys into chat."]
+        else:
+            lines.append(f"  NOT REQUESTED - run with --expected-review-db {review_db} --verify-note <this file> --api-base-url <https://backend-host>/api --environment {environment} to verify.")
+    else:
         for rid, result in verification.items():
             lines.append(f"  {rid:<28} {'PASS' if result.get('ok') else 'FAIL'}  {json.dumps({k: v for k, v in result.items() if k != 'ok'})}")
     lines += [
@@ -121,27 +203,80 @@ def _write_note(target, environment, api_base_url, review_db, issued, unchanged,
         f"  python tools/provision_review_access.py --expected-review-db {review_db} --revoke <reviewer_id>",
         "",
     ]
-    target.write_text("\n".join(lines), encoding="utf-8")
-    try:
-        target.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+    return lines
+
+
+def _write_note(target, *args, **kwargs):
+    """(Re)write the reserved private note in place; the file was created exclusively by _reserve_note."""
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(_note_lines(*args, **kwargs)))
+        handle.flush()
+        os.fsync(handle.fileno())
     return str(target)
 
 
+NOTE_KEY_LINE = re.compile(r"^\s*Reviewer ID: (\S+)\s+Role: .*?Access key: (\S+)\s*$", re.M)
+NOTE_HEADER_LINE = re.compile(r"^Environment: (\S+)\s+Backend: (\S+)\s+Review database: (\S+)\s*$", re.M)
+
+
+def _verify_note(path, api_base_url, environment, expected_review_db):
+    """Recovery path: verify keys already stored in a private note (no database access, no mutation)
+    and append the results to that note. The note's own header must name the same environment and
+    review database, so preview keys are never 'verified' against production or vice versa."""
+    target = Path(path).expanduser().resolve()
+    text = target.read_text(encoding="utf-8")
+    header = NOTE_HEADER_LINE.search(text)
+    if not header:
+        raise ValueError("The note has no recognised header; only notes written by this tool can be verified")
+    if header.group(1).lower() != environment:
+        raise ValueError(f"The note was issued for {header.group(1)}, not {environment.upper()}; pass the matching --environment")
+    if header.group(3) != expected_review_db:
+        raise ValueError("The note's review database differs from --expected-review-db; refusing to mix environments")
+    keys = dict(NOTE_KEY_LINE.findall(text))
+    if not keys:
+        raise ValueError("The note contains no reviewer keys to verify")
+    results = _verify_issued(api_base_url, keys)
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    block = [f"", f"VERIFICATION RE-RUN {ts} against {api_base_url} ({environment})"]
+    block += [f"  {rid:<28} {'PASS' if r.get('ok') else 'FAIL'}  {json.dumps({k: v for k, v in r.items() if k != 'ok'})}" for rid, r in results.items()]
+    with open(target, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(block) + "\n")
+    return results
+
+
+def _summary(issued, verification):
+    verified = sorted(rid for rid, r in (verification or {}).items() if r.get("ok"))
+    return {"issued_accounts": sorted(issued), "verified_accounts": verified,
+            "unchanged_accounts": sorted(a["reviewer_id"] for a in review_seed.ACCOUNTS.values() if a["reviewer_id"] not in issued),
+            "all_four_roles_verified": set(verified) == {a["reviewer_id"] for a in review_seed.ACCOUNTS.values()}}
+
+
 async def run(args):
+    if (args.write_note or args.verify or args.verify_note) and not args.environment:
+        raise ValueError("--environment preview|production is required with --write-note/--verify/--verify-note")
+    if (args.verify or args.verify_note) and not args.api_base_url:
+        raise ValueError("--api-base-url is required with --verify/--verify-note")
+    if args.api_base_url:
+        args.api_base_url = _validate_target(args.api_base_url)
+    if args.verify_note:
+        if any((args.provision, args.seed, args.reset_data, args.rotate, args.revoke, args.write_note)):
+            raise ValueError("--verify-note is a read-only recovery step; run it without provisioning flags")
+        results = _verify_note(args.verify_note, args.api_base_url, args.environment, args.expected_review_db)
+        return {"environment": args.environment, "review_db": args.expected_review_db, "verification": results,
+                **_summary(dict.fromkeys(results), results), "verified_all": all(r.get("ok") for r in results.values()),
+                "note_updated": str(Path(args.verify_note).expanduser().resolve())}
     mongo_url, primary, review = (os.environ.get(k, "").strip() for k in ("MONGO_URL", "DB_NAME", "REVIEW_DB_NAME"))
     if not mongo_url or not primary or not review:
         raise ValueError("MONGO_URL, DB_NAME and REVIEW_DB_NAME are required in the operator runtime")
+    if c.is_placeholder(review) or c.is_placeholder(primary):
+        raise ValueError("REVIEW_DB_NAME/DB_NAME still carry a bootstrap placeholder; set the real distinct review database name first")
     if review == primary:
         raise ValueError("REVIEW_DB_NAME must differ from DB_NAME")
     if review != args.expected_review_db:
         raise ValueError("REVIEW_DB_NAME does not match --expected-review-db")
-    if (args.write_note or args.verify) and not args.environment:
-        raise ValueError("--environment preview|production is required with --write-note/--verify")
-    if args.verify and not args.api_base_url:
-        raise ValueError("--api-base-url is required with --verify")
-    note_target = _note_target(args.write_note) if args.write_note else None
+    if args.environment == "production" and (args.provision or args.rotate) and not args.write_note:
+        raise ValueError("Production key issuance/rotation requires --write-note <private file>; keys are never printed for production")
+    note_target = _reserve_note(args.write_note) if args.write_note else None
     client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
     sync_client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
     try:
@@ -164,21 +299,35 @@ async def run(args):
             if args.revoke:
                 out["revoked"] = await review_seed.revoke(args.revoke)
             out["status"] = await review_seed.status()
-        verification = None
-        if args.verify:
-            verification = _verify_issued(args.api_base_url, issued)
-            out["verification"] = verification
-            out["verified_all"] = bool(issued) and all(r.get("ok") for r in verification.values())
-        if issued:
-            unchanged = [a["reviewer_id"] for a in review_seed.ACCOUNTS.values() if a["reviewer_id"] not in issued]
-            if note_target:
-                out["note_written"] = _write_note(note_target, args.environment, args.api_base_url, review, issued, unchanged, verification)
-            else:
-                for reviewer_id, secret in issued.items():
-                    print(f"ONE-TIME ACCESS KEY  {reviewer_id}: {secret}", file=sys.stderr)
+        unchanged = [a["reviewer_id"] for a in review_seed.ACCOUNTS.values() if a["reviewer_id"] not in issued]
+        if issued and note_target:
+            # Persist the keys privately BEFORE any fallible network verification.
+            out["note_written"] = _write_note(note_target, args.environment, args.api_base_url, review, issued, unchanged, None)
+        elif issued:
+            for reviewer_id, secret in issued.items():
+                print(f"ONE-TIME ACCESS KEY  {reviewer_id}: {secret}", file=sys.stderr)
         elif note_target:
+            note_target.unlink()  # nothing issued: leave no empty reserved file behind
             out["note_written"] = None
             out["note_skipped_reason"] = "no key was issued in this run (accounts already exist; use --rotate to issue new keys)"
+        verification = None
+        if args.verify:
+            if not issued:
+                out["verification_skipped"] = "nothing was issued in this run; existing keys are never rotated just to verify them (use --verify-note)"
+            else:
+                try:
+                    verification = _verify_issued(args.api_base_url, issued)
+                except Exception as exc:  # transport failure: keys stay in the note, marked unverified
+                    out["verification_error"] = f"{type(exc).__name__}"
+                    if note_target:
+                        _write_note(note_target, args.environment, args.api_base_url, review, issued, unchanged, None,
+                                    verification_error=f"{type(exc).__name__} while contacting {args.api_base_url}")
+                else:
+                    out["verification"] = verification
+                    if note_target:
+                        _write_note(note_target, args.environment, args.api_base_url, review, issued, unchanged, verification)
+            out["verified_all"] = bool(issued) and verification is not None and all(r.get("ok") for r in verification.values())
+        out.update(_summary(issued, verification))
         return out
     finally:
         client.close()
@@ -196,14 +345,25 @@ def main():
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--environment", choices=("preview", "production"), default="",
                         help="label recorded in the note/verification so preview and production accounts are never confused")
-    parser.add_argument("--api-base-url", default="", help="deployed backend base URL ending in /api, used by --verify and recorded in the note")
-    parser.add_argument("--verify", action="store_true", help="sign in once with each key issued in this run against --api-base-url, then sign out")
-    parser.add_argument("--write-note", default="", help="PRIVATE file (outside the repository) that receives the keys instead of the terminal")
+    parser.add_argument("--api-base-url", default="", help="approved https backend base URL ending in /api, used by --verify/--verify-note and recorded in the note")
+    parser.add_argument("--verify", action="store_true", help="sign in once with each key issued in this run against --api-base-url, sign out, prove reuse is rejected")
+    parser.add_argument("--verify-note", default="", help="recovery: verify the keys stored in an existing private note (no mutation) and append the results to it")
+    parser.add_argument("--write-note", default="", help="PRIVATE new file (outside the repository) that receives the keys instead of the terminal; required for production issuance")
     try:
-        print(json.dumps(asyncio.run(run(parser.parse_args())), indent=2, default=str))
+        args = parser.parse_args()
+        out = asyncio.run(run(args))
     except Exception as exc:
-        print(json.dumps({"status": "blocked", "error_type": type(exc).__name__, "detail": str(exc)[:200]}), file=sys.stderr)
+        # `outcome` is the run result; `status` (when present in a successful run) is the account status table.
+        print(json.dumps({"outcome": "blocked", "error_type": type(exc).__name__, "detail": str(exc)[:200]}), file=sys.stderr)
         return 1
+    if (args.verify or args.verify_note) and not out.get("verified_all"):
+        # Verification was requested and did not prove every issued key: FAIL results -> verification_failed,
+        # no results at all (transport failure / nothing issued) -> verification_incomplete. Never exit 0 here.
+        out["outcome"] = "verification_failed" if out.get("verification") else "verification_incomplete"
+        print(json.dumps(out, indent=2, default=str))
+        return 2
+    out["outcome"] = "ok"
+    print(json.dumps(out, indent=2, default=str))
     return 0
 
 
