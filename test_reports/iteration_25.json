@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 25 backend-only verification of the default owner-admin bootstrap (OWNER_ADMIN_PHONE=9999813334). LIVE PREVIEW (https://yash-trade-backend.preview.emergentagent.com/api): GET /api/health returned HTTP 503 (STAFF_SERVICE_KEY placeholder, expected) with flows.owner_admin={ready:true, issues:[], state:'already_admin', phone_suffix:'3334', detail:'owner record already admin; sessions untouched'}, configuration.OWNER_ADMIN_PHONE=true, capabilities.owner_admin_bootstrap=1, flows.mobile.ready=true. Health body contains ZERO occurrences of the full phone '9999813334' or the canonical user id 'bcdf18c9-dc87-4d46-b580-30cf519103df' (only the last-4 suffix '3334' is exposed). No SMS/OTP was sent to any real phone. REGRESSION SUITES from /app/backend: `python -m pytest tests/shared/test_owner_admin_bootstrap.py tests/shared/test_owner_recovery_readiness.py tests/shared/test_review_storage_hotfix.py tests/shared/test_placeholder_configuration.py tests/shared/test_review_access_isolation.py -q -p no:cacheprovider` -> 41 passed, 0 failed, 0 skipped in 43.92s (mongod v7.0.42 available; the auth-mongod tests actually ran). INDEPENDENT SUITE tests/shared/test_iteration25_owner_admin_independent.py (uses only isolated_db + api_client, intercepted SMS, monkeypatch OWNER_ADMIN_PHONE): 6 passed, 0 failed in 1.42s covering: (a) empty DB -> ensure_owner_admin() creates exactly one admin doc for 9999813334 (no password/otp fields), second call is a no-op (same id, session_version unchanged), OTP login channel 'mobile' returns user.role='admin', channel 'portal'+X-Staff-Service-Key returns role='admin'; (b) legacy customer doc without phone_normalized + unrelated customer with active OTP session -> same id becomes admin, session_version incremented by 1, identity_events last entry {type:'owner_admin_bootstrap', old_role:'customer', new_role:'admin'}, old owner /api/auth/me -> 401 SESSION_REVOKED, unrelated customer session still 200 with role='customer' and session_version unchanged; (c) two records for the phone (one legacy formatting) -> ensure_owner_admin() returns False with reason='OWNER_ADMIN_IDENTITY_CONFLICT', DB unchanged, /api/health returns 503 with flows.owner_admin.issues=['OWNER_ADMIN_IDENTITY_CONFLICT'], phone_suffix='3334', ready=false; (d) as a SECOND admin, PATCH /api/integrations/staff/{owner_id} {role:'telecaller'} -> 409 OWNER_ADMIN_PROTECTED, DELETE same -> 409 OWNER_ADMIN_PROTECTED, PATCH {name:'X'} -> 200 (owner still admin). Regression: non-owner sole admin demoting itself -> 409 LAST_ADMIN; customer OTP login on channel 'portal' -> 403 STAFF_ONLY. JUnit XML: /app/test_reports/pytest/iteration25_required_suites.xml (41 pass) and /app/test_reports/pytest/iteration25_independent.xml (6 pass). No .env / metro.config.js / supervisor changes; preview database was only READ via GET /api/health.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/iteration25_required_suites.xml",
+    "/app/test_reports/pytest/iteration25_independent.xml",
+    "/app/backend/tests/shared/test_iteration25_owner_admin_independent.py",
+    "/app/backend/tests/shared/test_owner_admin_bootstrap.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "shared/owner_admin.py encodes the four refusal codes precisely (OWNER_ADMIN_PHONE for missing/placeholder/invalid, OWNER_ADMIN_IDENTITY_CONFLICT for multi-record, OWNER_ADMIN_ACCOUNT_INACTIVE for inactive/disabled, OWNER_ADMIN_DELETED_IDENTITY for tombstoned) and never merges identities. Promotion is a single conditional update-one keyed on (id, role=old_role), the session bump + session_families.revoke=true happens atomically after, and the identity_events push carries old_role so audit reconstruction is exact. Idempotency is preserved (already_admin branch does not push a duplicate event or bump session_version). The store-review scope guard (`if c.in_review(): raise RuntimeError`) prevents cross-scope contamination.",
+    "Health payload (/api/health flows.owner_admin) exposes only phone_suffix (last 4) and a redacted state - verified live: no full phone and no user id in the body. Good PII posture.",
+    "owner_admin.is_owner() falls back through phone_normalized -> phone via c.phone(); combined with the multi-record refusal, promotion of a stray legacy row without phone_normalized only ever happens when there is exactly one matching document, keeping the invariant `at most one owner record ever holds role=admin`.",
+    "people.last_admin_guard() plus the OWNER_ADMIN_PROTECTED short-circuit on PATCH/DELETE means the owner cannot be demoted, disabled, deleted, or self-erased, while an owner CAN still demote other admins - matches the spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_iteration25_owner_admin_independent.py",
+    "/app/test_reports/pytest/iteration25_required_suites.xml",
+    "/app/test_reports/pytest/iteration25_independent.xml",
+    "/app/test_reports/iteration_25.json"
+  ],
+  "success_rate": {
+    "backend": "100% (41/41 required shared suites, 6/6 independent verification cases, 4/4 live-preview health assertions including PII redaction)",
+    "frontend": "N/A (backend-only per review_request)"
+  },
+  "seed_data_creation": "None on any preview/production database. All synthetic data lived in ephemeral shared_test_* Mongo DBs created and dropped by the isolated_db fixture. No SMS/OTP dispatched to any real number; every OTP in tests was intercepted via isolated_db['sent_otps'].",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Owner-admin bootstrap verified end-to-end on both surfaces (mobile channel + portal channel with X-Staff-Service-Key) using only isolated fixtures - the live preview record with phone suffix 3334 is already promoted (state='already_admin'), and the preview health body never leaks the full phone or the canonical id. Preview /api/health will continue to return HTTP 503 because STAFF_SERVICE_KEY is a placeholder in preview - that is expected and orthogonal to owner-admin. The isolated_db fixture recreates the DB on every test (unique shared_test_* name) so ensure_owner_admin() is exercised from a clean slate. The 60-second OTP resend cooldown is bypassed in tests by deleting otp_challenges rows between logins on the synthetic DB only. Do NOT call /api/auth/send-otp for 9999813334 or any real number on the live preview - it would dispatch a real SMS.",
+  "rca_of_issue": "N/A - no bug reproduced this iteration. The design is coherent: bootstrap in server.startup() runs after ensure_indexes so the unique phone_normalized index protects against duplicate admin creation; identity_events append + session_version increment + session_families revoke provide the audit-and-lockout tuple; the owner-protection guard prevents demotion via staff API. The four refusal reasons surface through /api/health.flows.owner_admin.issues without leaking PII."
+}

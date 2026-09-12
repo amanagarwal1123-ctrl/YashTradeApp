@@ -26,3 +26,4 @@ They are not the store-submission credentials; production accounts are provision
 (/review-access) -> Reviewer ID + Access key -> SIGN IN; the gold STORE-REVIEW ENVIRONMENT banner
 confirms the isolated session. Endpoint: POST /api/auth/review/login {reviewer_id, access_key}.
 Real users: normal MSG91 OTP only. No fixed OTP exists in code (DEMO_PHONES is empty).
+Default owner administrator (12 Sep 2026): backend/.env OWNER_ADMIN_PHONE=9999813334 -> the record with that phone is admin in every environment (preview record bcdf18c9-dc87-4d46-b580-30cf519103df promoted customer->admin by the startup bootstrap; no fixed OTP, no password; real MSG91 OTP only - DO NOT send OTPs to this real number in automated tests). Tests use isolated synthetic databases with OWNER_ADMIN_PHONE set via monkeypatch and intercepted SMS.

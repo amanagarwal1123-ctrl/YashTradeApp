@@ -88,7 +88,7 @@ ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').st
 INTEGRATION_HEADER = 'X-Integration-Key'
 
 DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
-                   'STAFF_SERVICE_KEY', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY')
+                   'STAFF_SERVICE_KEY', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY', 'OWNER_ADMIN_PHONE')
 
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
@@ -3177,9 +3177,13 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    # No implicit data migrations, staff identities or sample catalog seeds at startup.
+    # No implicit data migrations, sample catalog seeds or staff identities at startup - with ONE declared
+    # exception: the configured owner administrator (OWNER_ADMIN_PHONE) is admin in every environment
+    # (shared/owner_admin.py: same canonical record, idempotent, never any other account, normal OTP sign-in).
     from shared.core import ensure_indexes
+    from shared.owner_admin import ensure_owner_admin
     await ensure_indexes()
+    await ensure_owner_admin()
     try:
         init_storage()
         logger.info("Object storage ready")

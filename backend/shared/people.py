@@ -81,6 +81,10 @@ async def staff_create(req: StaffCreate, user=Depends(c.admin)):
 
 
 async def last_admin_guard(old, new_role, new_status):
+    if new_role != "admin" or new_status != "active":
+        from .owner_admin import is_owner
+        if is_owner(old):
+            c.fail(409, "OWNER_ADMIN_PROTECTED", "The default owner administrator cannot be demoted or disabled")
     if c.role(old["role"]) == "admin" and (new_role != "admin" or new_status != "active"):
         admins = await c.db.users.find({"role": "admin", "id": {"$ne": old["id"]}}, {"_id": 0}).to_list(None)
         if not any(c.account_status(a) == "active" for a in admins):
@@ -251,6 +255,9 @@ async def customer_update(uid: str, updates: dict, user=Depends(c.admin)):
 
 
 async def erase(user, source):
+    from .owner_admin import is_owner
+    if is_owner(user):
+        c.fail(409, "OWNER_ADMIN_PROTECTED", "The default owner administrator cannot be deleted; change OWNER_ADMIN_PHONE first")
     uid, number = user["id"], c.phone(user["phone"])
     ref = "DEL-" + uid
     # Tombstone and revocation happen BEFORE cleanup. Retried enrollment cannot resurrect it.

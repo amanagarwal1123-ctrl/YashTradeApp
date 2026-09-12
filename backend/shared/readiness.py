@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from . import core as c
+from . import owner_admin
 
 router = APIRouter(prefix="/api", tags=["Capabilities"])
 CAPABILITIES = {
@@ -12,7 +13,7 @@ CAPABILITIES = {
     "rates_versioning": 1, "pdf_template": 1, "legacy_units": 1, "catalog_pagination": 1,
     "pdf_authoring": 1, "pdf_source_preview": 1, "media_accounting": 1, "managed_delete": 0,
     "credential_readiness": 1, "customer_id_history": 1, "deletion_outbox_cursor": 1, "review_access": 1,
-    "icon_font_fallback": 1,
+    "icon_font_fallback": 1, "owner_admin_bootstrap": 1,
 }
 SECRET_KEYS = ("JWT_SECRET", "ENROLLMENT_INTEGRATION_KEY", "STAFF_SERVICE_KEY")
 CONFIG_KEYS = (*SECRET_KEYS, "MSG91_AUTHKEY", "MSG91_TEMPLATE_ID", "MONGO_URL", "DB_NAME")
@@ -55,9 +56,16 @@ async def readiness():
         review_issues.append("DATABASE_UNAVAILABLE")
     flows["review"] = {"ready": not review_issues, "issues": review_issues, "optional": True,
                        "configured": c.review_configured(), "usable": c.review_available(), "detail": review_state["detail"]}
+    # Default owner administrator (OWNER_ADMIN_PHONE): reports what the startup bootstrap did to the DATABASE
+    # record in this process - configured / created / promoted / already admin / refused - never a login.
+    owner = owner_admin.status()
+    owner_issues = ([] if owner["applied"] else [owner["reason"]]) + ([] if database_ready else ["DATABASE_UNAVAILABLE"])
+    flows["owner_admin"] = {"ready": not owner_issues, "issues": owner_issues, "state": owner["action"],
+                            "phone_suffix": owner["phone_suffix"], "detail": owner["detail"]}
     ready = all(flow["ready"] for name, flow in flows.items() if name != "review")
     config["REVIEW_DB_NAME"] = c.review_configured()
     config["REVIEW_DB_USABLE"] = c.review_available()
+    config["OWNER_ADMIN_PHONE"] = bool(owner_admin.configured_phone())
     config["BUILD_COMMIT"] = bool(c.setting("BUILD_COMMIT"))
     return {"status": "ok" if ready else "not_ready", "ready": ready,
             "build": c.BUILD, "commit": c.setting("BUILD_COMMIT") or "unrecorded",

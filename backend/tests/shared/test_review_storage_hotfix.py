@@ -97,7 +97,8 @@ def backend_process(auth_mongod):
     port = _free_port()
     env = {**os.environ, "MONGO_URL": auth_mongod["app_uri"], "DB_NAME": auth_mongod["main"], "REVIEW_DB_NAME": auth_mongod["review"],
            "JWT_SECRET": "hotfix-jwt-secret-1234567890-abcdefghij", "STAFF_SERVICE_KEY": "hotfix-staff-key-1234567890-abcdefghij",
-           "ENROLLMENT_INTEGRATION_KEY": "hotfix-enrol-key-1234567890-abcdefghij", "MSG91_AUTHKEY": "test-authkey", "MSG91_TEMPLATE_ID": "test-template"}
+           "ENROLLMENT_INTEGRATION_KEY": "hotfix-enrol-key-1234567890-abcdefghij", "MSG91_AUTHKEY": "test-authkey", "MSG91_TEMPLATE_ID": "test-template",
+           "OWNER_ADMIN_PHONE": "9999813334"}
     log = open(Path(auth_mongod["log"]).parent / f"backend-{port}.log", "w")
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "info"],
                             cwd=BACKEND, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -133,6 +134,11 @@ def test_unauthorised_review_database_does_not_crash_startup_and_fails_closed(au
     assert body["flows"]["review"]["configured"] is True and body["flows"]["review"]["usable"] is False
     assert body["configuration"]["REVIEW_DB_NAME"] is True and body["configuration"]["REVIEW_DB_USABLE"] is False
     assert body["flows"]["mobile"]["ready"] and body["flows"]["staff"]["ready"] and body["flows"]["enrollment"]["ready"]
+    # The default owner administrator was created in the MAIN database by the real startup path (restricted user).
+    assert body["flows"]["owner_admin"] == {"ready": True, "issues": [], "state": "created", "phone_suffix": "3334",
+                                            "detail": "owner administrator record created; sign in with the normal OTP flow"}
+    owner = MongoClient(auth_mongod["root_uri"])[auth_mongod["main"]].users.find_one({"phone_normalized": "9999813334"})
+    assert owner["role"] == "admin" and owner["account_status"] == "active" and "password" not in owner and "otp" not in owner
     # 2) Reviewer sign-in fails closed; an existing reviewer session token fails closed too - neither returns production data.
     login = httpx.post(f"{base}/auth/review/login", json={"reviewer_id": "store-review-admin", "access_key": "k" * 40}, timeout=10)
     assert login.status_code == 503 and login.json()["code"] == "REVIEW_UNAVAILABLE"
