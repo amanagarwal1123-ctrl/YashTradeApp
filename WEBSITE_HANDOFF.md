@@ -1,8 +1,16 @@
 # Yash website handoff — canonical backend v1
 
-## Delivery status
+## Current owner-login correction — 12 September 2026
 
-Workspace build: **`shared-v1-followup-2026-09-11`**, preview `https://pagination-ui-boost.preview.emergentagent.com` (recorded commit: unrecorded). Public main baseline **30796997d3484594c6c5f53965e1c71dd5ed1c86** was verified before editing; prior claims that this baseline sync was unverified are superseded. Follow-up changes require the user-controlled Save to GitHub action; no new implementation commit/remote verification is available in this environment. Do not call the baseline the new implementation commit. No production deployment performed. Last independent production app observation: `https://yash-tryon-test.emergent.host/api/health`, **2026.09.09-integration-v7**, commit unknown; website health observations **2026.09.10-login-v10**, commits unknown. Code sync is not rollout.
+See **PRODUCTION_ADMIN_RECOVERY.md** and copy/paste **WEBSITE_AUTH_FIX_PROMPT.md**. Current workspace build is `shared-v1-owner-recovery-2026-09-12`; production read-only observation is `shared-v1-followup-2026-09-11`, staff key absent. Both website domains lack canonical base/enrollment/staff settings. No production role/settings have been changed here.
+
+An authenticated production GET confirmed 9999813334 is active/verified/customer, ID `bcdf18c9-dc87-4d46-b580-30cf519103df`. User now explicitly authorises same-ID customer-to-admin correction. This scoped recovery does NOT require the full website identity export; it requires authorised database access, verified backup and exact-ID/dry-run approval. New operator-only command is never invoked at startup/login and adds no public bypass. All OTHER identity merge/export gates below remain unchanged.
+
+New no-SMS checks: `/api/health/live` (process only), `/api/health/ready` and `/api/health` (503 when any auth flow unready), `/api/integrations/staff/readiness` + `X-Staff-Service-Key`, `/api/integrations/enrollment/readiness` + `X-Integration-Key`. Protected checks establish credential matching, never delivery/role. Check `capabilities.credential_readiness=1` before adoption; use per-flow readiness. Mobile is independent of missing staff settings. Explicitly keep both website origins allowed in the BFF, not just app CORS. New API response schemas are in the regenerated contract.
+
+## Previous phase delivery record
+
+Workspace build: **`shared-v1-followup-2026-09-11`**, preview `https://yash-trade-backend.preview.emergentagent.com` (recorded commit: unrecorded). Public main baseline **30796997d3484594c6c5f53965e1c71dd5ed1c86** was verified before editing; prior claims that this baseline sync was unverified are superseded. Follow-up changes require the user-controlled Save to GitHub action; no new implementation commit/remote verification is available in this environment. Do not call the baseline the new implementation commit. No production deployment performed. Last independent production app observation: `https://yash-tryon-test.emergent.host/api/health`, **2026.09.09-integration-v7**, commit unknown; website health observations **2026.09.10-login-v10**, commits unknown. Code sync is not rollout.
 
 The website lives in another chat/repository. **No website code changes or cross-deployment synchronization have been completed here.** Do not use the new contract against production until its capabilities advertise v1.
 

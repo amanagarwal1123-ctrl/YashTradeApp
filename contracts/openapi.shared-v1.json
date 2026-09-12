@@ -3,9 +3,614 @@
   "info": {
     "title": "Yash canonical shared API",
     "description": "Canonical role/session authority. See YASH_SHARED_API_CONTRACT.md for migration and website cutover requirements.",
-    "version": "shared-v1-followup-2026-09-11"
+    "version": "shared-v1-owner-recovery-2026-09-12"
   },
   "paths": {
+    "/api/health/live": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Live",
+        "operationId": "live_api_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Process liveness only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Liveness"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "No-SMS per-flow configuration/database readiness; no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthReadiness"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No-SMS per-flow configuration/database readiness; no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthReadiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "No-SMS per-flow configuration/database readiness; no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthReadiness"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No-SMS per-flow configuration/database readiness; no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthReadiness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/integrations/staff/readiness": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Staff Readiness",
+        "operationId": "staff_readiness_api_integrations_staff_readiness_get",
+        "parameters": [
+          {
+            "name": "x-staff-service-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Staff-Service-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server credential verified; no SMS or identity mutation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialReadiness"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Credential unconfigured or flow unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CredentialReadiness"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SharedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/integrations/enrollment/readiness": {
+      "get": {
+        "tags": [
+          "Capabilities"
+        ],
+        "summary": "Enrollment Readiness",
+        "operationId": "enrollment_readiness_api_integrations_enrollment_readiness_get",
+        "parameters": [
+          {
+            "name": "x-integration-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Integration-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server credential verified; no SMS or identity mutation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialReadiness"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Credential unconfigured or flow unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CredentialReadiness"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SharedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/send-otp": {
       "post": {
         "tags": [
@@ -19438,115 +20043,6 @@
         }
       }
     },
-    "/api/health": {
-      "get": {
-        "tags": [
-          "Capabilities"
-        ],
-        "summary": "Health",
-        "operationId": "health_api_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "401": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "402": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/ai/reports": {
       "post": {
         "tags": [
@@ -21686,6 +22182,130 @@
           }
         },
         "required": []
+      },
+      "AuthFlowReadiness": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ready",
+          "issues"
+        ]
+      },
+      "AuthReadiness": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "build": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "flows": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AuthFlowReadiness"
+            }
+          },
+          "database_ready": {
+            "type": "boolean"
+          },
+          "sms_delivery_verified": {
+            "type": "boolean"
+          },
+          "account_role_verified": {
+            "type": "boolean"
+          },
+          "key_matching_verified_by_this_check": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "ready",
+          "flows"
+        ]
+      },
+      "CredentialReadiness": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "flow": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "credential_verified": {
+            "type": "boolean"
+          },
+          "sms_delivery_verified": {
+            "type": "boolean"
+          },
+          "account_role_verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "credential_verified",
+          "flow",
+          "issues"
+        ]
+      },
+      "Liveness": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "alive"
+          },
+          "build": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "build"
+        ]
       },
       "CanonicalProduct": {
         "type": "object",

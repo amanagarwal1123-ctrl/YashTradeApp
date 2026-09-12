@@ -10,5 +10,10 @@ Approved testing method: local Playwright routes browser /api requests into the 
 ASGI fixture on the same async test loop. Its dynamic OTPs and sessions remain in memory only;
 no loopback server or new production endpoint is necessary. All four synthetic fixture roles may
 be used this way. This is test-transport isolation, not reusable Play Console access.
-The owner's role reconciliation has NOT been applied. No website export has been received.
+The owner explicitly authorised a scoped same-ID customer-to-admin correction on 12 September 2026.
+Read-only production GET confirmed 9999813334 is active/verified/customer, canonical ID
+bcdf18c9-dc87-4d46-b580-30cf519103df. The correction has NOT been applied; local users DB is empty.
+No real credentials/accounts were created or changed. Recovery tests must use isolated_db only,
+starting the synthetic owner as CUSTOMER (existing seeded_users otherwise starts it as admin).
+No reusable OTP exists. No website export has been received; full identity merge remains separate.
 Play review accounts have NOT been provisioned; an isolated review environment is required.

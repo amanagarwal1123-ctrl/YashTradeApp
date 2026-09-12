@@ -1,7 +1,7 @@
 # Yash shared API contract — v1
 
-Build label: `shared-v1-followup-2026-09-11`. Follow-up implementation is in this workspace, not a production rollout. Public main was rechecked before editing: baseline `30796997d3484594c6c5f53965e1c71dd5ed1c86` is verified in GitHub. It is NOT this follow-up's implementation commit. Follow-up remote sync requires the user-controlled Save to GitHub workflow; this workspace has no configured Git remote. See RELEASE_READINESS.md for provenance.
-Production last inspected: `https://yash-tryon-test.emergent.host/api/health`, build `2026.09.09-integration-v7`.
+Build label: `shared-v1-owner-recovery-2026-09-12`. This implementation is in the workspace, not production. See RELEASE_READINESS.md for provenance; earlier code/main verification is not a current implementation commit claim.
+Production freshly inspected 12 September: `https://yash-tryon-test.emergent.host/api/health`, build `shared-v1-followup-2026-09-11`, STAFF_SERVICE_KEY absent. Owner 9999813334 confirmed active/verified/customer by authenticated read-only lookup. See PRODUCTION_ADMIN_RECOVERY.md for the separately authorised same-ID repair; no live role/settings changes occurred.
 All paths below include `/api`; HTTPS only outside local tests. Generated OpenAPI: `contracts/openapi.shared-v1.json` and ingress-accessible `/api/openapi.json` (default internal FastAPI `/openapi.json` is not an ingress routing guarantee).
 
 ## Authority, mappings and errors
@@ -14,7 +14,9 @@ App backend owns identity, permission, account state, products, rates and the re
 - Indian phone storage: 10 national digits, first digit 6–9. Boundaries accept `+91`/12-digit `91` formats and common separators; **enrollment requires exactly 10 digits**. Stable `id` survives phone change. Duplicate legacy identities return `409 IDENTITY_CONFLICT` pending approved reconciliation.
 - Account state is separate from query/lead/onboarding. `disabled`/`inactive`/`blocked` account flags deny access; conflicting blocked flags win. `deleted` cannot be reactivated by enrollment.
 - Error envelope: `{code: string, detail: string, fields?: string[]}`. Common codes: `USER_NOT_FOUND`, `AUTH_REQUIRED`, `SESSION_REVOKED`, `ACCOUNT_INACTIVE`, `PERMISSION_DENIED`, `VERSION_CONFLICT`, `CONFIGURATION_REQUIRED`, `VERIFICATION_REQUIRED`. Do not match English strings. Unsupported legacy direct PDF import returns `410 REVIEWED_IMPORT_REQUIRED`.
-- Health includes build, non-secret `commit` (from `BUILD_COMMIT`, otherwise `unrecorded`), capabilities and presence booleans only. It does not prove SMS delivery, secret rotation, data reconciliation or review-account isolation.
+- `GET /api/health` and `/api/health/ready` include build, non-secret `commit`, capabilities, configuration VALIDITY booleans, database_ready and `flows.mobile|staff|enrollment|deletion:{ready,issues}`. Return 503 if any auth flow is unready, 200 otherwise; every response no-store. Required signing/service keys must be strong; staff key must differ from trimmed enrollment key. SMS authkey/template must be present, database ping succeeds within 2s. No provider dispatch. This does not prove delivery, roles, rotation or identity reconciliation.
+- `GET /api/health/live` returns 200 `{status:"alive",build}` without database/config checks. Use ONLY for process liveness, never as login readiness.
+- Capability `credential_readiness=1`: non-phone `GET /api/integrations/staff/readiness` + `X-Staff-Service-Key`, and `GET /api/integrations/enrollment/readiness` + `X-Integration-Key`. Return `{status,flow,ready,issues,build,credential_verified:true,sms_delivery_verified:false,account_role_verified:false}` when credential matches; 200 if scoped flow ready, 503 if dependency missing. Incorrect credential401, unconfigured/weak/shared server credential503 with canonical error envelope. No OTPs/sessions/users are created. Website BFF should verify both private keys via these checks rather than inventing a phone or inferring matching keys from public booleans. Mobile remains independent of missing staff settings.
 
 ## Authentication
 

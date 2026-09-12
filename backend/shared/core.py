@@ -19,7 +19,7 @@ dispatch_sms = None
 put_object = None
 get_object = None
 load_dotenv()
-BUILD = "shared-v1-followup-2026-09-11"
+BUILD = "shared-v1-owner-recovery-2026-09-12"
 ROLES = {"customer", "admin", "telecaller", "billing_executive"}
 STAFF = ROLES - {"customer"}
 
@@ -201,7 +201,7 @@ async def integration_key(x_integration_key: str | None = Header(None)):
 
 
 async def service_key(x_staff_service_key: str | None = Header(None)):
-    if hmac.compare_digest(secret("STAFF_SERVICE_KEY"), os.environ.get("ENROLLMENT_INTEGRATION_KEY", "")):
+    if hmac.compare_digest(secret("STAFF_SERVICE_KEY"), os.environ.get("ENROLLMENT_INTEGRATION_KEY", "").strip()):
         fail(503, "CONFIGURATION_REQUIRED", "STAFF_SERVICE_KEY must differ from enrollment credential")
     if not hmac.compare_digest(x_staff_service_key or "", secret("STAFF_SERVICE_KEY")):
         fail(401, "SERVICE_KEY_INVALID", "A separate staff-service credential is required")

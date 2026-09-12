@@ -1,4 +1,22 @@
-# Yash Trade shared-v1 follow-up — 11 September2026
+# Yash Trade — owner login recovery, 12 September 2026
+
+## Current user request and scope
+User reports website staff-login unavailable after demo OTP removal and explicitly authorises promoting existing app phone9999813334 CUSTOMER to ADMIN in production; preserve canonical ID/history and supply a website handoff prompt. No role bypass, duplicate admin, fixed OTP, or bulk identity merge. Website settings are a distinct pre-role blocker.
+
+## Current architecture / implementation
+Existing ExpoSDK54 + FastAPI + Mongo + MSG91 remain unchanged. New backend/shared/admin_recovery.py and tools/recover_owner_admin.py are OPERATOR-ONLY, never HTTP/startup imported. Dry-run no writes, exact database/ID/phone, unique-identity and active/deleted guards, snapshot hash, backup/maintenance/operator approval, intent audit then atomic same-user role+sv+event update. Recovery bookkeeping only revokes families referenced by old-version refresh tokens; completed or partial replay does not touch fresh sessions. No production repair executed.
+New shared/readiness.py replaces misleading health status with per-flow mobile/staff/enrollment/deletion config+DB readiness; /health/live separate. Protected non-phone/no-SMS staff/enrollment readiness verifies key matching. Trimmed equal staff/enrollment credentials now fail consistently. OpenAPI120paths regenerated. frontend/app.config.js uses EXPO_DEVTOOLS_ORIGIN only with NODE_ENV=development for supported Expo Router preview-origin allowlisting; production native origin untouched.
+
+## Live evidence / remaining P0
+- Fresh production GET12September: app shared-v1-followup-2026-09-11, STAFF_SERVICE_KEY absent. Both website domains website-shared-v1-auth-readiness-v1 missing CANONICAL_API_BASE_URL/ENROLLMENT_INTEGRATION_KEY/STAFF_SERVICE_KEY. New live endpoint404 until new code activated.
+- Authenticated production READ ONLY customer lookup confirms9999813334 active/verified/CUSTOMER, idbcdf18c9-dc87-4d46-b580-30cf519103df. Current local app database empty; no production settings writer/Mongo connection/admin session. No OTP dispatched or account changed.
+- User approval now covers ONLY this same-ID role repair, NOT all identity merges. Full website export does not block this scoped recovery. Need authorised live operator to review dry-run/backup and apply, privately configure matching distinct keys on both projects, and verify both website origin allowlists. See PRODUCTION_ADMIN_RECOVERY.md; copy/paste WEBSITE_AUTH_FIX_PROMPT.md.
+- Iteration21 final testing-agent verification:19/19 focused recovery/readiness tests,29/29 shared regressions (additional12/12 auth/people run overlaps), preview smartphone smoke and allowed/rejected embedded origins pass. Partial replay protects fresh access+refresh; completed replay idempotent. No local implementation issues remain; production /health/live404 is an unresolved gate. Fixture SMS/storage intercepted; no production login success claimed. Removed duplicate EXPO_PUBLIC_ENROLLMENT_URL; canonical register.yashsilver.com is now the sole configured registration URL.
+
+## Backlog priorities
+P0: authorised live configuration+single-account role repair and genuine owner OTP acceptance on app and both domains. P1: complete separately approved full identity mapping/cutover, storage plan and original release gates. P2: physical native camera/notifications/sharing acceptance. Historical follow-up below remains otherwise preserved.
+
+# Previous phase record — 11 September2026
 
 ## Problem / constraints
 Finish shared backend integration and prepare for10000photos without redoing architecture, duplicating database/media authority, losing genuine records, exposing secrets or premature rollout. Preserve owner9999813334 canonical ID/history. No9711881372 password-admin creation, no universal OTP, no production merge without specific report-hash approval/restored backup. Website private export must not block independent app work.

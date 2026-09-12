@@ -1,0 +1,68 @@
+{
+  "summary": "Executed isolated backend verification for owner recovery/readiness plus shared auth/people/rates regression and mobile-web login smoke. Found one code bug in replay bookkeeping and one production-readiness blocker (old build endpoint missing).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "operator recovery replay path (shared/admin_recovery.py -> complete)",
+        "issue": "After simulated crash post-user-update, replay completion revokes newly issued sessions; expected behavior is to finish bookkeeping without revoking fresh sessions.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET https://yash-tryon-test.emergent.host/api/health/live",
+        "issue": "Returns 404 in production read-only probe; indicates production still on older build without /api/health/live.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "Test runtime",
+        "issue": "Default /opt/plugins-venv pytest environment missed motor dependency; tests executed with /root/.venv pytest instead."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Expo preview middleware origin validation",
+        "issue": "Supervisor expo logs repeatedly show unauthorized origin from https://app.emergent.sh.",
+        "affected_testIDs": []
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/shared/test_owner_recovery_readiness.py",
+    "/app/backend/tests/test_production_readonly_health.py",
+    "/app/test_reports/pytest/iter20_owner_recovery_readiness.xml",
+    "/app/test_reports/pytest/iter20_shared_regressions.xml",
+    "/app/test_reports/pytest/iter20_production_readonly_health.xml",
+    "/app/test_reports/iteration20_preview_login_mobile.jpeg"
+  ],
+  "action_items": [
+    "Fix replay path in shared/admin_recovery.py so completion after interrupted apply does not revoke newly issued session families.",
+    "Deploy owner-recovery/readiness build to production app; verify /api/health/live exists and returns 200.",
+    "Apply private production settings on app+website (STAFF_SERVICE_KEY and website canonical/integration keys/origins) via authorized operator.",
+    "Re-run isolated replay test and production read-only health probes after deployment/settings update."
+  ],
+  "critical_code_review_comments": [
+    "shared/admin_recovery.py: complete() always revokes session_families; replay path recover(... user already admin with prepared op) calls complete(replayed=True), causing fresh-session revocation contrary to documented behavior.",
+    "frontend/.env currently uses EXPO_PUBLIC_BACKEND_URL; required EXPO_BACKEND_URL key referenced in testing instructions is not present.",
+    "Frontend/expo logs indicate strict origin rejection for app.emergent.sh; aligns with reported website/domain-origin blocker context."
+  ],
+  "updated_files": [
+    "/app/backend/tests/shared/test_owner_recovery_readiness.py",
+    "/app/backend/tests/test_production_readonly_health.py",
+    "/app/test_reports/iteration_20.json"
+  ],
+  "success_rate": {
+    "backend": "92% (22/24 tests passed; 2 failed)",
+    "frontend": "100% (1/1 smoke check for /login load)"
+  },
+  "seed_data_creation": "Isolated synthetic fixture data only. SMS transport and storage were intercepted/MOCKED in isolated tests only; no production writes or OTP sends performed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Ran: /root/.venv/bin/pytest /app/backend/tests/shared/test_owner_recovery_readiness.py -v --tb=short --junitxml=/app/test_reports/pytest/iter20_owner_recovery_readiness.xml (9 pass, 1 fail replay-session bug). Ran regressions: /root/.venv/bin/pytest /app/backend/tests/shared/test_shared_auth_identity.py /app/backend/tests/shared/test_shared_people_queries_rates.py -v --tb=short --junitxml=/app/test_reports/pytest/iter20_shared_regressions.xml (12 pass). Ran read-only production probe: /root/.venv/bin/pytest /app/backend/tests/test_production_readonly_health.py -v --tb=short --junitxml=/app/test_reports/pytest/iter20_production_readonly_health.xml (2 pass, 1 fail due /api/health/live=404 on production app).",
+  "rca_of_issue": "Replay bug reproduction: (1) Start owner as CUSTOMER in isolated DB. (2) Dry-run obtain report hash. (3) Apply with monkeypatched complete() raising after user role/session_version update. (4) Old token already fails (expected via session_version increment). (5) Issue fresh OTP session. (6) Re-run same approved operation to complete bookkeeping. Observed fresh session becomes invalid (401), showing replay completion revoked all session_families. Mitigation: make replay completion idempotent without global family revoke when role/event already applied and post-recovery sessions may exist."
+}

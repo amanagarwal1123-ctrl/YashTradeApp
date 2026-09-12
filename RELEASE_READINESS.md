@@ -1,12 +1,20 @@
 # Release readiness — follow-up NOT production-ready
 
-## Code, repository and runtime provenance
+## Owner-login recovery update — 12 September 2026
+
+**Production login remains blocked; NOT restored.** Fresh GET checks (not cached crawl) show app build `shared-v1-followup-2026-09-11` missing STAFF_SERVICE_KEY; both website domains run `website-shared-v1-auth-readiness-v1` missing canonical base/enrollment/staff configuration. Production `/api/health/live` is currently404 because the new code is not running there. Existing owner9999813334 is active/verified/CUSTOMER, canonical ID confirmed in PRODUCTION_ADMIN_RECOVERY.md. No real role/settings changes or SMS occurred.
+
+Current workspace build `shared-v1-owner-recovery-2026-09-12` adds guarded operator-only recovery, per-flow readiness/no-SMS credential checks, trimmed key separation, and a development-only embedded-preview origin configuration. Generated OpenAPI now120 paths. Full website export is NOT a prerequisite for the owner's newly authorised single-account role repair; full identity merging remains gated. Production Mongo/settings access is not available to this workspace. Exact live maintenance and website coordination instructions: PRODUCTION_ADMIN_RECOVERY.md and WEBSITE_AUTH_FIX_PROMPT.md.
+
+Iteration20 testing found/reproduced a partial-recovery replay edge case; code now revokes only pre-repair version families, protecting fresh sessions. Iteration21 testing-agent retest passed19/19 focused tests and29/29 shared regressions; additional12/12 auth/people run overlaps that regression suite. Mobile preview and development-only allowed/rejected origin checks passed. No local implementation issue remains in that report; production probe still finds old-build /health/live404. Frontend duplicate enrollment URL removed, retaining canonical register.yashsilver.com. The baseline54 result below is historical and not a new production claim.
+
+## Previous phase code, repository and runtime provenance
 
 | Surface | Evidence/status |
 |---|---|
 | Verified pre-follow-up public main | 30796997d3484594c6c5f53965e1c71dd5ed1c86; public main checked before editing. Prior baseline-sync uncertainty is superseded. |
 | New implementation | Workspace branch main. No configured git remote or agent-controlled Save to GitHub operation. New implementation SHA/commit URL/remote sync UNAVAILABLE until that user-controlled action. Never identify the baseline as this implementation. |
-| Preview | https://pagination-ui-boost.preview.emergentagent.com ; health build shared-v1-followup-2026-09-11, commit unrecorded. Source loaded in preview, exact recorded commit unknown. |
+| Preview | https://yash-trade-backend.preview.emergentagent.com ; health build shared-v1-followup-2026-09-11, commit unrecorded. Source loaded in preview, exact recorded commit unknown. |
 | App production | https://yash-tryon-test.emergent.host ; owner's independent11September check:2026.09.09-integration-v7; exact commit unknown. No production change performed here. |
 | Website production | https://register.yashsilver.com and https://yash-register.emergent.host ; independent check2026.09.10-login-v10; commits unknown. No website access/config/code change or rollout performed. |
 

@@ -44,6 +44,15 @@ def install_openapi(app):
                 "total_pages": {"type": ["integer", "null"]}, "received_chunk_indices": arr(integer), "limits": {"type": "object"}, "result": ref("ImportCommitResult"), "error": {"type": ["string", "null"]}}),
         }
         definitions.update({
+            "AuthFlowReadiness": obj({"ready": {"type": "boolean"}, "issues": arr(text)}, ["ready", "issues"]),
+            "AuthReadiness": obj({"status": text, "ready": {"type": "boolean"}, "build": text, "commit": text,
+                "capabilities": {"type": "object", "additionalProperties": integer},
+                "configuration": {"type": "object", "additionalProperties": {"type": "boolean"}},
+                "flows": {"type": "object", "additionalProperties": ref("AuthFlowReadiness")},
+                **{k: {"type": "boolean"} for k in ["database_ready", "sms_delivery_verified", "account_role_verified", "key_matching_verified_by_this_check"]}}, ["status", "ready", "flows"]),
+            "CredentialReadiness": obj({"status": text, "flow": text, "build": text, "issues": arr(text),
+                **{k: {"type": "boolean"} for k in ["ready", "credential_verified", "sms_delivery_verified", "account_role_verified"]}}, ["ready", "credential_verified", "flow", "issues"]),
+            "Liveness": obj({"status": {"type": "string", "const": "alive"}, "build": text}, ["status", "build"]),
             "CanonicalProduct": obj({**{k: text for k in ["id", "product_code", "title", "category", "metal_type", "approx_weight", "purity", "stock_status", "visibility", "storage_path", "thumbnail_path", "created_at", "updated_at"]}, "version": integer, "images": arr(text), "tags": arr(text)}, ["id", "version"]),
             "CanonicalProductPage": obj({**pagination, "products": arr(ref("CanonicalProduct")), "mode": text, "sort": text}),
             "LabourAmount": obj({"currency": {"type": "string", "const": "INR"}, "amount": text, "basis": {"type": "string", "enum": ["kg", "10g", "piece"]}}, ["currency", "amount", "basis"]),
@@ -70,6 +79,13 @@ def install_openapi(app):
                 if model:
                     operation["responses"]["200"] = {"description": "Canonical response", "content": {"application/json": {"schema": ref(model)}}}
         doc["paths"]["/api/pdf-template/export"]["post"]["responses"]["200"] = {"description": "Version 1 PDF attachment, private/no-store", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}}}
+        for path in ("/api/health", "/api/health/ready"):
+            for code in ("200", "503"):
+                doc["paths"][path]["get"]["responses"][code] = {"description": "No-SMS per-flow configuration/database readiness; no-store", "content": {"application/json": {"schema": ref("AuthReadiness")}}}
+        doc["paths"]["/api/health/live"]["get"]["responses"]["200"] = {"description": "Process liveness only", "content": {"application/json": {"schema": ref("Liveness")}}}
+        for path in ("/api/integrations/staff/readiness", "/api/integrations/enrollment/readiness"):
+            doc["paths"][path]["get"]["responses"]["200"] = {"description": "Server credential verified; no SMS or identity mutation", "content": {"application/json": {"schema": ref("CredentialReadiness")}}}
+            doc["paths"][path]["get"]["responses"]["503"] = {"description": "Credential unconfigured or flow unavailable", "content": {"application/json": {"schema": {"anyOf": [ref("CredentialReadiness"), ref("SharedError")]}}}}
         doc["paths"]["/api/pdf-upload/{jid}/pages/{page}/image"]["get"]["responses"]["200"] = {"description": "Private upright page PNG, or geometry JSON when metadata=true", "content": {"image/png": {"schema": {"type": "string", "format": "binary"}}, "application/json": {"schema": ref("SourcePageGeometry")}}}
         app.openapi_schema = doc
         return doc

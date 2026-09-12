@@ -1,4 +1,3 @@
-import os
 from fastapi import Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -13,11 +12,12 @@ from .catalog import router as catalog
 from .pdf_authoring import router as pdf_authoring
 from .media_lifecycle import router as media_lifecycle
 from .pdf_jobs import router as pdf, worker_loop
+from .readiness import router as readiness
 
 
 def install_shared(app, legacy, db, sender, put, get):
     c.configure(db, sender, put, get)
-    routers = [auth, people, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
+    routers = [readiness, auth, people, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
     replacement_names = {
         "health", "send_otp", "verify_otp", "get_me", "update_profile", "phone_change_request", "phone_change_verify",
         "delete_account_request", "delete_account_confirm", "integration_upsert_enrollment", "integration_get_customer",
@@ -77,14 +77,6 @@ def install_shared(app, legacy, db, sender, put, get):
         import logging
         logging.getLogger("shared").error("Unhandled service error: %s", type(exc).__name__)
         return JSONResponse({"code": "SERVICE_ERROR", "detail": "The operation did not complete. Please retry or contact support."}, status_code=500)
-
-    @app.get("/api/health", tags=["Capabilities"])
-    async def health():
-        return {"status": "ok", "build": c.BUILD, "commit": os.environ.get("BUILD_COMMIT", "unrecorded"),
-            "capabilities": {"canonical_auth": 1, "enrollment_grants": 1, "staff_directory": 1, "query_ledger": 1,
-                             "rates_versioning": 1, "pdf_template": 1, "legacy_units": 1, "catalog_pagination": 1,
-                             "pdf_authoring": 1, "pdf_source_preview": 1, "media_accounting": 1, "managed_delete": 0},
-            "configuration": {k: bool(os.environ.get(k)) for k in ["JWT_SECRET", "MSG91_AUTHKEY", "ENROLLMENT_INTEGRATION_KEY", "STAFF_SERVICE_KEY"]}}
 
     @app.post("/api/ai/reports", tags=["AI moderation"])
     async def report(body: dict, user=Depends(c.current_user)):

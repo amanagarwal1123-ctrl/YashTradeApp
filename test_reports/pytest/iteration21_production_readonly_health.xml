@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="1.646" timestamp="2026-09-12T03:43:18.681251+00:00" hostname="agent-env-3a65beeb-cc3d-4c33-b5b8-8b559e3f71b8"><testcase classname="tests.test_production_readonly_health" name="test_app_health_read_only" time="0.429" /><testcase classname="tests.test_production_readonly_health" name="test_app_live_health_read_only" time="0.192"><failure message="assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">backend/tests/test_production_readonly_health.py:26: in test_app_live_health_read_only
+    assert resp.status_code == 200
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_production_readonly_health" name="test_website_domains_health_read_only" time="0.970" /></testsuite></testsuites>

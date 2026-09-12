@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://pagination-ui-boost.preview.emergentagent.com"
+API_URL="https://yash-trade-backend.preview.emergentagent.com"
 
 echo "=== YASH TRADE VIRTUAL TRY-ON CURL TESTING ==="
 echo "API URL: $API_URL"
