@@ -57,9 +57,12 @@ def test_placeholder_values_are_unconfigured_in_the_running_backend(placeholder_
     health = httpx.get(f"{base}/health", timeout=10)
     body = health.json()
     assert health.status_code == 503 and body["ready"] is False
-    assert body["flows"]["review"] == {"ready": False, "issues": ["REVIEW_DB_NAME"], "optional": True}
+    review = body["flows"]["review"]
+    assert review["ready"] is False and review["issues"] == ["REVIEW_DB_NAME"] and review["optional"] is True
+    assert review["configured"] is False and review["usable"] is False  # a placeholder never produces a database handle
     assert "STAFF_SERVICE_KEY" in body["flows"]["staff"]["issues"] and body["flows"]["staff"]["ready"] is False
-    assert body["configuration"]["REVIEW_DB_NAME"] is False and body["configuration"]["BUILD_COMMIT"] is False
+    assert body["configuration"]["REVIEW_DB_NAME"] is False and body["configuration"]["REVIEW_DB_USABLE"] is False
+    assert body["configuration"]["BUILD_COMMIT"] is False
     assert body["commit"] == "unrecorded" and PLACEHOLDER not in json.dumps(body)
     # Readiness never claims what it has not exercised.
     assert body["sms_delivery_verified"] is False and body["account_role_verified"] is False

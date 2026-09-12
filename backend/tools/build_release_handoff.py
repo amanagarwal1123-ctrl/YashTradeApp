@@ -1,12 +1,16 @@
 """Build WEBSITE_RELEASE_HANDOFF.zip for the website team (owner-approved contents, 12 September 2026).
 
 Contents: the seven handoff Markdown documents, the generated OpenAPI schema and HANDOFF_MANIFEST.json.
-The manifest records per-file SHA-256, the schema checksum, the build identity, the Expo identity and the
-release status; it distinguishes the PRE-CHANGE BASELINE commit from the LOCAL IMPLEMENTATION commit and from
-the FINAL SOURCE TREE (whose commit does not exist until the owner's Save to GitHub). Nothing else is packed:
-no .env, credentials, OTPs, private notes, test databases or customer data.
+The manifest is derived from the Git objects of HEAD - the exact blobs GitHub will show for that commit -
+never from loose working-tree bytes: per packed file its Git blob id and the SHA-256 of the blob bytes, the
+schema checksum, the build identity, the Expo identity, the release status, and a digest of the WHOLE tracked
+source tree at HEAD. It distinguishes the PRE-CHANGE BASELINE commit from the SOURCE COMMIT being packaged.
+The builder refuses a dirty working tree (anything other than the zip itself and platform metadata), so what
+is described is what gets pushed. Nothing else is packed: no .env, credentials, OTPs, private notes, test
+databases or customer data.
 
-Usage (from the repository root):  python backend/tools/build_release_handoff.py [--out WEBSITE_RELEASE_HANDOFF.zip]
+Usage (from the repository root, after committing the source):
+  python backend/tools/build_release_handoff.py [--out WEBSITE_RELEASE_HANDOFF.zip]
 """
 import argparse
 import hashlib
@@ -24,8 +28,9 @@ DOCUMENTS = [
     "STORE_REVIEW_ACCESS.md", "PRODUCTION_ADMIN_RECOVERY.md", "IDENTITY_EXPORT_CONTRACT.md",
 ]
 SCHEMA = "contracts/openapi.shared-v1.json"
+LOCKFILE = "frontend/yarn.lock"                       # the single committed lockfile (Yarn); must be tracked
+BANNED_LOCKFILES = ("frontend/package-lock.json", "frontend/npm-shrinkwrap.json", "frontend/pnpm-lock.yaml", "frontend/.npmrc")
 BASELINE_COMMIT = "6a6cddd"            # website's current pin; contains none of D2/D3/D4
-IMPLEMENTATION_COMMIT = "2daa3ff"      # local review-fonts implementation commit in this workspace (55 files)
 FORBIDDEN = re.compile(r"(^|/)\.env($|\.)|review-access.*\.txt$|credentials|\.pem$|\.key$", re.I)
 SECRET_PATTERNS = (
     re.compile(r"mongodb(\+srv)?://[^\s'\"]+", re.I),
@@ -40,28 +45,63 @@ def sha256(path):
 
 
 def git(*args):
-    try:
-        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.rstrip("\n")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return ""
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.rstrip("\n")
 
 
 PACKAGE_OUTPUTS = {"WEBSITE_RELEASE_HANDOFF.zip", "test_reports/WEBSITE_RELEASE_HANDOFF.zip"}
 PLATFORM_PREFIXES = (".emergent/",)  # platform-managed metadata rewritten by Save to GitHub; not part of the source contract
 
 
-def source_tree_digest():
-    """Deterministic digest of the ACTUAL source tree (tracked + untracked, .gitignore honoured, the package
-    itself and platform metadata excluded): lets the website team confirm that the commit the owner later
-    pushes contains exactly this content."""
-    listing = git("ls-files", "-co", "--exclude-standard", "-z")
-    files = sorted(f for f in listing.split("\0") if f and f not in PACKAGE_OUTPUTS and not f.startswith(PLATFORM_PREFIXES)
-                   and (ROOT / f).is_file())
+def head_tree():
+    """{path: (git_blob_sha1, size)} for every blob of HEAD - the canonical objects GitHub shows for that commit."""
+    tree = {}
+    for entry in git("ls-tree", "-r", "-l", "-z", "HEAD").split("\0"):
+        if not entry:
+            continue
+        meta, path = entry.split("\t", 1)
+        _mode, kind, sha, size = meta.split()
+        if kind == "blob":
+            tree[path] = (sha, int(size))
+    return tree
+
+
+def blob_sha256s(shas):
+    """SHA-256 over the EXACT blob bytes stored in Git (one `git cat-file --batch` round trip), keyed by blob id."""
+    data = subprocess.run(["git", "cat-file", "--batch"], cwd=ROOT, input=("\n".join(shas) + "\n").encode(),
+                          capture_output=True, check=True).stdout
+    out, pos = {}, 0
+    for sha in shas:
+        newline = data.index(b"\n", pos)
+        _sha, kind, size = data[pos:newline].decode().split()
+        if kind != "blob":
+            raise SystemExit(f"{sha} is not a blob")
+        pos = newline + 1
+        out[sha] = hashlib.sha256(data[pos:pos + int(size)]).hexdigest()
+        pos += int(size) + 1
+    return out
+
+
+def require_clean_worktree():
+    """What the manifest describes must be exactly what Save to GitHub pushes: refuse any change or untracked
+    file other than the package itself and platform metadata."""
+    dirty = [line[3:] for line in git("status", "--porcelain", "--untracked-files=all").splitlines() if line.strip()]
+    dirty = [p for p in dirty if p not in PACKAGE_OUTPUTS and not p.startswith(PLATFORM_PREFIXES)]
+    if dirty:
+        raise SystemExit("Refusing to package a dirty working tree; commit or discard first: " + ", ".join(sorted(dirty)))
+
+
+def source_tree_digest(tree, digests):
+    """Deterministic digest of the COMMITTED source tree (every blob of HEAD except the package itself and platform
+    metadata), computed from Git blob ids and blob-byte SHA-256s: lets the website team confirm that the commit on
+    GitHub contains exactly this content (`git ls-tree -r <sha>` blob ids must match)."""
+    paths = sorted(p for p in tree if p not in PACKAGE_OUTPUTS and not p.startswith(PLATFORM_PREFIXES))
     h = hashlib.sha256()
-    for f in files:
-        h.update(f.encode()); h.update(b"\0"); h.update(sha256(ROOT / f).encode()); h.update(b"\n")
-    return {"algorithm": "sha256(over sorted 'path\\0sha256(file)\\n' for every tracked/untracked non-ignored file, excluding WEBSITE_RELEASE_HANDOFF.zip copies and .emergent/ platform metadata)",
-            "digest_sha256": h.hexdigest(), "file_count": len(files)}
+    for p in paths:
+        sha, _size = tree[p]
+        h.update(p.encode()); h.update(b"\0"); h.update(sha.encode()); h.update(b"\0"); h.update(digests[sha].encode()); h.update(b"\n")
+    return {"algorithm": "sha256(over sorted 'path\\0git_blob_sha1\\0sha256(blob bytes)\\n' for every blob of the source commit, "
+                         "excluding WEBSITE_RELEASE_HANDOFF.zip copies and .emergent/ platform metadata)",
+            "digest_sha256": h.hexdigest(), "file_count": len(paths)}
 
 
 def build_identity():
@@ -104,8 +144,19 @@ def build(out_path):
         if not (ROOT / f).is_file():
             raise SystemExit(f"Missing handoff file: {f}")
         scan_for_secrets(ROOT / f)
-    head = git("rev-parse", "--short", "HEAD")
-    dirty = [line[3:] for line in git("status", "--porcelain").splitlines() if line.strip()]
+    require_clean_worktree()
+    tree = head_tree()
+    missing = [f for f in [*files, LOCKFILE] if f not in tree]
+    if missing:
+        raise SystemExit(f"Not committed at HEAD (git add + commit first): {missing}")
+    banned = [f for f in BANNED_LOCKFILES if f in tree]
+    if banned:
+        raise SystemExit(f"Non-Yarn lockfiles/config must not be tracked: {banned}")
+    digests = blob_sha256s(sorted({sha for sha, _ in tree.values()}))
+    for f in files:  # the packed bytes ARE the committed blob bytes, or we refuse
+        if sha256(ROOT / f) != digests[tree[f][0]]:
+            raise SystemExit(f"Working-tree copy of {f} differs from its committed blob; commit it first")
+    head = git("rev-parse", "HEAD")
     manifest = {
         "package": "WEBSITE_RELEASE_HANDOFF.zip",
         "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -114,27 +165,40 @@ def build(out_path):
         "source_provenance": {
             "pre_change_baseline_commit": {"sha_short": BASELINE_COMMIT, "role": "website's current app pin; predates D2/D3/D4 and everything in this package",
                                            "is_the_implementation": False},
-            "local_implementation_commit": {"sha_short": IMPLEMENTATION_COMMIT, "role": "review-fonts implementation committed in the workspace repository "
-                                            "(55 files); NOT yet the final release commit", "is_final_release_commit": False},
-            "workspace_head_at_packaging": head,
-            "uncommitted_release_pass_changes": dirty,
-            "final_source_tree": {**source_tree_digest(),
-                                  "final_commit_sha": None,
-                                  "how_to_obtain": "Created by the owner's Save to GitHub AFTER this package. Verify that commit reproduces this digest "
-                                                   "(run backend/tools/build_release_handoff.py at that commit and compare), then pin it and set BUILD_COMMIT to it."},
+            "source_commit": {
+                "sha": head, "sha_short": head[:7], "subject": git("log", "-1", "--format=%s", "HEAD"),
+                "committed_at": git("log", "-1", "--format=%cI", "HEAD"), "tracked_blob_count": len(tree),
+                "worktree_clean_at_packaging": True,
+                "role": "The commit whose tree contains EXACTLY the source described here (every hash below comes from its Git objects). "
+                        "The following commit adds only WEBSITE_RELEASE_HANDOFF.zip; a platform 'Auto-generated changes' commit may "
+                        "touch .emergent/ metadata only. Pin THIS sha as the website's app pin and as the app's BUILD_COMMIT once it is on GitHub.",
+                "how_to_verify_on_github": "The commit must exist with this sha. For any file, `git rev-parse <sha>:<path>` (or the blob id shown by "
+                                           "GitHub's raw/blob view) must equal git_blob_sha1 recorded in `files`; `git ls-tree -r <sha>` reproduces final_source_tree.",
+            },
+            "final_source_tree": {**source_tree_digest(tree, digests), "commit": head},
         },
+        "tracked_lockfile": {"path": LOCKFILE, "package_manager": "yarn", "git_blob_sha1": tree[LOCKFILE][0], "sha256": digests[tree[LOCKFILE][0]],
+                             "bytes": tree[LOCKFILE][1], "banned_lockfiles_absent": list(BANNED_LOCKFILES)},
         "schema": schema_summary(ROOT / SCHEMA),
-        "files": {f: {"sha256": sha256(ROOT / f), "bytes": (ROOT / f).stat().st_size} for f in files},
+        "files": {f: {"git_blob_sha1": tree[f][0], "sha256": digests[tree[f][0]], "bytes": tree[f][1]} for f in files},
         "excluded_by_policy": [".env files", "credentials / connection strings", "OTPs", "private reviewer notes (*review-access*.txt)",
                                "customer data / identity exports / backups", "test databases"],
         "status": {
+            "production_hotfix_2026_09_12": "Optional store-review storage can no longer crash startup: a configured review database the deployment's "
+                                            "MongoDB user is not authorised for (code 13) or cannot reach is marked unusable for the process "
+                                            "(/api/health flows.review.issues=[REVIEW_DB_UNAUTHORIZED|REVIEW_DB_UNAVAILABLE], configuration.REVIEW_DB_USABLE=false), "
+                                            "reviewer sign-in and existing reviewer sessions answer 503 REVIEW_UNAVAILABLE, background workers never poll it, "
+                                            "production flows unaffected; a failing PRIMARY database still aborts startup. Preview backend/.env declares "
+                                            "REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS (no review database anywhere until the owner sets a real, distinct name in Secrets).",
             "local_tests": {
-                "backend_shared_suite": "see test_reports/pytest/release_pass_2026-09-12.xml (run at packaging; Playwright-based UI cases skip in this environment)",
-                "reviewer_cli": "test_review_provisioning_cli.py 8/8 incl. live-backend exit-code contract 0/1/2",
+                "backend_shared_suite": "see test_reports/pytest/hotfix_full_2026-09-12.xml (Playwright-based UI cases skip in this environment)",
+                "review_storage_hotfix": "test_review_storage_hotfix.py 7/7 incl. a real `mongod --auth` instance whose user holds readWrite on the main database only",
+                "reviewer_cli": "test_review_provisioning_cli.py 8/8 incl. live-backend exit-code contract 0/1/2; --verify-note pins the backend URL "
+                                "(scheme, host, port, path) before any request -> exit 1 on mismatch, exit 2 + sanitized NOT COMPLETED note entry on transport failure",
                 "placeholder_configuration": "test_placeholder_configuration.py 2/2",
                 "frontend_clean_checkout": "yarn install --frozen-lockfile, yarn test (38 tests, 5 suites), tsc --noEmit, yarn lint — test_reports/clean_checkout_2026-09-12.txt",
             },
-            "github_publication": "PENDING — owner's Save to GitHub creates the final source commit",
+            "github_publication": f"PENDING — owner's Save to GitHub pushes source commit {head[:7]} (and the packaging commit that adds this zip)",
             "production_deployment": "PENDING — production still runs the older build; sequence: republish (registers declared names) → owner sets Secrets "
                                      "(STAFF_SERVICE_KEY, REVIEW_DB_NAME, BUILD_COMMIT, frontend EXPO_PUBLIC_BACKEND_URL) → republish",
             "production_login": "UNVERIFIED — readiness booleans prove configuration only; owner OTP test with /auth/me role=admin on both surfaces is outstanding; "
@@ -159,7 +223,8 @@ def main():
     parser.add_argument("--out", default=str(ROOT / "WEBSITE_RELEASE_HANDOFF.zip"))
     args = parser.parse_args()
     out, manifest = build(args.out)
-    print(json.dumps({"zip": str(out), "zip_sha256": manifest["zip_sha256"], "files": sorted(manifest["files"]) + ["HANDOFF_MANIFEST.json"],
+    print(json.dumps({"zip": str(out), "zip_sha256": manifest["zip_sha256"], "source_commit": manifest["source_provenance"]["source_commit"]["sha"],
+                      "files": sorted(manifest["files"]) + ["HANDOFF_MANIFEST.json"], "lockfile_blob": manifest["tracked_lockfile"]["git_blob_sha1"],
                       "source_tree_digest": manifest["source_provenance"]["final_source_tree"]["digest_sha256"]}, indent=2))
     return 0
 

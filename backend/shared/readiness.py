@@ -45,15 +45,19 @@ async def readiness():
         if not database_ready:
             issues.append("DATABASE_UNAVAILABLE")
         flows[name] = {"ready": not issues, "issues": issues}
-    # Store-review sign-in needs JWT, the database and a DISTINCT review database; never SMS.
+    # Store-review sign-in needs JWT, the database and a DISTINCT, USABLE review database; never SMS.
+    # A configured name is not proof of usability: an unauthorised/unreachable review database is reported here.
     review_issues = [key for key in ("JWT_SECRET", "MONGO_URL", "DB_NAME") if not config[key]]
-    if not c.review_configured():
-        review_issues.append("REVIEW_DB_NAME")
+    review_state = c.review_status()
+    if not c.review_available():
+        review_issues.append(review_state["reason"])
     if not database_ready:
         review_issues.append("DATABASE_UNAVAILABLE")
-    flows["review"] = {"ready": not review_issues, "issues": review_issues, "optional": True}
+    flows["review"] = {"ready": not review_issues, "issues": review_issues, "optional": True,
+                       "configured": c.review_configured(), "usable": c.review_available(), "detail": review_state["detail"]}
     ready = all(flow["ready"] for name, flow in flows.items() if name != "review")
     config["REVIEW_DB_NAME"] = c.review_configured()
+    config["REVIEW_DB_USABLE"] = c.review_available()
     config["BUILD_COMMIT"] = bool(c.setting("BUILD_COMMIT"))
     return {"status": "ok" if ready else "not_ready", "ready": ready,
             "build": c.BUILD, "commit": c.setting("BUILD_COMMIT") or "unrecorded",
@@ -69,12 +73,16 @@ def response(body, ready):
 
 @router.get("/health/live")
 async def live():
+    """Process liveness only (never authentication readiness). Production evidence 12 Sep 2026: a build whose
+    /health answered 503 was deployed and served, so the strict endpoints below stay truthful."""
     return response({"status": "alive", "build": c.BUILD}, True)
 
 
 @router.get("/health")
 @router.get("/health/ready")
 async def health():
+    """Strict readiness: 503 while any non-optional authentication flow is unconfigured or the database is
+    unreachable. Never unconditional 200. The optional review flow is reported but never affects `ready`."""
     body = await readiness()
     return response(body, body["ready"])
 

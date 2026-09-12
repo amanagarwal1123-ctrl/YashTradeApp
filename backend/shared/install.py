@@ -58,13 +58,23 @@ def install_shared(app, legacy, db, sender, put, get, review_db=None, review_blo
     async def public_contract():
         return app.openapi()
 
+    @app.get("/", include_in_schema=False)
+    @app.get("/api", include_in_schema=False)
+    @app.get("/api/", include_in_schema=False)
+    async def root_liveness():
+        # Process liveness for platform probes that hit the service root; readiness lives at /api/health/ready.
+        return JSONResponse({"status": "alive", "build": c.BUILD, "report": "/api/health", "strict_readiness": "/api/health/ready"},
+                            headers={"Cache-Control": "no-store"})
+
     @app.on_event("startup")
     async def start_worker():
         import asyncio
         from .people import deletion_retry_loop
-        if c.review_configured():
-            with c.scoped(c.REVIEW):
-                await c.ensure_indexes()
+        # Optional review storage: prove it or disable it for this process. A review database the deployment's
+        # Mongo user may not touch (authorisation failure) must never crash startup or reach production data;
+        # workers only iterate scopes that are actually usable. Primary-database failures are NOT absorbed here
+        # (they surface from the primary ensure_indexes() at startup as before).
+        await c.initialize_review()
         app.state.pdf_worker = asyncio.create_task(worker_loop())
         app.state.deletion_worker = asyncio.create_task(deletion_retry_loop())
 

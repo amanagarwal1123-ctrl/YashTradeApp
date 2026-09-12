@@ -17,7 +17,7 @@ No real credentials/accounts were created or changed. Recovery tests must use is
 starting the synthetic owner as CUSTOMER (existing seeded_users otherwise starts it as admin).
 No reusable OTP exists. No website export has been received; full identity merge remains separate.
 Play review accounts: PREVIEW-ONLY reviewer accounts (store-review-customer/admin/telecaller/billing)
-exist in the separate preview review database `jewellers_app_review` (backend/.env REVIEW_DB_NAME).
+existed in the preview review database `jewellers_app_review` while backend/.env named it; since the 12 Sep hotfix backend/.env carries the placeholder REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS, so preview reviewer login answers 503 REVIEW_UNAVAILABLE by design (health flows.review.issues=[REVIEW_DB_NAME]).
 Their access keys are NOT in this repository or chat; they live only in the disposable preview
 container at /tmp/yash-private/preview-<reviewer_id>.txt (one note per account, rotated 12 Sep 2026 release pass; rotate with
 `python tools/provision_review_access.py --expected-review-db jewellers_app_review --rotate <id>`).

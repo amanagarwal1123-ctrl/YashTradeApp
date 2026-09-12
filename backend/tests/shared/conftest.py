@@ -249,8 +249,7 @@ async def review_env(isolated_db, monkeypatch):
     monkeypatch.setattr(server, "put_object", c.store_object, raising=False)
     monkeypatch.setattr(server, "get_object", c.fetch_object, raising=False)
     monkeypatch.setattr(server, "_dispatch_sms_otp", c.send_sms, raising=False)
-    with c.scoped(c.REVIEW):
-        await c.ensure_indexes()
+    assert await c.initialize_review() is True  # proves the separate review copy is usable before any test touches it
     yield {"db": review_db, "name": name, "primary": isolated_db["db"], "sent_otps": isolated_db["sent_otps"],
            "object_store": isolated_db["object_store"]}
     c.configure(isolated_db["db"], c.dispatch_sms, c.put_object, c.get_object)

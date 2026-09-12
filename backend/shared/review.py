@@ -51,9 +51,9 @@ async def audit(event, reviewer_id, ip, success, detail=""):
 @router.post("/auth/review/login")
 async def review_login(req: ReviewLogin, request: Request):
     """Reviewer ID + reusable access key -> normal canonical session bound to the review scope.
-    Missing review configuration denies access; it never falls back to production data."""
-    if not c.review_configured():
-        c.fail(503, "REVIEW_UNAVAILABLE", "The store-review environment is not configured on this server")
+    Missing OR unusable review storage denies access; it never falls back to production data."""
+    if not c.review_available():
+        c.fail(503, "REVIEW_UNAVAILABLE", "The store-review environment is not available on this server")
     ip = request.client.host if request.client else "unknown"
     with c.scoped(c.REVIEW):
         await rate_limit("review-ip:" + ip, 30, 60)

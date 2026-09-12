@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 24 backend-only verification of the production hotfix (unauthorised optional review DB) + CLI --verify-note exit-code strictness. LIVE PREVIEW (https://yash-trade-backend.preview.emergentagent.com/api): (1) GET /api/health/live -> 200 with body {status:'alive', build:'shared-v1-review-fonts-2026-09-12'}; (2) GET /api/health -> 503 not_ready (STAFF_SERVICE_KEY placeholder as expected). flows.review exactly matches spec: {ready:false, issues:['REVIEW_DB_NAME'], optional:true, configured:false, usable:false, detail:'no distinct review database configured'}; configuration.REVIEW_DB_NAME=false, configuration.REVIEW_DB_USABLE=false; flows.mobile.ready=true, database_ready=true, flows.enrollment.ready=true, flows.deletion.ready=true, flows.staff={ready:false, issues:['STAFF_SERVICE_KEY']}; (3) POST /api/auth/review/login {reviewer_id:'store-review-admin', access_key:'k'*40} -> 503 {code:'REVIEW_UNAVAILABLE', detail:'The store-review environment is not available on this server'}; (4) POST /api/auth/send-otp {phone:'9000000001', channel:'mobile', purpose:'login'} -> 404 {code:'USER_NOT_FOUND', detail:'This number is not registered. Please enroll first.'} (main DB reachable, no SMS sent). REGRESSION SUITES (python -m pytest from /app/backend, -q -p no:cacheprovider): tests/shared/test_review_storage_hotfix.py + test_review_provisioning_cli.py + test_placeholder_configuration.py + test_review_access_isolation.py -> 25 passed, 0 failed, 0 skipped in 78.85s (mongod v7.0.42 available; auth-mongod tests actually ran, real uvicorn subprocesses booted against restricted user and against equal-name refusal). Junit XML at /app/test_reports/pytest/iteration24_hotfix.xml. CLI EXIT CODES (independent reproduction with a hand-written preview note; no live server needed): (a) note pins Backend:http://127.0.0.1:9/api, --api-base-url http://127.0.0.1:10/api => exit 1, stderr JSON outcome='blocked' containing 'pins backend http://127.0.0.1:9/api but --api-base-url is http://127.0.0.1:10/api', note bytes unchanged, no HTTP made; (b) same note with matching --api-base-url http://127.0.0.1:9/api (unreachable) => exit 2, stdout JSON outcome='verification_incomplete' verification_error='ConnectError' verified_all=false, note appended 'NOT COMPLETED - ConnectError while contacting http://127.0.0.1:9/api; no key was verified, none was changed.' followed by 'Recovery:' line, access-key occurrence count in note stays at 1 (key text not repeated). No .env, metro.config.js or supervisor changes were made. No touching of preview/production databases beyond /api/health and the two documented POSTs. No SMS/OTP sent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/iteration24_hotfix.xml",
+    "/app/backend/tests/shared/test_review_storage_hotfix.py",
+    "/app/backend/tests/shared/test_review_provisioning_cli.py",
+    "/app/backend/tests/shared/test_placeholder_configuration.py",
+    "/app/backend/tests/shared/test_review_access_isolation.py",
+    "/tmp/cli_verify_test.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "shared/core.py (or wherever readiness is composed) correctly makes REVIEW_UNAVAILABLE fail-closed for reviewer login/refresh AND treats the review DB as OPTIONAL: placeholder REVIEW_DB_NAME yields configuration.REVIEW_DB_NAME=false + flows.review.issues=['REVIEW_DB_NAME'] but does NOT flip flows.mobile/staff/enrollment/deletion; the health readiness still surfaces STAFF_SERVICE_KEY as the only staff-side blocker. Behaviour under a truly unauthorised REVIEW_DB (real mongod --auth in test_review_storage_hotfix.py) is asserted separately: process survives, health issues become ['REVIEW_DB_UNAUTHORIZED'], workers stay idle, sanitized log line without connection string. Contract is coherent.",
+    "tools/provision_review_access.py::_require_same_target / _verify_note enforce strict scheme+host+port+path equality BEFORE any request (exit 1, no I/O, note bytes unchanged) and only fall to exit 2 on a transport failure AFTER a valid pre-flight; the appended 'NOT COMPLETED' line is sanitized (only the exception type name is included, not the connection URL beyond api_base_url which is already in the note header). Independently reproduced. Good defence in depth against sending reviewer keys to a wrong server.",
+    "Preview /api/health returns HTTP 503 by design (STAFF_SERVICE_KEY placeholder). External uptime monitors must target /api/health/live (200). Documented in prior iterations; still holds."
+  ],
+  "updated_files": [
+    "/tmp/cli_verify_test.py",
+    "/app/test_reports/pytest/iteration24_hotfix.xml",
+    "/app/test_reports/iteration_24.json"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 live-preview assertions, 25/25 hotfix regression tests, 2/2 CLI exit-code cases)",
+    "frontend": "N/A (backend-only per review_request)"
+  },
+  "seed_data_creation": "None. CLI reproduction used an ephemeral note under /tmp/tmp*/preview-store-review-admin.txt with a dummy key ('k'*40); deleted with the tempdir. No reviewer accounts were provisioned, rotated or revoked. No SMS/OTP sent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Hotfix verified end-to-end. Live preview backend continues to answer /api/health/live=200 and /api/health=503 not_ready with flows.review={ready:false,issues:['REVIEW_DB_NAME'],optional:true,configured:false,usable:false}; POST /api/auth/review/login=503 REVIEW_UNAVAILABLE; POST /api/auth/send-otp for unknown 9000000001=404 USER_NOT_FOUND. Preview will KEEP answering 503 REVIEW_UNAVAILABLE until Manage Publishes -> Secrets sets a real REVIEW_DB_NAME different from DB_NAME (backend/.env currently REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS). mongod v7.0.42 is available at /usr/bin/mongod so tests/shared/test_review_storage_hotfix.py runs the real auth-mongod scenarios (25/25 pass in ~79s). Optional 'production scenario' reproduction (task item 3) was covered by the hotfix suite's real mongod --auth fixture rather than a separate manual uvicorn (equivalent coverage, no extra risk). CLI --verify-note strictness (exit 1 blocked on target mismatch, exit 2 verification_incomplete + sanitized NOT COMPLETED note line on transport failure) is enforced by tools/provision_review_access.py::_require_same_target + _verify_note and additionally reproduced by /tmp/cli_verify_test.py.",
+  "rca_of_issue": "N/A - no bug reproduced this iteration. The prior production crash (motor raising OperationFailure code 13 during startup index creation on the OPTIONAL review DB) is now guarded: shared code catches the authorisation failure for the review DB only, marks the review handle unusable, and reports flows.review.issues=['REVIEW_DB_UNAUTHORIZED'] while leaving flows.mobile/staff/enrollment/deletion untouched. Reviewer login and stale review tokens then fail closed with 503 REVIEW_UNAVAILABLE. Main-DB failures are still propagated (asserted by test_review_database_equal_to_main_database_is_refused_at_startup and by the main-DB paths in test_review_access_isolation.py)."
+}

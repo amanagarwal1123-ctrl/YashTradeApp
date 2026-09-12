@@ -35,8 +35,10 @@ async def test_review_login_is_denied_when_no_review_database_is_configured(api_
     res = await api_client.post("/api/auth/review/login", json={"reviewer_id": "store-review-admin", "access_key": "x" * 43})
     assert res.status_code == 503 and res.json()["code"] == "REVIEW_UNAVAILABLE"
     health = await api_client.get("/api/health")
-    assert health.json()["flows"]["review"] == {"ready": False, "issues": ["REVIEW_DB_NAME"], "optional": True}
-    assert health.json()["configuration"]["REVIEW_DB_NAME"] is False
+    review = health.json()["flows"]["review"]
+    assert review["ready"] is False and review["issues"] == ["REVIEW_DB_NAME"] and review["optional"] is True
+    assert review["configured"] is False and review["usable"] is False
+    assert health.json()["configuration"]["REVIEW_DB_NAME"] is False and health.json()["configuration"]["REVIEW_DB_USABLE"] is False
     # The optional review flow never blocks production readiness.
     assert "review" not in [n for n, f in health.json()["flows"].items() if not f["ready"] and n != "review"]
 
@@ -73,7 +75,13 @@ async def test_reviewer_roles_come_from_server_side_accounts_only(api_client, re
 
 
 async def test_reviewer_login_rate_limit_is_per_account(api_client, review_env):
+    import asyncio
+    import time
     keys = await provision(review_env)
+    # The limiter uses fixed 60 s windows; six bcrypt attempts take ~2 s, so start clear of a window boundary.
+    remaining = 60 - (int(time.time()) % 60)
+    if remaining < 5:
+        await asyncio.sleep(remaining)
     for _ in range(5):
         assert (await review_login(api_client, "store-review-billing", "wrong-key-wrong-key-wrong-key-12")).status_code == 401
     limited = await review_login(api_client, "store-review-billing", keys["store-review-billing"])

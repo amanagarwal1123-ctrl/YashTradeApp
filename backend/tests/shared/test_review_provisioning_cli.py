@@ -278,16 +278,40 @@ def test_verify_note_recovery_appends_results_without_mutation(monkeypatch, tmp_
                                                 "store-review-admin": "key-a-000000000000000000000000000"}, [], None,
                                                verification_error="ConnectError while contacting https://backend.example/api")))
     assert "NOT COMPLETED" in note.read_text() and "--verify-note" in note.read_text()
-    # The note's own header pins environment + review database: mismatches are refused before any request.
+    # The note's own header pins environment + review database + BACKEND: mismatches are refused before any request.
     with pytest.raises(ValueError, match="issued for PRODUCTION"):
         tool._verify_note(str(note), "https://backend.example/api", "preview", "rev_db")
     with pytest.raises(ValueError, match="review database differs"):
         tool._verify_note(str(note), "https://backend.example/api", "production", "other_db")
-    results = tool._verify_note(str(note), "https://backend.example/api", "production", "rev_db")
-    assert results == {"store-review-customer": {"ok": True, "role": "customer", "review_environment": True, "session_closed": True},
-                       "store-review-admin": {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}}
+    for other in ("https://other.example/api", "https://backend.example:8443/api", "http://backend.example/api", "https://backend.example/api/v2"):
+        with pytest.raises(ValueError, match="pins backend"):
+            tool._verify_note(str(note), other, "production", "rev_db")
+    assert "VERIFICATION RE-RUN" not in note.read_text()  # a refused pre-flight leaves the note untouched
+    # Equivalent spellings of the same target are accepted: explicit default port, trailing slash, host case.
+    assert tool._target_identity("https://Backend.Example:443/api/") == tool._target_identity("https://backend.example/api")
+    checked = tool._verify_note(str(note), "https://backend.example/api", "production", "rev_db")
+    assert checked["error"] is None and checked["accounts"] == ["store-review-admin", "store-review-customer"]
+    assert checked["results"] == {"store-review-customer": {"ok": True, "role": "customer", "review_environment": True, "session_closed": True},
+                                  "store-review-admin": {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}}
     text = note.read_text()
     assert "VERIFICATION RE-RUN" in text and text.count("PASS") == 2 and "key-c-000000000000000000000000000" in text
+    # A note that never recorded its backend cannot be verified against any target (strict, exit 1 in the CLI).
+    unpinned = tmp_path / "unpinned.txt"
+    unpinned.write_text("\n".join(tool._note_lines("production", "", "rev_db", {"store-review-admin": "key-a-000000000000000000000000000"}, [], None)))
+    assert "Backend: (not recorded)" in unpinned.read_text()
+    with pytest.raises(ValueError, match="does not record the backend"):
+        tool._verify_note(str(unpinned), "https://backend.example/api", "production", "rev_db")
+    # Transport failure AFTER a valid pre-flight: sanitized NOT COMPLETED entry, no results, error type only.
+    class DeadClient(FakeClient):
+        def post(self, url, json=None, headers=None):
+            raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "Client", DeadClient)
+    dead = tool._verify_note(str(note), "https://backend.example/api", "production", "rev_db")
+    assert dead["results"] is None and dead["error"] == "ConnectError"
+    tail = note.read_text().splitlines()[-2:]
+    assert "NOT COMPLETED - ConnectError while contacting https://backend.example/api" in tail[0] and "re-run the same --verify-note" in tail[1]
+    assert "connection refused" not in note.read_text()
 
 
 @pytest.fixture
@@ -368,7 +392,7 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
         assert sorted(failed["verified_accounts"]) == sorted(set(ROLES) - {"store-review-telecaller"})
         assert re.search(r"store-review-telecaller\s+FAIL\s+\{.*\"step\": \"login\"", note1.read_text())
         # Transport failure during --verify: the rotated key is already in the note (marked NOT COMPLETED), exit 2,
-        # and the key itself works - proving nothing was lost. --verify-note then completes the proof (exit 0).
+        # and the key itself works - proving nothing was lost.
         incomplete, err2 = cli(review_env, "--rotate", "store-review-admin", "--environment", "production", "--api-base-url", dead_port_url,
                                "--verify", "--write-note", str(note2), expect_code=2)
         assert incomplete["outcome"] == "verification_incomplete" and incomplete["verification_error"] == "ConnectError"
@@ -379,9 +403,21 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
         assert new_admin != keys["store-review-admin"]
         assert (await login(api_client, "store-review-admin", new_admin)).status_code == 200
         assert (await login(api_client, "store-review-admin", keys["store-review-admin"])).status_code == 401
-        await review_env["db"].otp_limits.delete_many({})  # synthetic review copy only: the 5/min per-account limit is covered elsewhere
-        recovered, _ = cli(review_env, "--verify-note", str(note2), "--environment", "production", "--api-base-url", live_server)
-        assert recovered["verified_all"] is True and recovered["verified_accounts"] == ["store-review-admin"]
+        # STRICT PRE-FLIGHT: note2 pins the dead backend. Asking --verify-note to use the live server (same host, other
+        # port) is a different target -> exit 1 BEFORE any request: no sign-in reaches the server, the note is untouched.
+        attempts_before = await review_env["db"].review_access_log.count_documents({"reviewer_id": "store-review-admin"})
+        elsewhere, _ = cli(review_env, "--verify-note", str(note2), "--environment", "production", "--api-base-url", live_server, expect_ok=False)
+        assert elsewhere["outcome"] == "blocked" and "pins backend" in elsewhere["detail"] and new_admin not in json.dumps(elsewhere)
+        assert await review_env["db"].review_access_log.count_documents({"reviewer_id": "store-review-admin"}) == attempts_before
+        assert "VERIFICATION RE-RUN" not in note2.read_text()
+        # Same pinned target, still unreachable: valid pre-flight, transport failure -> exit 2 (INCOMPLETE, not blocked)
+        # and a sanitized NOT COMPLETED entry appended to the note (error type only, no key, no payload).
+        still_down, _ = cli(review_env, "--verify-note", str(note2), "--environment", "production", "--api-base-url", dead_port_url, expect_code=2)
+        assert still_down["outcome"] == "verification_incomplete" and still_down["verification_error"] == "ConnectError"
+        assert "verification" not in still_down and still_down["issued_accounts"] == ["store-review-admin"] and still_down["verified_accounts"] == []
+        text2b = note2.read_text()
+        assert f"VERIFICATION RE-RUN" in text2b and f"NOT COMPLETED - ConnectError while contacting {dead_port_url}" in text2b
+        assert text2b.count(new_admin) == 1  # the key line is never repeated into the verification log
         # --verify with nothing issued cannot prove anything: exit 2 (incomplete) and no note file is left behind.
         nothing, _ = cli(review_env, "--provision", "--environment", "production", "--api-base-url", live_server, "--verify",
                          "--write-note", str(note3), expect_code=2)

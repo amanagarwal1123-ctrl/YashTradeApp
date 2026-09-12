@@ -19,9 +19,11 @@ Examples (run from backend/):
   python tools/provision_review_access.py --expected-review-db yash_review --revoke store-review-customer
 
 Exit codes: 0 = requested work done (and, when --verify/--verify-note was given, EVERY key proved: sign-in,
-/auth/me role + review scope, sign-out, old session rejected); 1 = blocked before any change (bad config,
-unsafe note path, mismatched environment); 2 = keys were issued/kept but verification FAILED or was INCOMPLETE
-(the private note says which; recover with --verify-note). stdout JSON carries `outcome`; the account table is `status`.
+/auth/me role + review scope, sign-out, old session rejected); 1 = blocked before any change AND before any
+network request (bad config, unsafe note path, mismatched environment, --verify-note whose note pins a different
+backend URL - scheme, host, port and path must all equal --api-base-url); 2 = keys were issued/kept but verification
+FAILED or was INCOMPLETE after a valid pre-flight (the private note records which, sanitized; recover with the same
+--verify-note command). stdout JSON carries `outcome`; the account table is `status`.
 """
 import argparse
 import asyncio
@@ -157,7 +159,7 @@ def _note_lines(environment, api_base_url, review_db, issued, unchanged, verific
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         "YASH TRADE - STORE-REVIEW ACCESS (PRIVATE - DO NOT COMMIT, SCREENSHOT OR PASTE INTO CHAT)",
-        f"Environment: {environment.upper()}    Backend: {api_base_url or '(not recorded)'}    Review database: {review_db}",
+        f"Environment: {environment.upper()}    Backend: {api_base_url or NOT_RECORDED}    Review database: {review_db}",
         f"Generated: {ts}    Accounts issued in this run: {len(issued)}",
         "",
         "These credentials only work for the isolated store-review environment: synthetic records,",
@@ -216,13 +218,39 @@ def _write_note(target, *args, **kwargs):
 
 
 NOTE_KEY_LINE = re.compile(r"^\s*Reviewer ID: (\S+)\s+Role: .*?Access key: (\S+)\s*$", re.M)
-NOTE_HEADER_LINE = re.compile(r"^Environment: (\S+)\s+Backend: (\S+)\s+Review database: (\S+)\s*$", re.M)
+NOTE_HEADER_LINE = re.compile(r"^Environment: (\S+)\s+Backend: (\S+|\(not recorded\))\s+Review database: (\S+)\s*$", re.M)
+NOT_RECORDED = "(not recorded)"
+
+
+def _target_identity(url):
+    """(scheme, host, effective port, path) of an already-validated backend base URL: the parts that decide
+    WHICH server receives reviewer keys. Default ports are made explicit so https://h/api == https://h:443/api."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme.lower()
+    return scheme, (parts.hostname or "").lower(), parts.port or {"https": 443, "http": 80}.get(scheme), parts.path.rstrip("/") or "/"
+
+
+def _require_same_target(recorded, requested):
+    """Pre-flight for --verify-note: the backend recorded in the note when the keys were issued and --api-base-url
+    must be the SAME target (scheme, host, port and path all equal). Anything else - including a note that never
+    recorded a backend - is refused BEFORE any request, so keys are never sent to another server."""
+    if recorded == NOT_RECORDED:
+        raise ValueError("The note does not record the backend its keys were issued for; refusing to verify against an unpinned "
+                         "target. Issue a pinned note with --rotate <reviewer_id> --api-base-url <backend>/api --write-note <new file>")
+    if _target_identity(recorded) != _target_identity(requested):
+        raise ValueError(f"The note pins backend {recorded} but --api-base-url is {requested}; scheme, host, port and path must all "
+                         "match. Refusing to send reviewer keys to a different server")
 
 
 def _verify_note(path, api_base_url, environment, expected_review_db):
-    """Recovery path: verify keys already stored in a private note (no database access, no mutation)
-    and append the results to that note. The note's own header must name the same environment and
-    review database, so preview keys are never 'verified' against production or vice versa."""
+    """Recovery path: verify keys already stored in a private note (no database access, no mutation) and append
+    the results to that note. PRE-FLIGHT (no network): the note's own header must name the same environment,
+    review database AND backend URL as the request, so preview keys are never 'verified' against production, and
+    keys are never sent anywhere but the server they were issued for. A transport failure AFTER a valid pre-flight
+    is not a refusal: the note receives a sanitized NOT COMPLETED entry and the caller reports it as incomplete.
+    Returns {"accounts": [...], "results": {...} | None, "error": None | "<ExceptionType>"}."""
     target = Path(path).expanduser().resolve()
     text = target.read_text(encoding="utf-8")
     header = NOTE_HEADER_LINE.search(text)
@@ -232,16 +260,24 @@ def _verify_note(path, api_base_url, environment, expected_review_db):
         raise ValueError(f"The note was issued for {header.group(1)}, not {environment.upper()}; pass the matching --environment")
     if header.group(3) != expected_review_db:
         raise ValueError("The note's review database differs from --expected-review-db; refusing to mix environments")
+    _require_same_target(header.group(2), api_base_url)
     keys = dict(NOTE_KEY_LINE.findall(text))
     if not keys:
         raise ValueError("The note contains no reviewer keys to verify")
-    results = _verify_issued(api_base_url, keys)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    block = [f"", f"VERIFICATION RE-RUN {ts} against {api_base_url} ({environment})"]
-    block += [f"  {rid:<28} {'PASS' if r.get('ok') else 'FAIL'}  {json.dumps({k: v for k, v in r.items() if k != 'ok'})}" for rid, r in results.items()]
+    block = ["", f"VERIFICATION RE-RUN {ts} against {api_base_url} ({environment})"]
+    results, error = None, None
+    try:
+        results = _verify_issued(api_base_url, keys)
+    except Exception as exc:  # transport failure after a valid pre-flight: keys stay valid, outcome is INCOMPLETE
+        error = type(exc).__name__
+        block += [f"  NOT COMPLETED - {error} while contacting {api_base_url}; no key was verified, none was changed.",
+                  "  Recovery: fix connectivity, then re-run the same --verify-note command."]
+    else:
+        block += [f"  {rid:<28} {'PASS' if r.get('ok') else 'FAIL'}  {json.dumps({k: v for k, v in r.items() if k != 'ok'})}" for rid, r in results.items()]
     with open(target, "a", encoding="utf-8") as handle:
         handle.write("\n".join(block) + "\n")
-    return results
+    return {"accounts": sorted(keys), "results": results, "error": error}
 
 
 def _summary(issued, verification):
@@ -261,10 +297,16 @@ async def run(args):
     if args.verify_note:
         if any((args.provision, args.seed, args.reset_data, args.rotate, args.revoke, args.write_note)):
             raise ValueError("--verify-note is a read-only recovery step; run it without provisioning flags")
-        results = _verify_note(args.verify_note, args.api_base_url, args.environment, args.expected_review_db)
-        return {"environment": args.environment, "review_db": args.expected_review_db, "verification": results,
-                **_summary(dict.fromkeys(results), results), "verified_all": all(r.get("ok") for r in results.values()),
-                "note_updated": str(Path(args.verify_note).expanduser().resolve())}
+        checked = _verify_note(args.verify_note, args.api_base_url, args.environment, args.expected_review_db)
+        results = checked["results"]
+        out = {"environment": args.environment, "review_db": args.expected_review_db,
+               **_summary(dict.fromkeys(checked["accounts"]), results),
+               "note_updated": str(Path(args.verify_note).expanduser().resolve())}
+        if results is None:  # transport failure after a valid pre-flight -> exit 2 (incomplete), never "blocked"
+            out.update(verification_error=checked["error"], verified_all=False)
+        else:
+            out.update(verification=results, verified_all=all(r.get("ok") for r in results.values()))
+        return out
     mongo_url, primary, review = (os.environ.get(k, "").strip() for k in ("MONGO_URL", "DB_NAME", "REVIEW_DB_NAME"))
     if not mongo_url or not primary or not review:
         raise ValueError("MONGO_URL, DB_NAME and REVIEW_DB_NAME are required in the operator runtime")
@@ -279,13 +321,16 @@ async def run(args):
     note_target = _reserve_note(args.write_note) if args.write_note else None
     client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
     sync_client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000)
+    issued = {}
     try:
         c.configure(client[primary], None, None, None, review_database=client[review], review_blobs=sync_client[review].review_blobs)
         await client[review].command("ping")
         out = {"review_db": review, "primary_db_untouched": True, "environment": args.environment or "unspecified"}
-        issued = {}
         with c.scoped(c.REVIEW):
-            await c.ensure_indexes()
+            if not await c.initialize_review():
+                state = c.review_status()
+                raise PermissionError(f"The review database is not usable with these credentials ({state['reason']}: {state['detail']}); "
+                                      "provision an authorised, separate review database first")
             if args.reset_data:
                 out["dataset"] = await review_seed.seed_dataset(reset=True)
             elif args.seed:
@@ -332,6 +377,9 @@ async def run(args):
     finally:
         client.close()
         sync_client.close()
+        if note_target and not issued and note_target.exists() and note_target.read_text(encoding="utf-8").startswith(
+                "YASH TRADE - STORE-REVIEW ACCESS (PRIVATE) - RESERVED"):
+            note_target.unlink()  # blocked before any key existed: leave no empty reserved note behind
 
 
 def main():

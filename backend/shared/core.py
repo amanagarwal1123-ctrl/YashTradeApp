@@ -44,7 +44,20 @@ def in_review():
 
 
 def review_configured():
+    """A distinct review database NAME is configured (non-placeholder). Says nothing about usability."""
     return _review_db is not None
+
+
+def review_available():
+    """Review storage was initialised successfully in THIS process; only then may any code touch it."""
+    return _review_db is not None and _review_state["available"]
+
+
+def review_status():
+    """Machine-readable availability for readiness: reason codes, never provider payloads."""
+    if _review_db is None:
+        return {"available": False, "reason": "REVIEW_DB_NAME", "detail": "no distinct review database configured"}
+    return dict(_review_state)
 
 
 @contextmanager
@@ -57,14 +70,16 @@ def scoped(value):
 
 
 def scopes():
-    """Every data scope a background worker must serve: production, then the review copy."""
-    return [None] + ([REVIEW] if review_configured() else [])
+    """Every data scope a background worker must serve: production, then the review copy — but only
+    when review storage is actually usable in this process (an unauthorised review database is never
+    polled again and again by workers)."""
+    return [None] + ([REVIEW] if review_available() else [])
 
 
 def active_db():
     if in_review():
-        if _review_db is None:
-            fail(503, "REVIEW_UNAVAILABLE", "The store-review environment is not configured on this server")
+        if not review_available():
+            fail(503, "REVIEW_UNAVAILABLE", "The store-review environment is not available on this server")
         return _review_db
     return _primary_db
 
@@ -87,15 +102,53 @@ db = _DatabaseProxy()
 
 def configure(database, sender, put, get, review_database=None, review_blobs=None):
     """review_database: Motor handle of the isolated review copy. review_blobs: a SYNCHRONOUS
-    pymongo collection of that same database used by the thread-based media functions."""
+    pymongo collection of that same database used by the thread-based media functions.
+    Configuring a review database does NOT make it usable: initialize_review() must prove it first."""
     global _primary_db, _review_db, _review_blobs, dispatch_sms, put_object, get_object
     if review_database is not None and review_database.name == database.name:
         raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME; review data can never share production")
     _primary_db, _review_db, _review_blobs = database, review_database, review_blobs
+    _review_state.update(available=False, reason="REVIEW_DB_UNINITIALIZED" if review_database is not None else "REVIEW_DB_NAME",
+                         detail="review storage not initialised in this process" if review_database is not None else "no distinct review database configured")
     dispatch_sms, put_object, get_object = sender, put, get
 
 
 _review_blobs = None
+_review_state = {"available": False, "reason": "REVIEW_DB_NAME", "detail": "no distinct review database configured"}
+
+
+async def initialize_review():
+    """Optional store-review storage: prove the configured review database is usable (ping + indexes) or mark
+    it UNAVAILABLE for this process. Only MongoDB failures of the REVIEW database are absorbed (authorisation,
+    connectivity); they are logged as sanitized warnings and never abort startup. Programming errors propagate.
+    Never touches the primary database and never falls back to it. Returns True when review storage is usable."""
+    import logging
+    from pymongo.errors import OperationFailure, PyMongoError
+
+    log = logging.getLogger("shared")
+    if _review_db is None:
+        _review_state.update(available=False, reason="REVIEW_DB_NAME", detail="no distinct review database configured")
+        return False
+    _review_state.update(available=True, reason=None, detail="initialising")  # lets ensure_indexes() reach the review handle
+    try:
+        with scoped(REVIEW):
+            await ensure_indexes()
+    except OperationFailure as exc:
+        unauthorized = exc.code in (13, 8000) or "not authorized" in str(exc.details or {}).lower()
+        _review_state.update(available=False, reason="REVIEW_DB_UNAUTHORIZED" if unauthorized else "REVIEW_DB_UNAVAILABLE",
+                             detail=f"review database rejected initialisation (MongoDB error code {exc.code})")
+        log.warning("Store-review storage DISABLED for this process: the configured review database refused index "
+                    "initialisation (MongoDB code %s, %s). Reviewer sign-in answers 503; production data is unaffected.",
+                    exc.code, "not authorized" if unauthorized else "operation failure")
+        return False
+    except PyMongoError as exc:
+        _review_state.update(available=False, reason="REVIEW_DB_UNAVAILABLE",
+                             detail=f"review database unreachable during initialisation ({type(exc).__name__})")
+        log.warning("Store-review storage DISABLED for this process: review database unreachable (%s). "
+                    "Reviewer sign-in answers 503; production data is unaffected.", type(exc).__name__)
+        return False
+    _review_state.update(available=True, reason=None, detail="review database initialised")
+    return True
 
 
 async def send_sms(number, otp, purpose):
@@ -112,8 +165,8 @@ def store_object(path, data, content_type):
     """Media gate: review uploads persist inside the review database, never in production storage."""
     if not in_review():
         return put_object(path, data, content_type)
-    if _review_blobs is None:
-        fail(503, "REVIEW_UNAVAILABLE", "Review media storage is not configured")
+    if _review_blobs is None or not review_available():
+        fail(503, "REVIEW_UNAVAILABLE", "Review media storage is not available")
     if len(data) > REVIEW_BLOB_LIMIT:
         fail(413, "REVIEW_STORAGE_LIMIT", "Review uploads are limited to 5 MiB per file")
     used = list(_review_blobs.aggregate([{"$group": {"_id": None, "n": {"$sum": "$size"}}}]))
@@ -127,7 +180,7 @@ def store_object(path, data, content_type):
 def fetch_object(path):
     if not in_review():
         return get_object(path)
-    doc = _review_blobs.find_one({"_id": path}) if _review_blobs is not None else None
+    doc = _review_blobs.find_one({"_id": path}) if (_review_blobs is not None and review_available()) else None
     if not doc:
         raise FileNotFoundError(path)
     return bytes(doc["data"]), doc.get("content_type", "application/octet-stream")

@@ -16,7 +16,9 @@
 .PARAMETER NotePath      New private file that receives the keys, e.g. "$env:USERPROFILE\Private\yash-review-production.txt".
 .PARAMETER VerifyNote    RECOVERY / re-check: an EXISTING private note written earlier by this tool. Signs in with every key
                          stored in it against -ApiBaseUrl, signs out, proves reuse is rejected and APPENDS the results to
-                         the note. Read-only: needs no MongoDB connection string and changes no account.
+                         the note. Read-only: needs no MongoDB connection string and changes no account. STRICT: -ApiBaseUrl
+                         must be the very backend recorded in the note's header (scheme, host, port and path); any other
+                         target - or a note without a recorded backend - is refused before a single request is sent.
 
 .EXAMPLE
   .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review `
@@ -39,8 +41,10 @@
 
 .NOTES
   Exit codes (from the Python tool): 0 = done and, when -Verify/-VerifyNote was given, EVERY key proved end-to-end;
-  1 = blocked before any change (configuration, unsafe note path, wrong environment); 2 = keys were issued/kept but
-  verification FAILED or was INCOMPLETE - the note says which; re-run with -VerifyNote after fixing the cause.
+  1 = blocked before any change and before any network request (configuration, unsafe note path, wrong environment,
+  -VerifyNote against a backend other than the one the note pins); 2 = keys were issued/kept but verification FAILED
+  or was INCOMPLETE after a valid pre-flight - the note records which (sanitized); re-run the same -VerifyNote command
+  after fixing the cause.
 #>
 param(
     [Parameter(Mandatory)][ValidateSet('preview', 'production')][string]$Environment,
