@@ -1,8 +1,10 @@
+import base64
 import re
 import secrets
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
+from pymongo import ReturnDocument
 
 from . import core as c
 from .auth import check_challenge, issue, start_challenge
@@ -16,6 +18,14 @@ async def identity(ref):
         found = await c.by_phone(c.phone(ref))
     if not found:
         c.fail(404, "USER_NOT_FOUND", "Identity not found")
+    return found
+
+
+async def customer_ref(uid):
+    """Customer routes address records by canonical ID only: an unknown ID is 404, never a phone parse error."""
+    found = await c.db.users.find_one({"id": uid}, {"_id": 0})
+    if not found:
+        c.fail(404, "CUSTOMER_NOT_FOUND", "No customer exists with this canonical ID")
     return found
 
 
@@ -188,12 +198,27 @@ async def customers(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=
             "total": total, "page": page, "limit": limit, "pages": (total+limit-1)//limit}
 
 
+@router.get("/customers/search")
+async def customer_search(q: str = Query("", max_length=120), user=Depends(c.billing)):
+    """Static reward/billing lookup. Registered BEFORE /customers/{uid} so the literal `search`
+    segment can never be handled as a customer reference (website dependency D2)."""
+    term = q.strip()
+    if len(term) < 2:
+        return {"customers": [], "query": term, "limit": 20, "minimum_length": 2}
+    pattern = {"$regex": re.escape(term), "$options": "i"}
+    query = {"role": "customer", "account_status": {"$ne": "deleted"}, "status": {"$ne": "deleted"},
+             "$or": [{k: pattern} for k in ("phone", "name", "customer_code", "code", "city", "location", "shop_name")]}
+    rows = await c.db.users.find(query, {"_id": 0}).sort([("name", 1), ("id", 1)]).limit(20).to_list(20)
+    return {"customers": [c.public_user(u) for u in rows], "query": term, "limit": 20, "minimum_length": 2}
+
+
 @router.get("/customers/{uid}")
 async def customer_detail(uid: str, user=Depends(c.admin)):
-    person = await identity(uid)
+    person = await customer_ref(uid)
     queries = await c.db.requests.find({"user_id": person["id"]}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
     notes = await c.db.telecaller_activity.find({"customer_id": person["id"]}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
-    return {**c.public_user(person), "queries": queries, "activity": notes, "detail_limit": 100}
+    return {**c.public_user(person), "queries": queries, "activity": notes, "detail_limit": 100,
+            "complete_history": f"/api/requests?customer_id={person['id']}&status=all&sort=newest"}
 
 
 @router.patch("/customers/{uid}")
@@ -201,7 +226,7 @@ async def customer_update(uid: str, updates: dict, user=Depends(c.admin)):
     allowed = {"name", "shop_name", "location", "city", "assigned_salesperson", "account_status", "status"}
     if set(updates) - allowed:
         c.fail(422, "READ_ONLY_FIELD", "Unsupported customer update fields")
-    old = await identity(uid)
+    old = await customer_ref(uid)
     if c.role(old["role"]) != "customer" or c.account_status(old) == "deleted":
         c.fail(409, "CUSTOMER_STATE_CONFLICT", "Cannot edit this customer through this operation")
     fields = dict(updates)
@@ -222,7 +247,7 @@ async def customer_update(uid: str, updates: dict, user=Depends(c.admin)):
         inc["session_version"] = 1
     await c.db.users.update_one({"id": uid}, {"$set": fields, "$inc": inc,
         "$push": {"identity_events": {"type": "customer_updated", "actor_id": user["id"], "at": c.stamp(), "fields": sorted(updates)}}})
-    return c.public_user(await identity(uid))
+    return c.public_user(await customer_ref(uid))
 
 
 async def erase(user, source):
@@ -299,16 +324,57 @@ async def web_delete(number: str, x_verification_grant: str | None = Header(None
         return await erase(user, "website")
 
 
-@router.get("/integrations/deletions", dependencies=[Depends(c.integration_key)])
-async def deletion_outbox():
-    rows = await c.db.integration_outbox.find({"type": "account_erased", "status": "pending"}, {"_id": 0}).limit(100).to_list(100)
-    return {"events": rows}
+async def outbox_consumer(x_integration_key: str | None = Header(None)):
+    """The consumer identity is derived from WHICH server credential authenticated, never from a
+    query parameter. The enrollment integration credential belongs to the website."""
+    await c.integration_key(x_integration_key)
+    return "website"
 
 
-@router.post("/integrations/deletions/{event_id}/ack", dependencies=[Depends(c.integration_key)])
-async def deletion_ack(event_id: str):
-    await c.db.integration_outbox.update_one({"id": event_id}, {"$addToSet": {"acknowledged": "website"}})
-    return {"acknowledged": "website", "event_id": event_id}
+def encode_cursor(doc):
+    return base64.urlsafe_b64encode(f"{doc.get('created_at', '')}|{doc['id']}".encode()).decode().rstrip("=")
+
+
+def decode_cursor(cursor):
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+        created_at, event_id = raw.split("|", 1)
+    except (ValueError, UnicodeDecodeError):
+        c.fail(422, "INVALID_CURSOR", "Use the after cursor returned by the previous page")
+    return created_at, event_id
+
+
+@router.get("/integrations/deletions")
+async def deletion_outbox(limit: int = Query(100, ge=1, le=500), after: str = "", consumer: str = Depends(outbox_consumer)):
+    """Pending erasure events NOT yet acknowledged by the calling consumer, in stable
+    (created_at, id) order with an opaque cursor. Other providers' pending states are untouched."""
+    query = {"type": "account_erased", "status": "pending", "acknowledged": {"$ne": consumer}}
+    if after:
+        created_at, event_id = decode_cursor(after)
+        query["$or"] = [{"created_at": {"$gt": created_at}}, {"created_at": created_at, "id": {"$gt": event_id}}]
+    rows = await c.db.integration_outbox.find(query, {"_id": 0}).sort([("created_at", 1), ("id", 1)]).limit(limit + 1).to_list(limit + 1)
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    remaining = await c.db.integration_outbox.count_documents({"type": "account_erased", "status": "pending", "acknowledged": {"$ne": consumer}})
+    return {"events": rows, "consumer": consumer, "limit": limit, "has_more": has_more,
+            "next_cursor": encode_cursor(rows[-1]) if has_more and rows else None, "remaining_for_consumer": remaining}
+
+
+@router.post("/integrations/deletions/{event_id}/ack")
+async def deletion_ack(event_id: str, consumer: str = Depends(outbox_consumer)):
+    """Idempotent, consumer-specific acknowledgement. It never marks the global erasure complete;
+    status stays pending until every required acknowledgement is recorded."""
+    doc = await c.db.integration_outbox.find_one_and_update({"id": event_id, "type": "account_erased"},
+        {"$addToSet": {"acknowledged": consumer}, "$set": {f"acknowledged_at.{consumer}": c.stamp()}},
+        projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+    if not doc:
+        c.fail(404, "EVENT_NOT_FOUND", "Unknown erasure event")
+    required = set(doc.get("required_acknowledgements", []))
+    complete = required and required <= set(doc.get("acknowledged", []))
+    if complete and doc.get("status") == "pending":
+        await c.db.integration_outbox.update_one({"id": event_id}, {"$set": {"status": "acknowledged", "completed_at": c.stamp()}})
+    return {"acknowledged": consumer, "event_id": event_id, "acknowledged_by": sorted(set(doc.get("acknowledged", []))),
+            "required_acknowledgements": sorted(required), "all_acknowledged": bool(complete)}
 
 
 async def deletion_retry_loop():
@@ -316,16 +382,18 @@ async def deletion_retry_loop():
     import asyncio
     import logging
     while True:
-        try:
-            async for deletion in c.db.deletion_requests.find({"status": "local_cleanup_pending"}, {"_id": 0}).limit(10):
-                async with c.lock("deletion:" + deletion["user_id"], seconds=120):
-                    person = await c.db.users.find_one({"id": deletion["user_id"]}, {"_id": 0}) or {}
-                    number = person.get("phone", "")
-                    if number.startswith("deleted:"):
-                        number = ""
-                    await cleanup_deletion(deletion["user_id"], number, deletion["reference"])
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logging.getLogger("shared").warning("Deletion retry deferred: %s", type(exc).__name__)
+        for data_scope in c.scopes():
+            try:
+                with c.scoped(data_scope):
+                    async for deletion in c.db.deletion_requests.find({"status": "local_cleanup_pending"}, {"_id": 0}).limit(10):
+                        async with c.lock("deletion:" + deletion["user_id"], seconds=120):
+                            person = await c.db.users.find_one({"id": deletion["user_id"]}, {"_id": 0}) or {}
+                            number = person.get("phone", "")
+                            if number.startswith("deleted:"):
+                                number = ""
+                            await cleanup_deletion(deletion["user_id"], number, deletion["reference"])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logging.getLogger("shared").warning("Deletion retry deferred: %s", type(exc).__name__)
         await asyncio.sleep(60)

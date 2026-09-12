@@ -1,0 +1,30 @@
+PASS src/fonts/__tests__/iconFontLoader.test.ts
+    ✓ loads the bundled font map on the happy path (4 ms)
+    ✓ does not reload a family that the native loader already registered (1 ms)
+    ✓ recovers from the reproduced Android "font file is empty" rejection through the validated fallback
+    ✓ reports a bounded, caught failure when both sources fail (offline) instead of looping (1 ms)
+    ✓ rejects an invalid fallback (HTML / truncated / hash mismatch) and never registers it
+    ✓ classifies a hanging native loader as a timeout instead of an infinite splash (21 ms)
+    ✓ is single-flight: concurrent callers share one attempt (1 ms)
+    ✓ a deliberate retry genuinely re-runs the loaders and can succeed after a failure (1 ms)
+    ✓ resolves before the deadline and rejects after it (15 ms)
+PASS src/fonts/__tests__/fallbackFont.test.ts
+    ✓ accepts only the exact version-matched Ionicons.ttf (9 ms)
+    ✓ rejects an empty file (the reproduced device symptom) (8 ms)
+    ✓ rejects an HTML error page by content type or body (1 ms)
+    ✓ rejects truncated and tampered bytes (3 ms)
+    ✓ is disabled when no backend URL is configured, so startup never depends on it (5 ms)
+    ✓ refuses a 403 HTML CDN-style response (3 ms)
+    ✓ refuses a 200 response whose body is not the font (1 ms)
+    ✓ returns a loadable URI only for validated bytes (web path) (18 ms)
+    ✓ native path: replaces ONLY the corrupt app-owned cache file and validates the staged download before use (8 ms)
+    ✓ native path: a truncated download is never promoted to the font file (1 ms)
+PASS src/fonts/__tests__/IconFontGate.test.tsx
+    ✓ uses the exact Ionicons font map and registered family name (4 ms)
+    ✓ holds icon-bearing routes until the font is registered, then renders them (20 ms)
+    ✓ shows a system-font error state (no icons mounted) when bundled and fallback both fail, with a working bounded retry (1616 ms)
+    ✓ recovers through the validated fallback when the bundled file is empty (3 ms)
+    ✓ skips loading entirely when the family is already registered in this process (2 ms)
+    ✓ bounds a hanging native loader: the splash is released with a timeout error instead of spinning forever (7 ms)
+Test Suites: 3 passed, 3 total
+Tests:       25 passed, 25 total

@@ -1,89 +1,120 @@
-# Production owner recovery — scoped repair, not an identity merge
+# Production owner recovery and configuration — owner-operated runbook
 
-## Confirmed 12 September 2026 (read-only)
+## Status (12 September 2026)
 
-- App production: `https://yash-tryon-test.emergent.host/api` runs `shared-v1-followup-2026-09-11`.
-- An authenticated **GET only**, using the existing private enrollment credential, confirmed exactly one customer returned for **9999813334**: canonical ID **`bcdf18c9-dc87-4d46-b580-30cf519103df`**, role **customer**, account active, phone verified. No profile fields are included in this report.
-- Production app reports `STAFF_SERVICE_KEY=false`. Both website domains report missing `CANONICAL_API_BASE_URL`, `ENROLLMENT_INTEGRATION_KEY`, `STAFF_SERVICE_KEY`.
-- The screenshot is the WEBSITE staff-login configuration failure. It occurs before phone/OTP/role checks. Promoting the user alone cannot resolve it.
-- This workspace has an empty LOCAL application database. **Production role/settings have NOT been changed.** No production SMS, session issuance, account creation or identity merge occurred.
-- Cached web crawls returned an older v7 health result; the facts above use fresh direct HTTPS responses instead.
+- App production `https://yash-tryon-test.emergent.host/api` was last observed running `shared-v1-followup-2026-09-11`. An authenticated **GET only** (existing private enrollment credential) confirmed exactly one customer for **9999813334**: canonical ID **`bcdf18c9-dc87-4d46-b580-30cf519103df`**, role **customer**, account active, phone verified. No profile fields are reproduced here.
+- Production reports `STAFF_SERVICE_KEY=false`. Both website domains report missing `CANONICAL_API_BASE_URL`, `ENROLLMENT_INTEGRATION_KEY`, `STAFF_SERVICE_KEY`. The website staff-login screenshot is that configuration failure; it happens before phone/OTP/role checks, so promoting the account alone cannot fix it.
+- **Operator = the owner.** Emergent support confirmed: production settings are edited in **Manage Publishes → Secrets** (a new setting name must first exist in the preview `backend/.env`, with a non-working placeholder; preview edits never overwrite production values); changes take effect after **Redeploy** (never *Replace with a fresh database*); production database access is **Manage Publishes → Database**; support does not run our scripts. This runbook is therefore written for the owner's Windows PC. Nobody else needs to be nominated.
+- **Nothing in production has been changed by this workspace**: no role, setting, SMS, session, account or identity merge. The preview database holds an older preview copy of the owner record (role customer); it is not production.
+- Workspace build: `shared-v1-review-fonts-2026-09-12` (this code). Production keeps the old build until the owner redeploys after *Save to GitHub*.
 
-## Authorization and boundary
+## Boundary
 
-The owner explicitly requests making **existing account 9999813334 admin**. This narrowly scoped, same-ID role correction does **not** need the unrelated full website identity export. It still requires an authorised operator with live database/settings access, verification of the exact target below and a restorable backup. Other users, identity links, customer records, orders, rewards and history must not be merged or rewritten.
+The owner authorises making **existing account 9999813334 admin**, keeping its canonical ID, phone, verification, customer code, requests, rewards and history. No replacement account, no startup admin seed, no fixed/universal OTP, no bulk identity merge. The website identity export is a separate, later task and does **not** block this repair.
 
-No production settings writer or production Mongo connection is available in this chat. An enrollment key may read a customer but cannot change staff roles. Do not reuse that key as staff authority or mint a token with the JWT secret. Do not seed a substitute admin or restore demo OTPs.
+## 0. One-time setup on the owner's Windows PC
 
-## A. Privately configure the existing services
+1. Install **Python 3.11 or newer** from python.org (tick *Add python.exe to PATH*).
+2. Get the repository at the implementation commit: after *Save to GitHub*, download the ZIP (or `git clone`) and unzip it, e.g. `C:\Yash\app`.
+3. Open **PowerShell** in that folder and run:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+   .\backend\tools\windows\Setup-Operator.ps1
+   ```
+   This creates `backend\.operator-venv` with the pinned minimal packages from `backend/tools/requirements-operator.txt` (motor, pymongo, bcrypt, PyJWT, python-dotenv, pillow, httpx, fastapi/pydantic). Nothing starts the API server. Re-running is safe.
+4. Have ready, but **never type on a command line**: the production MongoDB connection string (**Manage Publishes → Database**). Every script below asks for it with a hidden prompt, hands it to Python as a process-only environment variable and removes it afterwards, so it stays out of PowerShell history, logs and files. Do not paste it into `.env`, notes or chat.
+5. Note the exact production `DB_NAME` value from **Manage Publishes → Secrets**. Scripts refuse to run when the database name you pass does not match the one they connect to.
+6. If the Database page shows an IP allowlist, add your PC's current public IP for the session and remove it afterwards.
 
-An operator with access to BOTH projects must generate ONE strong random staff credential (at least 32 characters, preferably 48 random bytes encoded), keep it private, and set that same value as server-only `STAFF_SERVICE_KEY` in both app and website. It must differ from `ENROLLMENT_INTEGRATION_KEY`. Never place keys in source code, chat, screenshots, frontend variables or command history.
+## 1. Production settings — exact names used by this code
 
-Website server:
-- `CANONICAL_API_BASE_URL=https://yash-tryon-test.emergent.host/api`
-- `ENROLLMENT_INTEGRATION_KEY`: privately copy the matching existing app enrollment credential. The website's existing `LIVE_INTEGRATION_KEY` can be migrated ONLY after a private credential-match check. Do not silently introduce an auth fallback.
-- `STAFF_SERVICE_KEY`: the separate matching value above.
-- `BFF_ALLOWED_ORIGINS`: explicitly include `https://register.yashsilver.com` AND `https://yash-register.emergent.host`, using that website's supported format. Retain only verified ingress aliases; no wildcard, Host reflection or disabling CSRF.
+Edit values in **Manage Publishes → Secrets**, then **Redeploy**. Preview placeholders for the two NEW names already exist in `backend/.env` so the names appear in the Secrets screen.
 
-App server retains its real `JWT_SECRET`, `MSG91_AUTHKEY`, `MSG91_TEMPLATE_ID`, `MONGO_URL`, `DB_NAME` and enrollment credential. Do not copy JWT/SMS/database secrets to the website. Restart services after private configuration changes. App-side CORS cannot repair the website's own BFF origin validator.
+| Setting | Required | Production action |
+|---|---|---|
+| `MONGO_URL`, `DB_NAME` | yes | Platform-managed. Do not change. Note `DB_NAME`. |
+| `JWT_SECRET` (≥ 32 chars) | yes | Keep the existing value. |
+| `MSG91_AUTHKEY`, `MSG91_TEMPLATE_ID` | yes (OTP) | Keep existing. `MSG91_BASE_URL` optional. |
+| `ENROLLMENT_INTEGRATION_KEY` (≥ 32) | yes (website enrollment/deletion) | Keep existing; the website's `ENROLLMENT_INTEGRATION_KEY` must hold the same value. |
+| **`STAFF_SERVICE_KEY`** (≥ 32, **different** from the enrollment key) | yes for website staff login | **NEW name.** Preview `.env` holds `SET_IN_PUBLISH_SECRETS` (too short on purpose → staff flow fails closed). Generate ONE value and set it in the app Secrets **and** the website's `STAFF_SERVICE_KEY`. Generate on your PC: `.\backend\.operator-venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| **`REVIEW_DB_NAME`** | yes for store-review accounts | **NEW name.** Preview `.env` uses `jewellers_app_review` (preview database). Production: choose a distinct name such as `<DB_NAME>_review`. Must differ from `DB_NAME`; when absent, reviewer login answers 503 and never touches production data. |
+| `CORS_ORIGINS` | yes | Keep existing (production host + both website origins). |
+| `EMERGENT_LLM_KEY` | yes (AI assistant, managed object storage) | Keep existing. `INTEGRATION_PROXY_URL` is platform-managed. |
+| `BUILD_COMMIT` | recommended | Set to the deployed commit SHA so `/api/health` reports it. |
+| `MEDIA_WRITE_BUDGET_BYTES`, `MEDIA_WRITE_OBJECT_LIMIT`, `PDF_MAX_BYTES`, `PDF_MAX_PAGES`, `PDF_WORK_DIR` | optional | Defaults 2 000 000 000 / 10 000 / 64 MiB / 200 / system temp. |
+| `OTP_DEMO_PHONES` | inert | Not read by this build (`DEMO_PHONES` is empty in code). Remove if present. |
 
-## B. Apply only the authorised role change
+After Redeploy, from any browser: `GET https://yash-tryon-test.emergent.host/api/health/live` → 200; `GET .../api/health` → `build` = `shared-v1-review-fonts-2026-09-12`, `configuration.STAFF_SERVICE_KEY=true`, `configuration.REVIEW_DB_NAME=true`, `flows.mobile/staff/enrollment/deletion/review.ready=true`. The website needs `CANONICAL_API_BASE_URL=https://yash-tryon-test.emergent.host/api`, `ENROLLMENT_INTEGRATION_KEY` (same as app), `STAFF_SERVICE_KEY` (same as app, ≠ enrollment), and both public origins in `BFF_ALLOWED_ORIGINS` — see `WEBSITE_AUTH_FIX_PROMPT.md`.
 
-Preferred when another genuine canonical admin is available: real OTP login, then existing admin-authorised `POST /api/integrations/staff/9999813334/convert`:
+## 2. Restorable backup (before any write)
 
-```json
-{"role":"admin","confirm_user_id":"bcdf18c9-dc87-4d46-b580-30cf519103df","reason":"Owner explicitly authorised correction of the existing app customer to admin"}
+1. **Manage Publishes → Database**: if the page offers a backup/snapshot/export, create one now and record its name/time — that is your `-BackupRef`.
+2. If it does not, take one from your PC with MongoDB Database Tools (`mongodump`/`mongorestore`, free download from mongodb.com). To keep the connection string out of history, write it into a private config file and delete the file afterwards:
+   ```powershell
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\Private" | Out-Null
+   notepad "$env:USERPROFILE\Private\mongodump.yaml"     # single line:   uri: <paste connection string>
+   mongodump --config "$env:USERPROFILE\Private\mongodump.yaml" --db <DB_NAME> --out "$env:USERPROFILE\Private\yash-backup-<date>"
+   mongorestore --config "$env:USERPROFILE\Private\mongodump.yaml" --nsInclude "<DB_NAME>.*" --dir "$env:USERPROFILE\Private\yash-backup-<date>" --dryRun
+   Remove-Item "$env:USERPROFILE\Private\mongodump.yaml"
+   ```
+   The dry-run restore proves the archive is readable; `yash-backup-<date>` is your `-BackupRef`. Keep it private.
+
+## 3. Owner role repair — dry-run, apply, confirm
+
+Preferred when another genuine canonical admin exists: that admin signs in with real OTP and calls `POST /api/integrations/staff/9999813334/convert` with `{"role":"admin","confirm_user_id":"bcdf18c9-dc87-4d46-b580-30cf519103df","reason":"..."}`.
+
+Otherwise run the **operator-only** command from your PC (it is never an HTTP route and never runs at startup or login). The wrapper fixes the target to phone `9999813334` / ID `bcdf18c9-dc87-4d46-b580-30cf519103df`, so no other account can be selected. Do this while nobody else is changing staff/identity data.
+
+```powershell
+cd C:\Yash\app
+# 1) DRY RUN — no writes. Paste the connection string at the hidden prompt.
+.\backend\tools\windows\Recover-OwnerAdmin.ps1 -DbName <DB_NAME> -OperationId owner-admin-recovery-20260912 -Operator "<your name>"
 ```
+Read the JSON: `dry_run=true`, `changed=false`, `database=<DB_NAME>`, `user_id=bcdf18c9-…`, `phone_suffix=3334`, `from_role=customer`, `to_role=admin`, `account_status=active`, and copy `report_sha256`. An empty database, duplicate phone, mismatched ID, inactive or deleted account **blocks** with a code instead of creating or activating anyone.
 
-If no usable admin exists, use the new **operator-only command**. It requires normal private database administration access, NOT a public recovery endpoint. It never runs at application startup or login.
-
-1. Make this tested code available in the authorised app maintenance environment. Confirm its `MONGO_URL` points to the LIVE canonical database and verify the actual live `DB_NAME` (do not assume the local database name is production).
-2. Pause authentication/identity writes and take/verify a restorable backup. Retain backup receipts privately.
-3. From `backend/`, run a **dry-run** with the exact account and a fresh operation ID. Substitute actual operator/database values:
-
-```bash
-python tools/recover_owner_admin.py \
-  --phone 9999813334 \
-  --user-id bcdf18c9-dc87-4d46-b580-30cf519103df \
-  --expected-db '<VERIFIED_PRODUCTION_DB_NAME>' \
-  --operation-id owner-admin-recovery-20260912 \
-  --operator '<AUTHORISED_OPERATOR_ID>' \
-  --reason 'Owner authorised same-ID customer-to-admin correction for 9999813334'
+```powershell
+# 2) APPLY — identical operation ID + the reviewed hash + your backup reference.
+.\backend\tools\windows\Recover-OwnerAdmin.ps1 -DbName <DB_NAME> -OperationId owner-admin-recovery-20260912 -Operator "<your name>" `
+    -Apply -ApprovedReportSha256 <report_sha256 from step 1> -BackupRef "yash-backup-<date>" -MaintenanceConfirmed
 ```
+The command records intent in `admin_recovery_operations` **before** one atomic update of that single user document: `role=admin`, `session_version+1`, timestamp, one audit event. ID, phone, verification, profile, customer code, requests, rewards and history are untouched. Old access **and** refresh tokens fail immediately; only session families from the pre-repair version are revoked, so a fresh login is unaffected. If the run is interrupted after the update, rerun the identical command to finish bookkeeping; a completed replay changes nothing. Changing any parameter invalidates the approval; a later demotion is never re-promoted by replay.
 
-4. Review returned database, canonical ID, phone suffix, current role/status and `report_sha256`. Dry-run performs **no writes**. An empty local database/duplicate/mismatched/inactive/deleted identity blocks rather than creating or activating anyone.
-5. Repeat the **identical command** with these additional flags, using the reviewed hash and private backup receipt identifier:
-
-```bash
-  --apply \
-  --approved-report-sha256 '<REVIEWED_REPORT_SHA256>' \
-  --backup-ref '<VERIFIED_RESTORABLE_BACKUP_REFERENCE>' \
-  --maintenance-confirmed
+```powershell
+# 3) CONFIRM — dry run again; expect already_admin=true for the same ID.
+.\backend\tools\windows\Recover-OwnerAdmin.ps1 -DbName <DB_NAME> -OperationId owner-admin-recovery-20260912 -Operator "<your name>"
 ```
+Keep the two JSON outputs privately as the audit receipt. Fresh genuine OTP login is still required (section 5).
 
-The command records intent in `admin_recovery_operations` BEFORE updating. One atomic user-document update sets `role=admin`, increments `session_version`, records a timestamp and appends one audit event. ID, phone, verification, profile, customer code, history, rewards and other records remain untouched. Old access AND refresh tokens immediately fail version checks. Version-scoped session-family revocation and the operation completion receipt follow; even an interrupted operation's replay never touches new-version sessions. Older families without remaining refresh records are still invalidated by the user version check. No transactions/replica-set conversion is required.
+## 4. Store-review accounts
 
-If interrupted after the user update, rerun the identical approved operation to finish bookkeeping. A completed replay performs no further changes and will not revoke new sessions. Changed identity snapshot/operation metadata requires review; never change parameters to force a stale approval. A previously applied operation cannot re-promote a later demotion.
+Follow `STORE_REVIEW_ACCESS.md` (`Provision-ReviewAccess.ps1`). Requires `REVIEW_DB_NAME` set in production Secrets and redeployed first; production reviewer keys are written only to a private file on your PC and verified against the deployed backend by the script itself.
 
-6. Repeat dry-run: expect `already_admin=true`, same ID, active account. Record the private completion receipt and resume writes. Fresh genuine OTP login is still mandatory.
+## 5. Real OTP test — authorised for 9999813334 only
 
-## C. No-SMS verification contract added by this fix
+Run only after sections 1 and 3 are complete (production redeployed, role repaired). One initial SMS per test, at most one resend after the normal 60-second cooldown, stop on any unexpected failure, no other recipients.
 
-These endpoints require the new app build `shared-v1-owner-recovery-2026-09-12`; old production does not have them until the code is activated there.
+1. **App**: install the production build, open it, enter `9999813334`, tap Send OTP (one SMS). Enter the received code. Expected: sign-in succeeds and the app routes to the **admin** experience (staff panel available). Record: SMS received (time), verification success, `Profile → role = Admin`.
+2. **Website** (`https://register.yashsilver.com` and `https://yash-register.emergent.host`): staff login with the same number (one more SMS each). Expected: `/auth/me` shows the SAME canonical ID with `role=admin`; the customer area is not offered.
+3. Dispatch evidence without exposing the code: after signing in as admin, `GET https://yash-tryon-test.emergent.host/api/admin/sms/diagnostics` (bearer) and the panel **SMS** tab show the `sms_log` entry for `…3334` with provider status. Report dispatch, receipt, verification and routing **separately**; a delivered SMS does not prove the role, and the role check does not prove delivery.
+4. If Send OTP returns 503 `CONFIGURATION_REQUIRED` → a setting in section 1 is missing; 404 `USER_NOT_FOUND` → wrong database/name; 429 → wait for the cooldown, one resend only.
+
+## 6. No-SMS verification contract (available once the new build is live)
 
 | Check | Expected result |
 |---|---|
 | `GET /api/health/live` | 200 if process alive; NOT auth readiness |
-| `GET /api/health` or `/api/health/ready` | 200 only if all auth flows configured and DB reachable; otherwise 503 with `flows.*.issues` and boolean configuration names |
+| `GET /api/health` or `/api/health/ready` | 200 only if all auth flows configured and DB reachable; otherwise 503 with `flows.*.issues` and boolean configuration names (`review` flow is optional and never blocks readiness) |
 | `GET /api/integrations/staff/readiness` + server-only `X-Staff-Service-Key` | 200 and `credential_verified=true` for ready staff flow; missing/weak/shared server key 503, wrong supplied key 401 |
 | `GET /api/integrations/enrollment/readiness` + server-only `X-Integration-Key` | 200 and `credential_verified=true` for ready enrollment flow; wrong supplied key 401 |
+| `GET /api/fonts/ionicons.ttf` | 200, `content-type: font/ttf`, 389 724 bytes, `x-font-sha256` equal to `frontend/src/fonts/ionicons.manifest.json` |
+| `POST /api/auth/review/login` with an unknown reviewer | 401 `REVIEW_CREDENTIALS_INVALID` when `REVIEW_DB_NAME` is set; 503 `REVIEW_UNAVAILABLE` when it is not |
 
-All checks are `no-store`. No phone is submitted, no SMS sent and no OTP/session/account record is created. Public health does not prove credential matching; protected checks do. None proves delivery or user role. Missing staff settings need not disable the separately healthy mobile flow. Liveness monitors should use `/health/live`, not the stricter `/health` readiness response.
+All checks are `no-store`; no phone is submitted, no SMS sent, no account created. Liveness monitors should use `/health/live`.
 
-Verify BOTH website domains' origin checks and staff/enrollment/deletion readiness. Only then ask the owner to perform one real OTP login; confirm canonical `/auth/me` returns the SAME ID with `role=admin` in app and BFF. Do not label production restored based only on local tests or boolean key presence.
+## Safeguards preserved
+
+Verified production target (database name must match), unique active identity, restorable backup reference, dry-run by default, reviewed report hash, controlled apply with maintenance confirmation, intent record before the single atomic update, version-scoped session invalidation, audit receipt, idempotent replay. No fixed OTP, no seeded admin, no second owner record, no identity merge.
 
 ## Verification state
 
-Testing agent iteration21 passed **19/19 focused recovery/readiness tests** and **29/29 shared regression tests** (the additional 12/12 auth/people run overlaps the latter). Verified customer-to-admin same-ID OTP login, old-session invalidation, interrupted/completed replay safety, negative guards, CLI, readiness/OpenAPI and mobile preview. Embedded development preview origin accepted; unrelated origin rejected; production native-origin configuration untouched. SMS/storage transports were MOCKED only in isolated tests. No live SMS/writes.
-
-The separate production probe still finds `/api/health/live=404` on the older running build: an unresolved production activation gate, not a passing live test. **Production role promotion and private configuration remain unapplied.** See `WEBSITE_AUTH_FIX_PROMPT.md` for the companion website task. Test report: `test_reports/iteration_21.json`.
+Local: testing-agent iteration 21 passed 19/19 focused recovery/readiness tests and 29/29 shared regressions; this build adds review-access provisioning, font-fallback and D2/D3/D4 suites (see `RELEASE_READINESS.md`). Both operator commands were exercised from a fresh minimal virtual environment built from `requirements-operator.txt`; the recovery dry-run against the preview database returned a complete report without writing. SMS/storage transports are intercepted in tests only. **Production role promotion, production settings and the real OTP test remain owner actions and are not yet done.**

@@ -57,7 +57,7 @@ async def export(req: Export, user=Depends(c.admin)):
                 asset = await c.db.media_assets.find_one({"path": path, "owner_id": user["id"], "write_state": "stored"}, {"_id": 0}) if isinstance(path, str) else None
                 if not asset or not path.startswith("yash-trade/products/manual/"):
                     c.fail(422, "OWNED_PHOTO_REQUIRED", "Select a photograph uploaded by you")
-                data, _ = await asyncio.to_thread(c.get_object, path)
+                data, _ = await asyncio.to_thread(c.fetch_object, path)
                 total_bytes += len(data)
                 if total_bytes > 32 * 1024 * 1024:
                     c.fail(413, "AUTHORING_SIZE_LIMIT", "Export smaller groups (maximum 32 MiB input photos)")

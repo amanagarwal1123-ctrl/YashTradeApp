@@ -4,10 +4,10 @@
   "pages_checked": 100,
   "unique_ids": 10000,
   "stable_page_1": true,
-  "latency_ms_sequential_p50": 10.03,
-  "latency_ms_sequential_p95": 10.341,
-  "latency_ms_p50": 30.91,
-  "latency_ms_p95": 43.827,
+  "latency_ms_sequential_p50": 10.258,
+  "latency_ms_sequential_p95": 10.65,
+  "latency_ms_p50": 30.465,
+  "latency_ms_p95": 41.573,
   "payload_bytes_p50": 62040,
   "payload_bytes_p95": 62040,
   "search_semantics": {
@@ -18,8 +18,8 @@
   },
   "concurrency": 8,
   "single_query_latency_ms": {
-    "numeric_text": 2.655,
-    "broad_sku_words": 39.705
+    "numeric_text": 2.471,
+    "broad_sku_words": 38.925
   },
   "explain": {
     "winning_stage": "TEXT_MATCH",

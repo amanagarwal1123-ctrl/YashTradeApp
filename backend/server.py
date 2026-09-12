@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 import os
 import io
 import logging
@@ -26,6 +27,12 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+# Optional isolated store-review database. Absent => review login is refused (never production).
+REVIEW_DB_NAME = os.environ.get('REVIEW_DB_NAME', '').strip()
+if REVIEW_DB_NAME and REVIEW_DB_NAME == os.environ['DB_NAME']:
+    raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME")
+review_db = client[REVIEW_DB_NAME] if REVIEW_DB_NAME else None
+review_blobs = MongoClient(mongo_url)[REVIEW_DB_NAME].review_blobs if REVIEW_DB_NAME else None
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -55,7 +62,7 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "shared-v1-2026-09-11"
+APP_BUILD = "shared-v1-review-fonts-2026-09-12"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
 MSG91_TEMPLATE_FROM_ENV = bool(os.environ.get('MSG91_TEMPLATE_ID', '').strip())
 MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '').strip()
@@ -565,9 +572,13 @@ class RedeemRequest(BaseModel):
     reward_name: str = ""
 
 class AIChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=4000)
     session_id: str = ""
     language: str = "en"
+
+# Store-review sessions use the genuine assistant on synthetic data; spend is bounded per reviewer per UTC day.
+REVIEW_AI_DAILY_LIMIT = 40
+REVIEW_AI_MESSAGE_LIMIT = 600
 
 class KnowledgeCreate(BaseModel):
     title: str
@@ -2167,6 +2178,17 @@ async def reward_history(user=Depends(get_current_user)):
 
 @api_router.post("/ai/chat")
 async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
+    from shared import core as _scope_core
+    if _scope_core.in_review():
+        # Genuine assistant for reviewers, but bounded: short prompts and a fixed daily message budget.
+        if len(req.message) > REVIEW_AI_MESSAGE_LIMIT:
+            return {"response": f"In the store-review environment, messages are limited to {REVIEW_AI_MESSAGE_LIMIT} characters.",
+                    "session_id": f"jeweller-{user['id']}", "error": True, "review_limit": "message_length"}
+        day_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
+        used = await db.ai_chat_history.count_documents({"user_id": user["id"], "role": "user", "created_at": {"$gte": day_start}})
+        if used >= REVIEW_AI_DAILY_LIMIT:
+            return {"response": "The store-review environment allows a limited number of AI messages per day. Please try again tomorrow.",
+                    "session_id": f"jeweller-{user['id']}", "error": True, "review_limit": "daily_messages"}
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         # Client session IDs cannot select another user's provider or database history.
@@ -3134,7 +3156,14 @@ async def seed_new_features():
 # ===================== APP SETUP =====================
 
 from shared.install import install_shared
-install_shared(app, api_router, db, _dispatch_sms_otp, put_object, get_object)
+install_shared(app, api_router, db, _dispatch_sms_otp, put_object, get_object, review_db=review_db, review_blobs=review_blobs)
+# Every remaining legacy route now resolves data, SMS and media through the scope-aware gates, so a
+# store-review session can never read or write production records, storage or the SMS provider.
+from shared import core as _core
+db = _core.db
+_dispatch_sms_otp = _core.send_sms
+put_object = _core.store_object
+get_object = _core.fetch_object
 
 app.add_middleware(
     CORSMiddleware,

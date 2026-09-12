@@ -1,0 +1,56 @@
+{
+  "summary": "Live preview verification of iteration 22 (IconFontGate + isolated store-review access + website D2/D3/D4). Backend: 22/22 live-preview endpoint tests pass against EXPO_PUBLIC_BACKEND_URL. Frontend: mobile viewport 390x844 boots through IconFontGate, no icon-font-error surfaces, diamond Ionicon renders, 'Store reviewer access' link navigates to /review-access with all 6 required testIDs and initially-disabled login button; wrong key surfaces review-login-error via 401 REVIEW_CREDENTIALS_INVALID; store-review-customer login lands on tabs/home with (sample) products and the gold STORE-REVIEW ENVIRONMENT banner; store-review-admin lands on /panel with ADMIN role and synthetic dashboard. Health returns 503 (overall not_ready) with flows.review.ready=true and flows.staff.ready=false [STAFF_SERVICE_KEY] as expected per preview contract. Access keys were never printed. No .env or supervisor changes were made. No React Native / Expo deprecated packages surfaced in the touched files.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/customers/{uid}",
+        "issue": "For a canonical-format but unknown UID (e.g. 'review-customer-9999' or 'does-not-exist') the endpoint uses identity() which falls back to phone parsing and returns 422 INVALID_PHONE instead of 404 USER_NOT_FOUND/CUSTOMER_NOT_FOUND. /api/requests?customer_id=... does return 404 CUSTOMER_NOT_FOUND correctly, so D3's staff-side listing behaves as spec'd; only the direct customer-detail lookup is inconsistent."
+      },
+      {
+        "endpoint": "Response headers (Cloudflare edge)",
+        "issue": "Cloudflare strips upstream 'content-length: 389724' on /api/fonts/ionicons.ttf (both GET and HEAD) because it re-encodes with Transfer-Encoding: chunked / Content-Encoding: gzip. Origin (uvicorn on :8001) still returns content-length: 389724. Body length + x-font-sha256 still match the manifest, so integrity is verifiable; but any strict client relying on Content-Length via the CDN will not see it."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "react-native-web style props",
+        "issue": "Console emits 'shadow*' style props deprecated (use boxShadow) and 'props.pointerEvents is deprecated (use style.pointerEvents)'. These are informational deprecation warnings from react-native-web on the preview; UI still renders correctly. Recommend migrating to boxShadow / style.pointerEvents to future-proof."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22_live_preview.py",
+    "/app/test_reports/pytest/iteration22_live_preview.xml",
+    "/app/test_reports/iteration22_login_mobile.jpeg",
+    "/app/test_reports/iteration22_review_access_error.jpeg",
+    "/app/test_reports/iteration22_customer_home.jpeg",
+    "/app/test_reports/iteration22_admin_home.jpeg"
+  ],
+  "action_items": [
+    "Make GET /api/customers/{uid} return 404 CUSTOMER_NOT_FOUND (or reuse customer_scope) for canonical-format IDs that don't exist, instead of leaking a phone-parse 422 through identity(). Suggested fix: in people.py customer_detail(), skip the by_phone fallback (or gate it on ref matching a phone shape) when the ref matches CUSTOMER_ID regex from queries.py and the id lookup misses.",
+    "Optional: audit react-native-web deprecations (shadow*/pointerEvents) surfaced on the preview and migrate to boxShadow / style.pointerEvents to silence dev-warnings."
+  ],
+  "critical_code_review_comments": [
+    "people.identity() couples id-lookup with phone-lookup fallback. When used from /customers/{uid} this changes the error semantics from 404 to 422 INVALID_PHONE on unknown canonical IDs. Consider separating 'lookup-by-canonical-id' (used by /customers/{uid}) from 'lookup-by-any-ref' (used by staff-create/patch flows).",
+    "Preview /api/health returns HTTP 503 because overall status=not_ready (staff placeholder). This is by design per review_request, but any external monitor should hit /api/health/live (200) for uptime and reserve /api/health for readiness."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22_live_preview.py",
+    "/app/test_reports/iteration_22.json"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 live-preview endpoint tests)",
+    "frontend": "100% (IconFontGate boot, login → /review-access → wrong-key 401 → customer session banner+sample → admin /panel banner+ADMIN)"
+  },
+  "seed_data_creation": "No new seed data. Used pre-existing preview review reviewers (store-review-customer/admin/telecaller/billing) from /tmp/yash-private/preview-review-access.txt only; keys never printed. No SMS/OTP was sent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Live preview backend at https://yash-trade-backend.preview.emergentagent.com/api is healthy for review flows (review.ready=true, review DB seeded, fonts CDN-served with matching manifest sha256). Overall /api/health returns 503 by design because STAFF_SERVICE_KEY is a short placeholder in preview — treat that as expected and gate uptime on /api/health/live. Reviewer credentials live only in /tmp/yash-private/preview-review-access.txt inside this container; never echo them. Known small gap: GET /api/customers/{uid} returns 422 INVALID_PHONE for unknown canonical IDs (should be 404). Frontend testIDs verified: review-access-link, reviewer-id-input, reviewer-key-input, reviewer-key-toggle, review-login-btn, review-back-btn, review-notice, review-login-error, review-environment-banner. No icon-font-error appears. Screenshots at /app/test_reports/iteration22_*.jpeg.",
+  "rca_of_issue": "The /api/customers/{uid} discrepancy stems from shared/people.py::identity() which does an id-lookup then falls back to c.by_phone(c.phone(ref)); c.phone() raises 422 INVALID_PHONE when the ref is not 10-digit. For canonical customer IDs (regex ^[A-Za-z0-9_.:-]{1,64}$) the fallback is inappropriate and masks the desired 404. Fix: in customer_detail() (line ~207-213), lookup users.find_one({'id': uid}) directly and fail(404, 'CUSTOMER_NOT_FOUND', ...) when missing, matching the semantics used by queries.py::customer_scope()."
+}

@@ -124,3 +124,6 @@ backend/import-tmp/
 /memory/test_credentials.md
 /backups/
 /review-credentials/
+
+# Owner operator virtualenv (Windows/macOS/Linux) - never committed
+backend/.operator-venv/

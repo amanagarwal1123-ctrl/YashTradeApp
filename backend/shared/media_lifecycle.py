@@ -26,7 +26,7 @@ async def tracked_put(path, data, content_type, purpose, owner_id, job_id=None):
                   "updated_at": c.stamp()}
         await c.db.media_assets.update_one({"path": path}, {"$set": record, "$setOnInsert": {"created_at": c.stamp()}}, upsert=True)
         try:
-            receipt = await asyncio.to_thread(c.put_object, path, data, content_type)
+            receipt = await asyncio.to_thread(c.store_object, path, data, content_type)
             if receipt.get("path", path) != path:
                 raise ValueError("Provider returned a different storage path")
         except Exception as exc:

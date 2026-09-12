@@ -44,7 +44,7 @@ async def start_challenge(number, purpose, subject, request):
             c.fail(429, "OTP_COOLDOWN", "Wait 60 seconds before requesting another OTP")
         cid, otp = secrets.token_urlsafe(24), f"{secrets.randbelow(10000):04d}"
         # No usable challenge is persisted until the provider accepts dispatch.
-        await c.dispatch_sms(number, otp, purpose)
+        await c.send_sms(number, otp, purpose)
         await c.db.otp_challenges.update_many({"phone": number, "purpose": purpose, "subject": subject},
                                               {"$set": {"used": True}})
         await c.db.otp_challenges.insert_one({"id": cid, "phone": number, "purpose": purpose,
@@ -78,20 +78,30 @@ async def make_grant(number, purpose, subject=""):
 
 async def issue(user, family=None):
     c.usable(user)
+    if bool(user.get("review_environment")) != c.in_review():
+        c.fail(409, "SESSION_SCOPE_MISMATCH", "Account does not belong to this data environment")
     sid = family or secrets.token_urlsafe(24)
     expiry = c.now() + timedelta(minutes=15)
     if not family:
         await c.db.session_families.insert_one({"id": sid, "user_id": user["id"], "revoked": False,
             "expires_at": (c.now() + timedelta(days=30)).isoformat()})
-    token = jwt.encode({"sub": user["id"], "user_id": user["id"], "role": c.role(user["role"]),
+    claims = {"sub": user["id"], "user_id": user["id"], "role": c.role(user["role"]),
         "sv": user.get("session_version", 0), "sid": sid, "iss": "yash-canonical", "aud": "yash-clients",
-        "iat": c.now(), "exp": expiry}, c.secret("JWT_SECRET"), algorithm="HS256")
-    refresh = secrets.token_urlsafe(48)
+        "iat": c.now(), "exp": expiry}
+    if c.in_review():
+        claims["scope"] = c.REVIEW
+    token = jwt.encode(claims, c.secret("JWT_SECRET"), algorithm="HS256")
+    # Review refresh tokens carry a routing prefix so /auth/refresh looks them up in the review
+    # database; the prefix grants nothing by itself because the stored digest must still match.
+    refresh = (REVIEW_REFRESH_PREFIX if c.in_review() else "") + secrets.token_urlsafe(48)
     await c.db.refresh_tokens.insert_one({"hash": c.digest(refresh), "user_id": user["id"], "sid": sid,
         "sv": user.get("session_version", 0), "used": False,
         "expires_at": (c.now() + timedelta(days=30)).isoformat()})
     return {"token": token, "expires_at": expiry.isoformat(), "refresh_token": refresh,
             "user": c.public_user(user)}
+
+
+REVIEW_REFRESH_PREFIX = "review."
 
 
 async def validate_channel(req, enrollment_key, staff_key):
@@ -146,11 +156,16 @@ class Refresh(BaseModel):
 
 @router.post("/auth/refresh")
 async def refresh(req: Refresh):
+    with c.scoped(c.REVIEW if req.refresh_token.startswith(REVIEW_REFRESH_PREFIX) else None):
+        return await rotate_refresh(req.refresh_token)
+
+
+async def rotate_refresh(refresh_token):
     old = await c.db.refresh_tokens.find_one_and_update(
-        {"hash": c.digest(req.refresh_token), "used": False, "expires_at": {"$gt": c.stamp()}},
+        {"hash": c.digest(refresh_token), "used": False, "expires_at": {"$gt": c.stamp()}},
         {"$set": {"used": True}}, return_document=ReturnDocument.AFTER)
     if not old:
-        hit = await c.db.refresh_tokens.find_one({"hash": c.digest(req.refresh_token)}, {"_id": 0})
+        hit = await c.db.refresh_tokens.find_one({"hash": c.digest(refresh_token)}, {"_id": 0})
         if hit:
             await c.db.session_families.update_one({"id": hit["sid"]}, {"$set": {"revoked": True}})
         c.fail(401, "REFRESH_INVALID", "Refresh token expired or reused; sign in again")

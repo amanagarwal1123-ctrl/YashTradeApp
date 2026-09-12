@@ -3,7 +3,7 @@
   "info": {
     "title": "Yash canonical shared API",
     "description": "Canonical role/session authority. See YASH_SHARED_API_CONTRACT.md for migration and website cutover requirements.",
-    "version": "shared-v1-owner-recovery-2026-09-12"
+    "version": "shared-v1-review-fonts-2026-09-12"
   },
   "paths": {
     "/api/health/live": {
@@ -604,6 +604,224 @@
                       "$ref": "#/components/schemas/SharedError"
                     }
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fonts/ionicons.ttf": {
+      "get": {
+        "tags": [
+          "Static fallback assets"
+        ],
+        "summary": "Ionicons Font",
+        "operationId": "ionicons_font_api_fonts_ionicons_ttf_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fonts/ionicons.manifest.json": {
+      "get": {
+        "tags": [
+          "Static fallback assets"
+        ],
+        "summary": "Ionicons Manifest",
+        "operationId": "ionicons_manifest_api_fonts_ionicons_manifest_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
                 }
               }
             }
@@ -2027,6 +2245,126 @@
               }
             }
           }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/review/login": {
+      "post": {
+        "tags": [
+          "Store review access"
+        ],
+        "summary": "Review Login",
+        "description": "Reviewer ID + reusable access key -> normal canonical session bound to the review scope.\nMissing review configuration denies access; it never falls back to production data.",
+        "operationId": "review_login_api_auth_review_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewLogin"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -3780,6 +4118,145 @@
         }
       }
     },
+    "/api/customers/search": {
+      "get": {
+        "tags": [
+          "People and integration"
+        ],
+        "summary": "Customer Search",
+        "description": "Static reward/billing lookup. Registered BEFORE /customers/{uid} so the literal `search`\nsegment can never be handled as a customer reference (website dependency D2).",
+        "operationId": "customer_search_api_customers_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/customers/{uid}": {
       "get": {
         "tags": [
@@ -4332,8 +4809,31 @@
           "People and integration"
         ],
         "summary": "Deletion Outbox",
+        "description": "Pending erasure events NOT yet acknowledged by the calling consumer, in stable\n(created_at, id) order with an opaque cursor. Other providers' pending states are untouched.",
         "operationId": "deletion_outbox_api_integrations_deletions_get",
         "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "After"
+            }
+          },
           {
             "name": "x-integration-key",
             "in": "header",
@@ -4459,6 +4959,7 @@
           "People and integration"
         ],
         "summary": "Deletion Ack",
+        "description": "Idempotent, consumer-specific acknowledgement. It never marks the global erasure complete;\nstatus stays pending until every required acknowledgement is recorded.",
         "operationId": "deletion_ack_api_integrations_deletions__event_id__ack_post",
         "parameters": [
           {
@@ -5227,6 +5728,16 @@
               "type": "string",
               "default": "",
               "title": "Period End"
+            }
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Customer Id"
             }
           },
           {
@@ -13845,140 +14356,6 @@
         }
       }
     },
-    "/api/customers/search": {
-      "get": {
-        "summary": "Search Customers",
-        "operationId": "search_customers_api_customers_search_get",
-        "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "",
-              "title": "Q"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "402": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/rewards/history": {
       "get": {
         "summary": "Reward History",
@@ -20316,6 +20693,8 @@
         "properties": {
           "message": {
             "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
             "title": "Message"
           },
           "session_id": {
@@ -21304,6 +21683,30 @@
           "refresh_token"
         ],
         "title": "Refresh"
+      },
+      "ReviewLogin": {
+        "properties": {
+          "reviewer_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "title": "Reviewer Id"
+          },
+          "access_key": {
+            "type": "string",
+            "maxLength": 72,
+            "minLength": 20,
+            "title": "Access Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reviewer_id",
+          "access_key"
+        ],
+        "title": "ReviewLogin"
       },
       "RewardConfigUpdate": {
         "properties": {

@@ -230,3 +230,30 @@ async def login_helper(api_client, isolated_db, seeded_users):
         return verify.json()
 
     return _login
+
+
+@pytest_asyncio.fixture(loop_scope="function")
+async def review_env(isolated_db, monkeypatch):
+    """Adds a SEPARATE synthetic review database beside the isolated production double and routes
+    server/shared data access through the scope-aware proxy (as production wiring does)."""
+    from pymongo import MongoClient
+    mongo_url = os.environ["MONGO_URL"]
+    client = AsyncIOMotorClient(mongo_url, maxPoolSize=10, minPoolSize=2)
+    sync_client = MongoClient(mongo_url)
+    name = f"shared_review_{uuid.uuid4().hex[:10]}"
+    review_db = client[name]
+    c.configure(isolated_db["db"], c.dispatch_sms, c.put_object, c.get_object,
+                review_database=review_db, review_blobs=sync_client[name].review_blobs)
+    monkeypatch.setattr(c, "db", c._DatabaseProxy(), raising=False)
+    monkeypatch.setattr(server, "db", c.db, raising=False)
+    monkeypatch.setattr(server, "put_object", c.store_object, raising=False)
+    monkeypatch.setattr(server, "get_object", c.fetch_object, raising=False)
+    monkeypatch.setattr(server, "_dispatch_sms_otp", c.send_sms, raising=False)
+    with c.scoped(c.REVIEW):
+        await c.ensure_indexes()
+    yield {"db": review_db, "name": name, "primary": isolated_db["db"], "sent_otps": isolated_db["sent_otps"],
+           "object_store": isolated_db["object_store"]}
+    c.configure(isolated_db["db"], c.dispatch_sms, c.put_object, c.get_object)
+    await client.drop_database(name)
+    client.close()
+    sync_client.close()

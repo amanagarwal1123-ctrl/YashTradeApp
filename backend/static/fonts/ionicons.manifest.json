@@ -1,0 +1,10 @@
+{
+  "family": "ionicons",
+  "file": "Ionicons.ttf",
+  "bytes": 389724,
+  "sha256": "fa2ab7d2557819b2bfe5009e46844efa7170cf177be7735d43aa2ac1295f1d54",
+  "md5": "b4eb097d35f44ed943676fd56f6bdc51",
+  "source_package": "@expo/vector-icons",
+  "source_version": "15.1.1",
+  "licence": "Ionicons \u2014 MIT (see LICENSE.ionicons.txt)"
+}

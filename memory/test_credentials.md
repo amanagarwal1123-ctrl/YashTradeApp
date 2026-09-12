@@ -16,4 +16,13 @@ bcdf18c9-dc87-4d46-b580-30cf519103df. The correction has NOT been applied; local
 No real credentials/accounts were created or changed. Recovery tests must use isolated_db only,
 starting the synthetic owner as CUSTOMER (existing seeded_users otherwise starts it as admin).
 No reusable OTP exists. No website export has been received; full identity merge remains separate.
-Play review accounts have NOT been provisioned; an isolated review environment is required.
+Play review accounts: PREVIEW-ONLY reviewer accounts (store-review-customer/admin/telecaller/billing)
+exist in the separate preview review database `jewellers_app_review` (backend/.env REVIEW_DB_NAME).
+Their access keys are NOT in this repository or chat; they live only in the disposable preview
+container at /tmp/yash-private/preview-review-access.txt (rotate with
+`python tools/provision_review_access.py --expected-review-db jewellers_app_review --rotate <id>`).
+They are not the store-submission credentials; production accounts are provisioned by the owner
+(STORE_REVIEW_ACCESS.md). Sign-in path in the app: login screen -> "Store reviewer access" link
+(/review-access) -> Reviewer ID + Access key -> SIGN IN; the gold STORE-REVIEW ENVIRONMENT banner
+confirms the isolated session. Endpoint: POST /api/auth/review/login {reviewer_id, access_key}.
+Real users: normal MSG91 OTP only. No fixed OTP exists in code (DEMO_PHONES is empty).

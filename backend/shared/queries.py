@@ -183,15 +183,33 @@ async def mine(page: int = Query(1, ge=1), limit: int = Query(30, ge=1, le=100),
     return {"requests": [view_doc(d, True) for d in rows], "total": total, "page": page, "limit": limit, "pages": (total+limit-1)//limit}
 
 
+CUSTOMER_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+async def customer_scope(customer_id):
+    """Immutable canonical customer-ID filter (website dependency D3). Malformed values are
+    rejected, unknown IDs are 404, deleted customers keep their anonymized history."""
+    value = customer_id.strip()
+    if not CUSTOMER_ID.match(value):
+        c.fail(422, "INVALID_FILTER", "customer_id must be a canonical customer identifier")
+    person = await c.db.users.find_one({"id": value}, {"_id": 0, "id": 1, "role": 1})
+    if not person:
+        c.fail(404, "CUSTOMER_NOT_FOUND", "No customer exists with this canonical ID")
+    return value
+
+
 @router.get("/requests")
 async def listing(page: int = Query(1, ge=1), limit: int = Query(30, ge=1, le=100), search: str = "",
     status: str = "", request_type: str = "", view: str = "all", assignee: str = "", resolver: str = "",
     assigned_to: str = "", handled_by: str = "", city: str = "", created_from: str = "", created_to: str = "",
     resolved_from: str = "", resolved_to: str = "", min_age_minutes: int | None = Query(None, ge=0),
     max_age_minutes: int | None = Query(None, ge=0), sort: str = "oldest", period_resolver: str = "",
-    period_start: str = "", period_end: str = "", user=Depends(c.staff)):
+    period_start: str = "", period_end: str = "", customer_id: str = "", user=Depends(c.staff)):
     query = filters(search or city, request_type, assignee or assigned_to, resolver or handled_by, view, user,
         created_from, created_to, resolved_from, resolved_to, min_age_minutes, max_age_minutes)
+    if customer_id:
+        # Matched AFTER enrichment, so legacy user_id-backed rows and customer_id rows both qualify.
+        query["customer_id"] = await customer_scope(customer_id)
     if status and status != "all":
         query["status"] = {"$in": OPEN} if status == "open" else globals()["status"](status)
     elif not status and user["role"] == "billing_executive":
@@ -220,7 +238,8 @@ async def listing(page: int = Query(1, ge=1), limit: int = Query(30, ge=1, le=10
     items = [{**view_doc(d), "assignee_name": names.get(d.get("assignee_id"), ""),
               "resolver_name": names.get(d.get("resolver_id"), d.get("resolver_name", ""))} for d in data["items"]]
     return {"requests": items, "total": total, "page": page, "limit": limit, "pages": (total+limit-1)//limit,
-            "open_counts_by_type": {r["_id"]: r["n"] for r in data["by_type"]}, "server_time": c.stamp()}
+            "open_counts_by_type": {r["_id"]: r["n"] for r in data["by_type"]}, "server_time": c.stamp(),
+            **({"customer_id": query["customer_id"]} if customer_id else {})}
 
 
 class Mutation(BaseModel):

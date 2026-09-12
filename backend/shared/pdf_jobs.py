@@ -208,7 +208,7 @@ async def preview_image(jid: str, rid: str, user=Depends(c.admin)):
     row = await c.db.import_rows.find_one({"id": rid, "job_id": jid}, {"_id": 0})
     if not row:
         c.fail(404, "ROW_NOT_FOUND", "Import row not found")
-    data, _ = await asyncio.to_thread(c.get_object, row["preview_path"])
+    data, _ = await asyncio.to_thread(c.fetch_object, row["preview_path"])
     return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
@@ -311,7 +311,7 @@ async def commit_row(job, row, publish, user):
             return {"status": "skipped", "product_id": old["id"], "reason": "Existing product code; skip selected"}
         if old and row.get("expected_product_version") != old.get("version", 0):
             return {"status": "failed", "reason": "Update Existing requires confirmation of the displayed product version"}
-        data, _ = await asyncio.to_thread(c.get_object, row["preview_path"])
+        data, _ = await asyncio.to_thread(c.fetch_object, row["preview_path"])
         prefix = f"yash-trade/products/imported/{row['id']}"
         master, thumb = prefix + ".png", prefix + "-thumb.png"
         await tracked_put(master, data, "image/png", "import_master", user["id"], job["id"])
@@ -358,7 +358,7 @@ async def assemble_locked(job):
             manifest = job["manifest"].get(str(i))
             if not manifest:
                 raise ValueError("UPLOAD_INCOMPLETE: missing chunk")
-            data, _ = await asyncio.to_thread(c.get_object, manifest["path"])
+            data, _ = await asyncio.to_thread(c.fetch_object, manifest["path"])
             if len(data) != manifest["size"] or hashlib.sha256(data).hexdigest() != manifest["sha256"]:
                 raise ValueError("CHUNK_CORRUPT: re-upload required")
             count += len(data); digest.update(data); output.write(data)
@@ -444,17 +444,21 @@ async def worker_loop():
     last_cleanup = 0
     while True:
         try:
-            if c.now().timestamp() - last_cleanup > 3600:
-                await cleanup_temporary()
-                last_cleanup = c.now().timestamp()
-            lease = secrets.token_hex(16)
-            job = await c.db.import_jobs.find_one_and_update({"$or": [{"phase": "queued"},
-                {"phase": "analyzing", "lease_until": {"$lt": c.stamp()}}]},
-                {"$set": {"phase": "analyzing", "lease": lease, "lease_until": (c.now()+timedelta(seconds=90)).isoformat()}},
-                projection={"_id": 0}, return_document=ReturnDocument.AFTER)
-            if job:
-                await process_job(job)
-            else:
+            worked = False
+            for data_scope in c.scopes():
+                with c.scoped(data_scope):
+                    if c.now().timestamp() - last_cleanup > 3600 and data_scope is None:
+                        await cleanup_temporary()
+                        last_cleanup = c.now().timestamp()
+                    lease = secrets.token_hex(16)
+                    job = await c.db.import_jobs.find_one_and_update({"$or": [{"phase": "queued"},
+                        {"phase": "analyzing", "lease_until": {"$lt": c.stamp()}}]},
+                        {"$set": {"phase": "analyzing", "lease": lease, "lease_until": (c.now()+timedelta(seconds=90)).isoformat()}},
+                        projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+                    if job:
+                        worked = True
+                        await process_job(job)
+            if not worked:
                 await asyncio.sleep(2)
         except asyncio.CancelledError:
             raise

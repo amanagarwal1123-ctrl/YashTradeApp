@@ -1,32 +1,136 @@
 import asyncio
+import contextvars
 import hashlib
 import hmac
 import os
 import re
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from bson import Binary
 from dotenv import load_dotenv
 from fastapi import Depends, Header, HTTPException
 from pymongo import ReturnDocument
 from pymongo.errors import AutoReconnect, DuplicateKeyError
 
-db = None
 dispatch_sms = None
 put_object = None
 get_object = None
 load_dotenv()
-BUILD = "shared-v1-owner-recovery-2026-09-12"
+BUILD = "shared-v1-review-fonts-2026-09-12"
 ROLES = {"customer", "admin", "telecaller", "billing_executive"}
 STAFF = ROLES - {"customer"}
 
+# Data scope of the CURRENT request/task. None = genuine production data; "review" = the
+# isolated store-review database. It is derived ONLY from a signature-verified session or a
+# stored review refresh token, never from a client-supplied role, flag or database name.
+REVIEW = "review"
+_scope = contextvars.ContextVar("yash_data_scope", default=None)
+_primary_db = None
+_review_db = None
+REVIEW_BLOB_LIMIT = 5 * 1024 * 1024
+REVIEW_BLOB_TOTAL_LIMIT = 256 * 1024 * 1024
 
-def configure(database, sender, put, get):
-    global db, dispatch_sms, put_object, get_object
-    db, dispatch_sms, put_object, get_object = database, sender, put, get
+
+def scope():
+    return _scope.get()
+
+
+def in_review():
+    return _scope.get() == REVIEW
+
+
+def review_configured():
+    return _review_db is not None
+
+
+@contextmanager
+def scoped(value):
+    token = _scope.set(value)
+    try:
+        yield
+    finally:
+        _scope.reset(token)
+
+
+def scopes():
+    """Every data scope a background worker must serve: production, then the review copy."""
+    return [None] + ([REVIEW] if review_configured() else [])
+
+
+def active_db():
+    if in_review():
+        if _review_db is None:
+            fail(503, "REVIEW_UNAVAILABLE", "The store-review environment is not configured on this server")
+        return _review_db
+    return _primary_db
+
+
+class _DatabaseProxy:
+    """Resolves to the database of the current data scope on every attribute access."""
+
+    def __getattr__(self, name):
+        return getattr(active_db(), name)
+
+    def __getitem__(self, name):
+        return active_db()[name]
+
+    def __bool__(self):
+        return _primary_db is not None
+
+
+db = _DatabaseProxy()
+
+
+def configure(database, sender, put, get, review_database=None, review_blobs=None):
+    """review_database: Motor handle of the isolated review copy. review_blobs: a SYNCHRONOUS
+    pymongo collection of that same database used by the thread-based media functions."""
+    global _primary_db, _review_db, _review_blobs, dispatch_sms, put_object, get_object
+    if review_database is not None and review_database.name == database.name:
+        raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME; review data can never share production")
+    _primary_db, _review_db, _review_blobs = database, review_database, review_blobs
+    dispatch_sms, put_object, get_object = sender, put, get
+
+
+_review_blobs = None
+
+
+async def send_sms(number, otp, purpose):
+    """Transport gate: review sessions never reach the SMS provider; the message is recorded instead."""
+    if in_review():
+        entry = {"id": secrets.token_hex(12), "phone": number, "purpose": purpose, "status": "simulated",
+                 "simulated": True, "provider": "none", "sent_ts": stamp(), "review_environment": True}
+        await db.sms_log.insert_one(dict(entry))
+        return entry
+    return await dispatch_sms(number, otp, purpose)
+
+
+def store_object(path, data, content_type):
+    """Media gate: review uploads persist inside the review database, never in production storage."""
+    if not in_review():
+        return put_object(path, data, content_type)
+    if _review_blobs is None:
+        fail(503, "REVIEW_UNAVAILABLE", "Review media storage is not configured")
+    if len(data) > REVIEW_BLOB_LIMIT:
+        fail(413, "REVIEW_STORAGE_LIMIT", "Review uploads are limited to 5 MiB per file")
+    used = list(_review_blobs.aggregate([{"$group": {"_id": None, "n": {"$sum": "$size"}}}]))
+    if (used[0]["n"] if used else 0) + len(data) > REVIEW_BLOB_TOTAL_LIMIT:
+        fail(413, "REVIEW_STORAGE_LIMIT", "Review storage budget exhausted; reset the review environment")
+    _review_blobs.replace_one({"_id": path}, {"_id": path, "data": Binary(bytes(data)), "content_type": content_type,
+                                              "size": len(data), "created_at": stamp()}, upsert=True)
+    return {"path": path, "size": len(data), "review_environment": True}
+
+
+def fetch_object(path):
+    if not in_review():
+        return get_object(path)
+    doc = _review_blobs.find_one({"_id": path}) if _review_blobs is not None else None
+    if not doc:
+        raise FileNotFoundError(path)
+    return bytes(doc["data"]), doc.get("content_type", "application/octet-stream")
 
 
 def now():
@@ -101,7 +205,7 @@ USER_FIELDS = set("id phone name shop_name location city role code customer_code
                   "phone_verified verified_at onboarding_status account_status registration_source "
                   "registered_at created_at updated_at first_mobile_login_at last_mobile_login_at "
                   "last_portal_login_at last_login has_logged_in reward_points is_new "
-                  "assigned_salesperson lead_status follow_up_at profile_version".split())
+                  "assigned_salesperson lead_status follow_up_at profile_version review_environment".split())
 
 
 def public_user(user):
@@ -161,17 +265,37 @@ async def lock(key, seconds=30, wait_seconds=0):
         await db.operation_locks.delete_one({"_id": key, "owner": owner})
 
 
+def decode_session(token):
+    return jwt.decode(token, secret("JWT_SECRET"), algorithms=["HS256"], audience="yash-clients",
+                      issuer="yash-canonical", options={"require": ["exp", "sub", "sv", "sid"]})
+
+
+def scope_of_authorization(authorization):
+    """Data scope carried by a signature-verified bearer token; anything unverifiable is production
+    scope, where the normal session checks will reject it."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    try:
+        return REVIEW if decode_session(authorization[7:]).get("scope") == REVIEW else None
+    except (jwt.PyJWTError, HTTPException):
+        return None
+
+
 async def current_user(authorization: str | None = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         fail(401, "AUTH_REQUIRED", "Sign in to continue")
     try:
-        payload = jwt.decode(authorization[7:], secret("JWT_SECRET"), algorithms=["HS256"],
-            audience="yash-clients", issuer="yash-canonical", options={"require": ["exp", "sub", "sv", "sid"]})
+        payload = decode_session(authorization[7:])
     except jwt.PyJWTError:
         fail(401, "TOKEN_INVALID", "Session expired or invalid; sign in again")
+    token_scope = REVIEW if payload.get("scope") == REVIEW else None
+    if token_scope != scope():
+        fail(401, "SESSION_SCOPE_MISMATCH", "Session does not belong to this data environment; sign in again")
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user or user.get("session_version", 0) != payload["sv"]:
         fail(401, "SESSION_REVOKED", "Session revoked; sign in again")
+    if bool(user.get("review_environment")) != in_review():
+        fail(401, "SESSION_SCOPE_MISMATCH", "Account environment mismatch; sign in again")
     usable(user)
     session = await db.session_families.find_one({"id": payload["sid"], "revoked": False,
                                                 "expires_at": {"$gt": stamp()}}, {"_id": 0})

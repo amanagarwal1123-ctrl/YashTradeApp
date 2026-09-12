@@ -109,6 +109,9 @@ export default function LoginScreen() {
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>{t.footer}</Text>
+          <TouchableOpacity testID="review-access-link" onPress={() => router.push('/review-access')} style={styles.reviewLink} accessibilityRole="link">
+            <Text style={styles.reviewLinkText}>Store reviewer access</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -145,6 +148,8 @@ const styles = StyleSheet.create({
   btnDisabled: { opacity: 0.4 },
   btnText: { fontSize: FontSize.base, fontWeight: '700', color: '#000', letterSpacing: 2 },
   hint: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.md },
-  footer: { position: 'absolute', bottom: 32, left: 0, right: 0, alignItems: 'center' },
+  footer: { position: 'absolute', bottom: 24, left: 0, right: 0, alignItems: 'center' },
   footerText: { fontSize: FontSize.xs, color: Colors.textMuted, letterSpacing: 1 },
+  reviewLink: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.md },
+  reviewLinkText: { fontSize: FontSize.xs, color: Colors.textSecondary, textDecorationLine: 'underline', letterSpacing: 0.5 },
 });
