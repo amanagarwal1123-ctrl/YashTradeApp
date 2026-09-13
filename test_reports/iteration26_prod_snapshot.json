@@ -1,0 +1,62 @@
+{
+  "users": {
+    "before": 25,
+    "after": 25,
+    "delta": 0
+  },
+  "products": {
+    "before": 484,
+    "after": 484,
+    "delta": 0
+  },
+  "requests": {
+    "before": 65,
+    "after": 65,
+    "delta": 0
+  },
+  "media_assets": {
+    "before": 0,
+    "after": 0,
+    "delta": 0
+  },
+  "ai_chat_history": {
+    "before": 10,
+    "after": 10,
+    "delta": 0
+  },
+  "deletion_requests": {
+    "before": 9,
+    "after": 9,
+    "delta": 0
+  },
+  "deleted_identities": {
+    "before": 1,
+    "after": 1,
+    "delta": 0
+  },
+  "integration_outbox": {
+    "before": 1,
+    "after": 1,
+    "delta": 0
+  },
+  "batches": {
+    "before": 50,
+    "after": 50,
+    "delta": 0
+  },
+  "import_jobs": {
+    "before": 0,
+    "after": 0,
+    "delta": 0
+  },
+  "sms_log": {
+    "before": 12,
+    "after": 12,
+    "delta": 0
+  },
+  "otp_challenges": {
+    "before": 0,
+    "after": 0,
+    "delta": 0
+  }
+}

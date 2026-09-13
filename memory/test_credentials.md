@@ -16,14 +16,21 @@ bcdf18c9-dc87-4d46-b580-30cf519103df. The correction has NOT been applied; local
 No real credentials/accounts were created or changed. Recovery tests must use isolated_db only,
 starting the synthetic owner as CUSTOMER (existing seeded_users otherwise starts it as admin).
 No reusable OTP exists. No website export has been received; full identity merge remains separate.
-Play review accounts: PREVIEW-ONLY reviewer accounts (store-review-customer/admin/telecaller/billing)
-existed in the preview review database `jewellers_app_review` while backend/.env named it; since the 12 Sep hotfix backend/.env carries the placeholder REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS, so preview reviewer login answers 503 REVIEW_UNAVAILABLE by design (health flows.review.issues=[REVIEW_DB_NAME]).
-Their access keys are NOT in this repository or chat; they live only in the disposable preview
-container at /tmp/yash-private/preview-<reviewer_id>.txt (one note per account, rotated 12 Sep 2026 release pass; rotate with
-`python tools/provision_review_access.py --expected-review-db jewellers_app_review --rotate <id>`).
-They are not the store-submission credentials; production accounts are provisioned by the owner
-(STORE_REVIEW_ACCESS.md). Sign-in path in the app: login screen -> "Store reviewer access" link
+Play review accounts (state on 13 Sep 2026, build shared-v1-store-submission-2026-09-13): PREVIEW-ONLY reviewer accounts
+(store-review-customer/admin/telecaller/billing) exist as bcrypt hashes in the `review__review_accounts` collection of the preview
+database `jewellers_app` (REVIEW_ACCESS_ENABLED=true; there is NO separate review database and NO REVIEW_DB_NAME any more).
+ALL FOUR ARE REVOKED (health flows.review.accounts_enabled=0); their former keys were only in private /tmp notes of disposable
+containers and are gone. To test a reviewer flow, rotate one account from backend/ with MONGO_URL/DB_NAME exported:
+`python tools/provision_review_access.py --expected-db jewellers_app --environment preview --rotate <reviewer_id> --write-note /tmp/yash-private/<new-file>.txt`
+(the key lands ONLY in that file; never print/log/screenshot it), and revoke it again afterwards:
+`python tools/provision_review_access.py --expected-db jewellers_app --revoke <reviewer_id>`.
+These are not the store-submission credentials; production accounts are provisioned by the owner from the production app
+(Panel > Store review, fresh owner OTP) or the CLI (STORE_REVIEW_ACCESS.md). Sign-in path in the app: login screen -> "Store reviewer access" link
 (/review-access) -> Reviewer ID + Access key -> SIGN IN; the gold STORE-REVIEW ENVIRONMENT banner
 confirms the isolated session. Endpoint: POST /api/auth/review/login {reviewer_id, access_key}.
+Owner console (/review-keys, GET/POST /api/admin/review/*): owner administrator only; every write action sends a REAL OTP to
+9999813334 -> automated tests must never trigger provision/rotate/revoke/reset there (read-only GET /status is safe).
+Disposable production-scope fixtures (non-owner admin / customer) used for E2E on 13 Sep were synthetic records with minted
+sessions in the preview DB and have been DELETED; recreate them ad hoc if needed (never dial their 91000099xx numbers).
 Real users: normal MSG91 OTP only. No fixed OTP exists in code (DEMO_PHONES is empty).
 Default owner administrator (12 Sep 2026): backend/.env OWNER_ADMIN_PHONE=9999813334 -> the record with that phone is admin in every environment (preview record bcdf18c9-dc87-4d46-b580-30cf519103df promoted customer->admin by the startup bootstrap; no fixed OTP, no password; real MSG91 OTP only - DO NOT send OTPs to this real number in automated tests). Tests use isolated synthetic databases with OWNER_ADMIN_PHONE set via monkeypatch and intercepted SMS.

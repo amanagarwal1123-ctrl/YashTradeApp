@@ -27,14 +27,12 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
-# Optional isolated store-review database. Absent OR a bootstrap placeholder (e.g. SET_IN_PUBLISH_SECRETS)
-# => review login is refused (503 REVIEW_UNAVAILABLE); production data is never used as a fallback.
-from shared.core import setting as _setting  # noqa: E402
-REVIEW_DB_NAME = _setting('REVIEW_DB_NAME')
-if REVIEW_DB_NAME and REVIEW_DB_NAME == os.environ['DB_NAME']:
-    raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME")
-review_db = client[REVIEW_DB_NAME] if REVIEW_DB_NAME else None
-review_blobs = MongoClient(mongo_url)[REVIEW_DB_NAME].review_blobs if REVIEW_DB_NAME else None
+# Optional isolated store-review environment: REVIEW_ACCESS_ENABLED=true keeps its data in the `review__*`
+# collections of the SAME database (application-enforced isolation by session scope; see shared/core.py).
+# Off/placeholder => reviewer login is refused (503 REVIEW_UNAVAILABLE); production data is never used as a fallback.
+from shared.core import setting as _setting, review_enabled_setting as _review_enabled, REVIEW_PREFIX as _REVIEW_PREFIX  # noqa: E402
+REVIEW_ACCESS_ENABLED = _review_enabled()
+review_blobs = MongoClient(mongo_url)[os.environ['DB_NAME']][_REVIEW_PREFIX + 'review_blobs'] if REVIEW_ACCESS_ENABLED else None
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -64,7 +62,7 @@ OTP_RATE_LIMIT = 5  # max OTP sends per phone per 10 min
 OTP_RATE_WINDOW = 600  # 10 minutes
 
 # MSG91 OTP configuration
-APP_BUILD = "shared-v1-review-fonts-2026-09-12"
+APP_BUILD = "shared-v1-store-submission-2026-09-13"
 MSG91_AUTHKEY = os.environ.get('MSG91_AUTHKEY', '').strip()
 MSG91_TEMPLATE_FROM_ENV = bool(os.environ.get('MSG91_TEMPLATE_ID', '').strip())
 MSG91_TEMPLATE_ID = os.environ.get('MSG91_TEMPLATE_ID', '').strip()
@@ -88,7 +86,7 @@ ENROLLMENT_INTEGRATION_KEY = os.environ.get('ENROLLMENT_INTEGRATION_KEY', '').st
 INTEGRATION_HEADER = 'X-Integration-Key'
 
 DEPLOY_ENV_KEYS = ('MONGO_URL', 'DB_NAME', 'JWT_SECRET', 'MSG91_AUTHKEY', 'MSG91_TEMPLATE_ID',
-                   'STAFF_SERVICE_KEY', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY', 'OWNER_ADMIN_PHONE')
+                   'STAFF_SERVICE_KEY', 'EMERGENT_LLM_KEY', 'ENROLLMENT_INTEGRATION_KEY', 'OWNER_ADMIN_PHONE', 'REVIEW_ACCESS_ENABLED')
 
 def _server_env_report() -> Dict[str, Any]:
     """Which deployment env keys are set on THIS server (names only — never values) + human warnings.
@@ -833,7 +831,7 @@ async def health():
         "provider_check": "ok" if pre["ok"] else "FAILED",
         "provider_message": pre["error"] or "MSG91 authkey and DLT template accepted",
         "provider_checked_at": pre["checked_at"],
-        "demo_mode": False,  # global demo switch removed in v7 — only OTP_DEMO_PHONES use the fixed OTP
+        "demo_mode": False,  # no demo phones, fixed OTPs or login bypasses exist in any environment
         **_server_env_report(),
     }
 
@@ -868,7 +866,7 @@ async def sms_diagnostics(force: bool = False, user=Depends(get_admin_user)):
         "authkey_valid": pre["authkey_valid"],
         "template_id": MSG91_TEMPLATE_ID or None,
         "template": pre["template"],
-        "demo_mode": False,  # global demo switch removed in v7 — only OTP_DEMO_PHONES use the fixed OTP
+        "demo_mode": False,  # no demo phones, fixed OTPs or login bypasses exist in any environment
         "server_env": _server_env_report(),
         "counters_24h": counters,
         "recent": recent,
@@ -2181,6 +2179,9 @@ async def reward_history(user=Depends(get_current_user)):
 @api_router.post("/ai/chat")
 async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
     from shared import core as _scope_core
+    from shared import ai_consent as _consent
+    # Explicit consent gate: nothing (typed text OR quick prompt) reaches the provider without the current consent.
+    consent_epoch = await _consent.require_consent(user)
     if _scope_core.in_review():
         # Genuine assistant for reviewers, but bounded: short prompts and a fixed daily message budget.
         if len(req.message) > REVIEW_AI_MESSAGE_LIMIT:
@@ -2193,8 +2194,10 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
                     "session_id": f"jeweller-{user['id']}", "error": True, "review_limit": "daily_messages"}
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
-        # Client session IDs cannot select another user's provider or database history.
+        # Client session IDs cannot select another user's provider or database history. The identifier handed to the
+        # provider is a keyed pseudonym: it carries no phone, name or canonical account ID.
         session_id = f"jeweller-{user['id']}"
+        provider_session = "yt-" + _scope_core.keyed("ai-session:" + user["id"])[:24]
         lang_instruction = ""
         if req.language == "hi":
             lang_instruction = "\n\nIMPORTANT: Respond in HINDI (हिंदी) language. Use Devanagari script."
@@ -2218,9 +2221,9 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         history.reverse()
         chat = LlmChat(
             api_key=EMERGENT_KEY,
-            session_id=session_id,
+            session_id=provider_session,
             system_message=system_msg
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+        ).with_model("anthropic", _consent.AI_MODEL)
         for h in history:
             if h.get("role") == "user":
                 chat._messages.append({"role": "user", "content": h["content"]})
@@ -2229,12 +2232,22 @@ async def ai_chat(req: AIChatRequest, user=Depends(get_current_user)):
         user_message = UserMessage(text=req.message)
         response = await chat.send_message(user_message)
         now = datetime.now(timezone.utc).isoformat()
-        message_id = str(uuid.uuid4())
-        await db.ai_chat_history.insert_one({"id": str(uuid.uuid4()), "user_id": user["id"], "session_id": session_id, "role": "user", "content": req.message, "created_at": now})
-        await db.ai_chat_history.insert_one({"id": message_id, "user_id": user["id"], "session_id": session_id, "role": "assistant", "content": response, "created_at": now})
-        return {"response": response, "session_id": session_id, "message_id": message_id}
+        message_id, user_message_id = str(uuid.uuid4()), str(uuid.uuid4())
+        await db.ai_chat_history.insert_one({"id": user_message_id, "user_id": user["id"], "session_id": session_id, "role": "user",
+                                             "content": req.message, "created_at": now, "consent_epoch": consent_epoch})
+        await db.ai_chat_history.insert_one({"id": message_id, "user_id": user["id"], "session_id": session_id, "role": "assistant",
+                                             "content": response, "created_at": now, "consent_epoch": consent_epoch})
+        # In-flight withdrawal guard: if consent was withdrawn while the provider was answering, this exchange must not
+        # recreate history. Withdrawal bumps the epoch BEFORE purging, so at least one of the two deletes wins.
+        if not await _consent.still_granted(user["id"], consent_epoch):
+            await db.ai_chat_history.delete_many({"id": {"$in": [user_message_id, message_id]}})
+            return {"response": response, "session_id": session_id, "message_id": None, "stored": False,
+                    "notice": "AI data sharing was withdrawn while this reply was being generated; it was not saved."}
+        return {"response": response, "session_id": session_id, "message_id": message_id, "stored": True}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"AI chat error: {e}")
+        logger.error(f"AI chat error: {type(e).__name__}")
         return {"response": "I'm having trouble connecting right now. Please try again.", "session_id": req.session_id or "", "error": True}
 
 @api_router.get("/ai/suggestions")
@@ -2416,7 +2429,7 @@ async def track_event(event: Dict[str, Any], user=Depends(get_current_user)):
         "data": event.get("data", {}),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    await db.analytics.insert_one(event_data)
+    await db.analytics_events.insert_one(event_data)
     return {"tracked": True}
 
 @api_router.get("/analytics/dashboard")
@@ -3158,7 +3171,7 @@ async def seed_new_features():
 # ===================== APP SETUP =====================
 
 from shared.install import install_shared
-install_shared(app, api_router, db, _dispatch_sms_otp, put_object, get_object, review_db=review_db, review_blobs=review_blobs)
+install_shared(app, api_router, db, _dispatch_sms_otp, put_object, get_object, review_enabled=REVIEW_ACCESS_ENABLED, review_blobs=review_blobs)
 # Every remaining legacy route now resolves data, SMS and media through the scope-aware gates, so a
 # store-review session can never read or write production records, storage or the SMS provider.
 from shared import core as _core

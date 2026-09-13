@@ -11,7 +11,7 @@ import { showAlert, confirmAlert } from '../src/utils/alert';
 import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
 import { downloadSample } from '../src/pdfClient';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives' | 'sms';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives' | 'sms' | 'review';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
 type Role = 'admin' | 'telecaller' | 'billing_executive' | null;
@@ -442,6 +442,8 @@ export default function PanelScreen() {
     { key: 'customers', label: 'Customers', icon: 'people' },
     { key: 'executives', label: 'Executives', icon: 'people-circle' },
     { key: 'sms', label: 'SMS', icon: 'chatbox-ellipses' },
+    // Owner-only console (server-side authorisation); hidden inside store-review sessions where it can never apply.
+    ...(!(appUser as any)?.review_environment ? [{ key: 'review' as PanelTab, label: 'Store review', icon: 'key' }] : []),
   ];
   const EXEC_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'requests', label: 'Requests', icon: 'call' },
@@ -474,6 +476,7 @@ export default function PanelScreen() {
             if(t.key === 'requests') router.push('/staff-requests');
             else if(t.key === 'rates') router.push('/staff-rates');
             else if(t.key === 'customers') router.push('/customer-directory');
+            else if(t.key === 'review') router.push('/review-keys');
             else setTab(t.key);
           }}>
             <Ionicons name={t.icon as any} size={16} color={tab === t.key ? Colors.gold : Colors.textMuted} />

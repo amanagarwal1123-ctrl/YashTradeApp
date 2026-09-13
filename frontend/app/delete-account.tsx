@@ -10,21 +10,25 @@ import { showAlert, confirmAlert } from '../src/utils/alert';
 
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
-const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'Local AI assistant chat history', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details'];
-const KEPT = ['Anonymous operational query history', 'Deletion reference and keyed identity tombstone to prevent accidental restoration', 'Website and provider erasure acknowledgements (pending until confirmed)'];
+const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'AI assistant chat history, AI consent record and content reports', 'Usage analytics events recorded by the app', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details'];
+const KEPT = ['Anonymous operational query history (your name, phone, shop and notes are blanked)', 'Deletion reference and keyed identity tombstone to prevent accidental restoration', 'Website, SMS-provider and AI-provider erasure acknowledgements (pending until confirmed)'];
+const NOT_COLLECTED = 'The app does not collect photos, files or other personal uploads from customers, so there is no personal media to erase from external storage.';
 
 export default function DeleteAccountScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [step, setStep] = useState<'info' | 'otp'>('info');
   const [otp, setOtp] = useState('');
+  const [simulatedOtp, setSimulatedOtp] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   const requestOtp = async () => {
     setBusy(true); setError('');
     try {
-      await api.post('/auth/delete-account/request');
+      const res = await api.post('/auth/delete-account/request');
+      // Store-review sessions only: the server discloses the simulated code to the same authenticated sample account.
+      if (res?.simulated_otp) { setSimulatedOtp(String(res.simulated_otp)); setOtp(String(res.simulated_otp)); }
       setStep('otp');
     } catch (e: any) {
       setError(e?.message || 'Could not send OTP. Please try again.');
@@ -38,7 +42,8 @@ export default function DeleteAccountScreen() {
       try {
         const res = await api.post('/auth/delete-account/confirm', { otp });
         await logout();
-        showAlert('Local account removed', `Your profile has been anonymized and sessions revoked. Reference: ${res.reference}. Website and provider erasure acknowledgements remain pending.`);
+        const remaining = res?.erasure?.local_personal_records_remaining;
+        showAlert('Local account removed', `Your profile has been anonymized and sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. Website and provider erasure acknowledgements remain pending; provider copies are not proven erased.`);
         router.replace('/login');
       } catch (e: any) {
         setError(e?.message || 'Could not verify OTP');
@@ -76,6 +81,7 @@ export default function DeleteAccountScreen() {
               <View key={item} style={st.row}><Ionicons name="checkmark-circle" size={16} color={Colors.textMuted} /><Text style={st.rowText}>{item}</Text></View>
             ))}
             <Text style={st.hint}>Ordinary profile identifiers are not retained as an unspecified business record. Any external provider retention must be confirmed separately.</Text>
+            <Text style={st.hint}>{NOT_COLLECTED}</Text>
           </View>
 
           <TouchableOpacity testID="delete-privacy-link" style={st.linkRow} onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})}>
@@ -90,7 +96,12 @@ export default function DeleteAccountScreen() {
           ) : (
             <View style={st.otpCard}>
               <Text style={st.otpTitle}>Confirm with OTP</Text>
-              <Text style={st.hint}>Enter the 4-digit code sent to +91 {user?.phone}</Text>
+              {simulatedOtp ? (
+                <View style={st.reviewNote} testID="delete-simulated-otp">
+                  <Text style={st.reviewNoteTitle}>STORE-REVIEW ENVIRONMENT</Text>
+                  <Text style={st.reviewNoteText}>SMS is simulated for sample accounts. Your one-time code is <Text style={st.reviewNoteCode}>{simulatedOtp}</Text>. Deleting removes the data of this sample profile; the next reviewer sign-in starts a fresh sample profile.</Text>
+                </View>
+              ) : <Text style={st.hint}>Enter the 4-digit code sent to +91 {user?.phone}</Text>}
               <TextInput
                 testID="delete-otp-input"
                 style={st.otpInput}
@@ -142,6 +153,10 @@ const st = StyleSheet.create({
   dangerBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#fff', letterSpacing: 1 },
   otpCard: { backgroundColor: Colors.card, borderRadius: 12, borderWidth: 1, borderColor: Colors.error + '40', padding: Spacing.md, marginTop: Spacing.md },
   otpTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.text },
+  reviewNote: { backgroundColor: Colors.gold + '18', borderRadius: 10, borderWidth: 1, borderColor: Colors.gold, padding: Spacing.sm, marginTop: Spacing.sm, gap: 4 },
+  reviewNoteTitle: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.gold, letterSpacing: 1.5 },
+  reviewNoteText: { fontSize: FontSize.sm, color: Colors.text, lineHeight: 20 },
+  reviewNoteCode: { fontWeight: '700', color: Colors.gold, letterSpacing: 2 },
   otpInput: { backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, color: Colors.text, paddingHorizontal: 14, paddingVertical: 12, fontSize: FontSize.lg, textAlign: 'center', letterSpacing: 8, fontWeight: '700', marginTop: Spacing.sm },
   resendBtn: { alignSelf: 'center', marginTop: Spacing.sm, minHeight: 44, justifyContent: 'center' },
   resendText: { fontSize: FontSize.sm, color: Colors.gold, fontWeight: '600' },

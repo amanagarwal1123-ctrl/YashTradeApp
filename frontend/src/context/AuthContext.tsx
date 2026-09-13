@@ -2,12 +2,13 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { api, setToken, setRefreshToken } from '../api';
+import { api, setToken, setRefreshToken, getToken } from '../api';
 
-// Secure token storage: SecureStore on devices, AsyncStorage on web
+// Secure token storage: SecureStore on devices. On web the session is memory-only (never persisted): the
+// module-level token survives a navigator reset that remounts this provider, but not a page reload.
 const tokenStore = {
   get: async (): Promise<string | null> => {
-    if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return null; }
+    if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return getToken(); }
     const secure = await SecureStore.getItemAsync('auth_token');
     if (secure) return secure;
     // One-time migration from the old AsyncStorage location

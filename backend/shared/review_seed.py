@@ -58,11 +58,15 @@ DATA_COLLECTIONS = ["users", "products", "batches", "rates_current", "rate_slabs
 
 
 async def seed_dataset(reset=False):
-    """Idempotent synthetic dataset. Must run inside c.scoped(c.REVIEW). Accounts/hashes are untouched."""
+    """Idempotent synthetic dataset. Must run inside c.scoped(c.REVIEW). Accounts/hashes are untouched.
+    reset=True empties ONLY the explicitly listed review collections (each resolved to its `review__` name);
+    it never drops a database and never touches an unprefixed collection."""
     assert c.in_review(), "seed_dataset must run in review scope"
     if reset:
         for name in DATA_COLLECTIONS:
-            await c.db[name].delete_many({})
+            target = c.db[name]
+            assert target.name == c.REVIEW_PREFIX + name, f"refusing to reset non-review collection {target.name}"
+            await target.delete_many({})
     ts = c.stamp()
     users = [_user(a["user_id"], a["phone"], a["name"], role, a["shop_name"], a["location"], ts,
                    customer_code=f"RVW-{role[:1].upper()}-001", code=f"RVW-{role[:1].upper()}-001",
@@ -145,6 +149,25 @@ async def seed_dataset(reset=False):
             "requests": await c.db.requests.count_documents({}), "rate_slabs": await c.db.rate_slabs.count_documents({})}
 
 
+async def restore_profile(role, previous=None):
+    """Fresh synthetic PROFILE for a reviewer whose sample profile was deleted or disabled inside the review copy.
+    The reviewer CREDENTIAL (review_accounts) is a separate record and must already have been verified as enabled by
+    the caller. Nothing of the previous profile returns: no history, uploads, reward rows, AI consent or sessions
+    (session_version advances past the old one and every session family is revoked). Runs only in review scope."""
+    assert c.in_review()
+    meta = ACCOUNTS[role]
+    ts = c.stamp()
+    generation = int((previous or {}).get("profile_generation", 0)) + 1
+    doc = _user(meta["user_id"], meta["phone"], meta["name"], role, meta["shop_name"], meta["location"], ts,
+                customer_code=f"RVW-{role[:1].upper()}-001", code=f"RVW-{role[:1].upper()}-001",
+                profile_generation=generation, recreated_at=ts)
+    doc["session_version"] = int((previous or {}).get("session_version", 0)) + 1
+    await c.db.users.replace_one({"id": meta["user_id"]}, doc, upsert=True)
+    await c.db.session_families.update_many({"user_id": meta["user_id"]}, {"$set": {"revoked": True}})
+    await c.db.deleted_identities.delete_many({"user_id": meta["user_id"]})
+    return doc
+
+
 async def provision_accounts(only=None):
     """Create missing reviewer accounts; returns {reviewer_id: plaintext secret} for NEW accounts only."""
     assert c.in_review()
@@ -192,3 +215,76 @@ async def status():
     rows = await c.db.review_accounts.find({}, {"_id": 0, "secret_hash": 0}).sort("reviewer_id", 1).to_list(50)
     return {"accounts": rows, "dataset": {"users": await c.db.users.count_documents({}), "products": await c.db.products.count_documents({}),
             "requests": await c.db.requests.count_documents({})}}
+
+
+ROLE_LABELS = {"customer": "Customer (retail jeweller)", "admin": "Admin (owner console)",
+               "telecaller": "Telecaller (follow-up desk)", "billing_executive": "Billing executive"}
+NOT_RECORDED = "(not recorded)"
+SIGN_IN_STEPS = [
+    "1. Open the Yash Trade app. On the login screen tap 'Store reviewer access' (small link under the footer).",
+    "2. Enter the Reviewer ID and the Access key exactly as written, then tap SIGN IN.",
+    "3. A gold 'STORE-REVIEW ENVIRONMENT' banner confirms the session. No SMS, OTP or phone number is required.",
+]
+STORE_FORM_TEXT = [
+    "Sign-in type: username + password style (Reviewer ID + Access key). No SMS, OTP or phone number is needed to sign in.",
+    "Steps: Login screen > 'Store reviewer access' > enter Reviewer ID and Access key > SIGN IN.",
+    "Customer role shows catalogue, rates, requests, rewards and the AI assistant on sample data (the assistant asks for AI data-sharing consent first; declining keeps every other feature available).",
+    "Admin/Telecaller/Billing roles open the staff panel with sample customers and enquiries.",
+    "Account deletion (Profile > Delete My Account) can be completed on the sample profile: SMS is simulated, so the one-time code is shown on the screen itself. Deleting removes the sample profile's data; the next sign-in with the same Reviewer ID and Access key starts a fresh sample profile (nothing from the deleted one comes back).",
+    "The environment is isolated from live customers (application-enforced by session scope); SMS/calls are simulated and clearly labelled.",
+]
+
+
+def role_of(reviewer_id):
+    return next((r for r, a in ACCOUNTS.items() if a["reviewer_id"] == reviewer_id), "unknown")
+
+
+def note_lines(environment, api_base_url, database, issued, unchanged, verification, verification_error=None):
+    """The private reviewer-access note. Shared by the owner CLI and the owner console so both produce the same
+    document; it is the ONLY place plaintext keys ever appear."""
+    from datetime import datetime, timezone
+    import json
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        "YASH TRADE - STORE-REVIEW ACCESS (PRIVATE - DO NOT COMMIT, SCREENSHOT OR PASTE INTO CHAT)",
+        f"Environment: {environment.upper()}    Backend: {api_base_url or NOT_RECORDED}    Database: {database}    Storage: {c.REVIEW_STORAGE}",
+        f"Generated: {ts}    Accounts issued in this run: {len(issued)}",
+        "",
+        "These credentials only work for the isolated store-review environment: synthetic records,",
+        "simulated SMS/calls/messages, no access to genuine customer data. They are reusable until rotated or revoked.",
+        "",
+        "HOW A REVIEWER SIGNS IN",
+        *[f"  {step}" for step in SIGN_IN_STEPS],
+        "",
+        "ACCOUNTS",
+    ]
+    for reviewer_id, secret in issued.items():
+        lines.append(f"  Reviewer ID: {reviewer_id:<26} Role: {ROLE_LABELS.get(role_of(reviewer_id), 'unknown'):<30} Access key: {secret}")
+    if unchanged:
+        lines += ["", "  Existing accounts whose key was NOT changed in this run (rotate one explicitly to issue a new key):",
+                  *[f"    - {rid}" for rid in unchanged]]
+    lines += ["", "VERIFICATION AGAINST THE DEPLOYED BACKEND (sign-in, /auth/me role check, sign-out, old session rejected, repeat sign-in)"]
+    if verification is None:
+        if verification_error:
+            lines += [f"  NOT COMPLETED - {verification_error}",
+                      "  The keys above ARE issued and stored (hashed) on the server but are UNVERIFIED.",
+                      "  Recovery: fix connectivity, then run the CLI with",
+                      f"    --expected-db {database} --verify-note <this file> --api-base-url {api_base_url or '<https://backend-host>/api'} --environment {environment}",
+                      "  which signs in with each key from this file and appends the results here. Never paste keys into chat."]
+        else:
+            lines.append(f"  NOT REQUESTED - run the CLI with --expected-db {database} --verify-note <this file> --api-base-url <https://backend-host>/api --environment {environment} to verify.")
+    else:
+        for rid, result in verification.items():
+            lines.append(f"  {rid:<28} {'PASS' if result.get('ok') else 'FAIL'}  {json.dumps({k: v for k, v in result.items() if k != 'ok'})}")
+    lines += [
+        "",
+        "TEXT FOR THE STORE REVIEW FORMS (App Store Connect > App Review Information / Play Console > App access)",
+        *[f"  {line}" for line in STORE_FORM_TEXT],
+        "",
+        "ROTATE / REVOKE",
+        "  Owner console: Yash Trade app > Panel > Store review (owner administrator only, fresh OTP required), or the CLI from backend/",
+        f"  python tools/provision_review_access.py --expected-db {database} --rotate <reviewer_id> --environment {environment} --write-note <new-private-file>",
+        f"  python tools/provision_review_access.py --expected-db {database} --revoke <reviewer_id>",
+        "",
+    ]
+    return lines

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
+import { showAlert } from '../src/utils/alert';
 
 /**
  * Store-review sign-in. Reviewer ID + reusable access key issued privately by the operator.
@@ -27,6 +28,7 @@ export default function ReviewAccessScreen() {
     try {
       const res = await api.post('/auth/review/login', { reviewer_id: reviewerId.trim(), access_key: accessKey.trim() });
       const user = await login(res.token, res.user, res.refresh_token);
+      if (res.profile_recreated) showAlert('Fresh sample profile', 'The previous sample profile was deleted, so a new one was created for this reviewer account. Nothing from the deleted profile was restored.');
       if (user.role === 'telecaller') router.replace('/telecaller');
       else if (user.role === 'admin' || user.role === 'billing_executive') router.replace('/panel');
       else router.replace('/(tabs)');

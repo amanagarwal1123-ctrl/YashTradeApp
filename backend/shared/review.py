@@ -57,20 +57,30 @@ async def review_login(req: ReviewLogin, request: Request):
     ip = request.client.host if request.client else "unknown"
     with c.scoped(c.REVIEW):
         await rate_limit("review-ip:" + ip, 30, 60)
-        await rate_limit("review-account:" + req.reviewer_id, 5, 60)
+        await rate_limit("review-account:" + req.reviewer_id, 10, 60)
         account = await c.db.review_accounts.find_one({"reviewer_id": req.reviewer_id}, {"_id": 0})
         valid = await run_in_threadpool(verify_secret, req.access_key, account["secret_hash"] if account else DUMMY_HASH)
         active = bool(account and account.get("enabled") and not account.get("revoked_at"))
         user = await c.db.users.find_one({"id": account["user_id"]}, {"_id": 0}) if (valid and active) else None
-        if not user or not user.get("review_environment") or c.account_status(user) != "active":
-            await audit("review_login_failed", req.reviewer_id, ip, False,
-                        "unknown_or_revoked" if not (valid and active) else "review_user_unavailable")
+        if not (valid and active):
+            await audit("review_login_failed", req.reviewer_id, ip, False, "unknown_or_revoked")
             c.fail(401, "REVIEW_CREDENTIALS_INVALID", "Reviewer ID or access key is incorrect")
+        restored = False
+        if not (user and user.get("review_environment") and c.account_status(user) == "active"):
+            # The sample PROFILE was deleted or disabled inside the review copy (e.g. a reviewer exercised account
+            # deletion). The CREDENTIAL above is still enabled, so a fresh synthetic profile is created: nothing of the
+            # old one returns (history, uploads, consent, sessions). Only review_accounts rows ever get here, so an
+            # ordinary customer can never be recreated by this path.
+            from .review_seed import restore_profile
+            user = await restore_profile(account["role"], user)
+            restored = True
+            await audit("review_profile_recreated", req.reviewer_id, ip, True, "fresh synthetic profile after deletion")
         ts = c.stamp()
         await c.db.users.update_one({"id": user["id"]}, {"$set": {"last_login": ts, "last_mobile_login_at": ts,
             "first_mobile_login_at": user.get("first_mobile_login_at") or ts, "has_logged_in": True}})
         await c.db.review_accounts.update_one({"reviewer_id": req.reviewer_id}, {"$set": {"last_login_at": ts}})
         await audit("review_login_succeeded", req.reviewer_id, ip, True)
         session = await issue(await c.db.users.find_one({"id": user["id"]}, {"_id": 0}))
-        return {**session, "review_environment": True,
-                "notice": "Store-review environment: synthetic records only; SMS, calls and messages are simulated."}
+        return {**session, "review_environment": True, "profile_recreated": restored,
+                "notice": ("A fresh sample profile was created because the previous one was deleted. " if restored else "")
+                          + "Store-review environment: synthetic records only; SMS, calls and messages are simulated."}

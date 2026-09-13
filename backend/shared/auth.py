@@ -32,7 +32,13 @@ async def rate_limit(key, limit, window):
         c.fail(429, "OTP_RATE_LIMIT", "Too many attempts; please wait before trying again")
 
 
-async def start_challenge(number, purpose, subject, request):
+async def start_challenge(number, purpose, subject, request, disclose_to=None):
+    """Issue a single-use, 10-minute, attempt-limited OTP challenge bound to (phone, purpose, subject).
+
+    `disclose_to`: canonical id of the SERVER-AUTHENTICATED caller (a `current_user` result) for whom the route acts.
+    Inside the store-review copy the SMS is only recorded, so the code is returned in the response - but ONLY when the
+    challenge's subject IS that authenticated caller (their own account, this operation). Unauthenticated routes pass
+    nothing, production scope never discloses, and a forged/expired/revoked session never reaches a route that does."""
     ip = request.client.host if request.client else "unknown"
     # Ignore client-supplied forwarded headers. Proxies need a configured trusted ingress.
     await rate_limit("send-ip:" + ip, 30, 600)
@@ -50,8 +56,14 @@ async def start_challenge(number, purpose, subject, request):
         await c.db.otp_challenges.insert_one({"id": cid, "phone": number, "purpose": purpose,
             "subject": subject, "hash": c.keyed(f"{cid}:{purpose}:{otp}"), "attempts": 0,
             "used": False, "created_at": c.now(), "expires_at": c.now() + timedelta(minutes=10)})
-    return {"message": "OTP accepted by SMS provider", "challenge_id": cid,
+    body = {"message": "OTP accepted by SMS provider", "challenge_id": cid,
             "otp_length": 4, "expires_in": 600, "resend_after": 60}
+    if c.in_review() and disclose_to and disclose_to == subject:
+        # Synthetic reviewer accounts have no reachable phone. The code is shown once to the same authenticated review
+        # session it belongs to (never logged: the review sms_log row carries no digits) so reviewers can finish OTP-gated
+        # flows such as account deletion on sample data. Expiry, single use and the 5-attempt limit apply unchanged.
+        body.update(message="Store-review environment: SMS simulated, use the code shown", simulated_otp=otp, review_environment=True)
+    return body
 
 
 async def check_challenge(number, purpose, subject, otp, cid=None):
@@ -285,7 +297,7 @@ async def change_start(req: PhoneChange, request: Request, user=Depends(c.curren
     number = c.phone(req.new_phone)
     if await c.by_phone(number) or await c.db.deleted_identities.find_one({"phone_hash": c.keyed(number)}):
         c.fail(409, "PHONE_CONFLICT", "This phone is already associated with an identity")
-    return await start_challenge(number, "phone_change", user["id"], request)
+    return await start_challenge(number, "phone_change", user["id"], request, disclose_to=user["id"])
 
 
 @router.post("/auth/phone-change/verify")

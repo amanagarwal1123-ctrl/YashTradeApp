@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://owner-setup-1.preview.emergentagent.com"
+API_URL="https://trade-app-submit.preview.emergentagent.com"
 
 echo "=== YASH TRADE VIRTUAL TRY-ON CURL TESTING ==="
 echo "API URL: $API_URL"

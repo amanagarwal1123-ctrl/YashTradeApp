@@ -45,6 +45,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency check failed.' }
 
 Write-Host ''
 Write-Host 'Next steps:'
-Write-Host '  1. Store-review accounts : .\backend\tools\windows\Provision-ReviewAccess.ps1 -Environment production -DbName <DB_NAME> -ReviewDbName <REVIEW_DB_NAME> -ApiBaseUrl https://<backend-host>/api -Provision -Seed -Verify -NotePath "$env:USERPROFILE\Private\yash-review-production.txt"'
+Write-Host '  1. Store-review accounts : .\backend\tools\windows\Provision-ReviewAccess.ps1 -Environment production -DbName <DB_NAME> -ApiBaseUrl https://<backend-host>/api -Provision -Seed -Verify -NotePath "$env:USERPROFILE\Private\yash-review-production.txt"'
 Write-Host '  2. Owner admin recovery  : .\backend\tools\windows\Recover-OwnerAdmin.ps1 -DbName <DB_NAME> -OperationId owner-admin-recovery-<date> -Operator <your-name>'
 Write-Host 'Both scripts ask for the MongoDB connection string with a hidden prompt; never type it on the command line.'

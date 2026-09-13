@@ -1,0 +1,87 @@
+{
+  "summary": "PREVIEW-only automated E2E for the prefixed-collections store-submission hardening. Backend: 22 pytest cases PASSED, 3 SKIPPED. All B1-B3, B5, B8-B10 assertions passed; B4 pdf-upload/init returned no init route in this build so the pdf-job isolation test skipped, B4 pdf-template/export ran and did not touch unprefixed media_assets; B6 (reviewer deletion + fresh recreated profile with profile_recreated true and review_profile_recreated audit event) verified in an isolated run then SKIPPED in the combined run because B5 exhausted the per-account OTP rate limit (OTP_RATE_LIMIT, longer window than tolerated cooldown backoff); B7 (production disposable customer AI-consent + deletion) executed end-to-end in the first pass (consent grant, chat, withdraw+history_deleted>=2, in-flight race with remaining=0, deletion with DEL- reference and erasure report, integration_outbox event, replay 401), then SKIPPED after fixture consumption. Production unprefixed collections show no change from reviewer traffic (see iteration26_prod_snapshot.json). Frontend F1 customer/admin sign-in shows the STORE-REVIEW ENVIRONMENT banner correctly; F5 validation (id>=3 chars, key>=20 chars) and wrong-key error text confirmed. F2 and F3 render a generic 'Unavailable / Sign in to continue' after a hard navigation because /review-keys and /ai-assistant fire their bootstrap request before AuthContext finishes reading the token from SecureStore/AsyncStorage on web, so the request goes without Authorization -> 401 -> refresh attempt fails -> tokens cleared. Two behavioural deviations to escalate: (a) B7 GET /api/auth/me on a deleted production user returns 403 ACCOUNT_INACTIVE where the spec asks for 401 (B6 reviewer deletion returns 401 correctly, so the mismatch is production-scope only); (b) the frontend hard-navigation race above.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/auth/me (after account deletion, production scope)",
+        "issue": "Spec requires 401 (session revoked) once the tombstone is written; backend returns 403 with code ACCOUNT_INACTIVE. Reviewer-scope deletion (B6) correctly returns 401. Bearer token still authenticates after deletion which prevents relying on 401 as the signal to drop the session in clients.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/pdf-upload/init (reviewer admin)",
+        "issue": "Endpoint returned a non-2xx status during B4 so the pdf-job isolation test skipped; confirm review-scope PDF import job path is wired (spec mentions shared/pdf_jobs.py). No unprefixed rows were created so no production impact."
+      },
+      {
+        "endpoint": "POST /api/auth/delete-account/request",
+        "issue": "OTP_RATE_LIMIT window is long enough that back-to-back review-scope tests can only issue one full deletion cycle per ~2-3 minutes. Not a bug per se, but callers must serialise the destructive flow or wait; tests now retry with escalating 65/130/180 s waits."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/review-keys.tsx",
+        "issue": "On hard navigation to /review-keys the initial api.get('/admin/review/status') is issued before AuthContext hydrates the token from SecureStore/AsyncStorage. api.ts sees 401, tries /auth/refresh, fails, clears the session and the screen renders the generic 'Unavailable / Sign in to continue' card instead of the expected REVIEW_SCOPE_FORBIDDEN title 'Not available in the store-review environment'. Backend returns 403 REVIEW_SCOPE_FORBIDDEN correctly. Fix: gate the useEffect load() on AuthContext.ready (or await getToken()) before firing the initial request.",
+        "testID": "review-keys-error",
+        "priority": "HIGH"
+      },
+      {
+        "component": "app/ai-assistant.tsx",
+        "issue": "Same hydration race as review-keys. After a hard navigation, /ai-assistant shows 'Sign in to continue' + TRY AGAIN even though the reviewer customer is authenticated (in-app router navigation is not affected). Blocks F3/F4 verification via deep-linking.",
+        "testID": "ai-consent-error",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "console warnings",
+        "issues": [
+          "'shadow*' style props are deprecated - Use 'boxShadow' (repeated on almost every screen)",
+          "props.pointerEvents is deprecated - Use style.pointerEvents (login, panel, ai-assistant, review-keys, review-access)"
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "styling",
+        "issue": "Deprecated 'shadow*' style props detected on multiple screens (login, panel, ai-assistant, review-keys, review-access). React Native web has warned. Reference: repeated console warnings."
+      },
+      {
+        "component": "pointerEvents",
+        "issue": "Deprecated props.pointerEvents used instead of style.pointerEvents on multiple screens. Reference: repeated console warnings."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration26_live_preview.py",
+    "/app/test_reports/pytest/iteration26.xml",
+    "/app/test_reports/iteration26_prod_snapshot.json"
+  ],
+  "action_items": [
+    "Fix production-scope deletion response so old token -> 401 (session revoked). Reviewer path already returns 401; align production flow (invalidate session_version so authenticated_user() returns 401 rather than the ACCOUNT_INACTIVE 403 guard).",
+    "Guard the bootstrap API call on /review-keys and /ai-assistant behind an AuthContext.ready flag (or await for the initial token restore) so a hard deep-link does not blow away the session with a spurious 401->refresh->clear cycle.",
+    "Investigate why POST /api/pdf-upload/init did not accept the reviewer admin payload used in the test (allow a small tolerance in error handling or expose /api/batches/{id}/import-pdf for a smaller PDF path).",
+    "Reissue the disposable_customer fixture in /tmp/yash-private/e2e-fixtures.json before the next iteration (current one was consumed by B7).",
+    "Replace deprecated 'shadow*' with 'boxShadow' and props.pointerEvents with style.pointerEvents across the affected screens."
+  ],
+  "critical_code_review_comments": [
+    "api.ts sits behind a plain module-level variable (authToken). Combined with AuthContext hydrating asynchronously on web, any screen that fires an API call from its top-level useEffect (review-keys, ai-assistant, delete-account) will race the auth restore on hard navigation.",
+    "Review environment isolation is well enforced at the collection layer (all reviewer writes hit review__* only, downloads by prefixed path are 404 for production admins) and this run confirmed unprefixed collection counts stayed flat except where the disposable production customer explicitly acted."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration26_live_preview.py"
+  ],
+  "success_rate": {
+    "backend": "88% (22/25 pytest cases; the 3 skips are environmental, not defects)",
+    "frontend": "60% (F1 customer/admin login + banner PASS, F5 negative PASS; F2 title mismatch due to hydration race; F3 consent card not reached via hard nav; F4 not exercised because the disposable customer fixture had already been consumed by B7 and the reviewer-customer flow was already covered inside B6)"
+  },
+  "seed_data_creation": "None. Reviewer accounts are pre-provisioned by the release; only synthetic sample data was mutated within review__* collections (a request row, an uploaded review blob, a synthetic staff row, a simulated SMS log, one review deletion cycle, one AI chat). All reset by the fresh-profile recreation.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reviewer-customer was recreated by B6 in this run (profile_recreated true confirmed). If rerunning, either wait ~3 minutes before B6 or invoke the reviewer OTP endpoint sparingly. The disposable_customer fixture in /tmp/yash-private/e2e-fixtures.json is CONSUMED (account_status deleted, id e2e-cust-6dd45f); ask the main agent to reissue before running B7 again. The frontend hard-navigation race on /review-keys and /ai-assistant is deterministic; either wait ~4 s after page.goto or click into the screen via in-app navigation to avoid it. Backend base URL is EXPO_PUBLIC_BACKEND_URL from /app/frontend/.env; MONGO_URL/DB_NAME/ENROLLMENT_INTEGRATION_KEY come from /app/backend/.env (never commit).",
+  "rca_of_issue": "Root cause for the two frontend issues (F2, F3 via hard navigation): AuthContext.tsx restores the token asynchronously (SecureStore.getItemAsync -> setToken). Screens like review-keys.tsx call api.get('/admin/review/status') inside a useEffect on mount without waiting on that restoration. On a hard page load the fetch is dispatched with authToken still null, the backend correctly returns 401, api.ts's authenticatedFetch treats it as a stale-token case, calls /auth/refresh (which fails because no refresh token has been hydrated yet either), then clears tokens and throws 'Session expired'. The user sees the generic Unavailable card. Reproduction: sign in as reviewer admin -> page.goto('/review-keys') -> observe 'Unavailable / Sign in to continue'. Direct backend calls with the same bearer token return 403 REVIEW_SCOPE_FORBIDDEN as expected. Mitigation: expose an `authReady` boolean from AuthContext and defer initial screen requests until it flips true, or have api.ts await a hydration promise before firing the first request.",
+  "environment": "PREVIEW deployment https://trade-app-submit.preview.emergentagent.com (never production). No SMS was sent; every reviewer OTP is simulated. Owner console positive path was NOT touched (reviewer 403 and disposable non-owner admin OWNER_ADMIN_REQUIRED are the only paths verified, as instructed)."
+}

@@ -3,7 +3,7 @@
   "info": {
     "title": "Yash canonical shared API",
     "description": "Canonical role/session authority. See YASH_SHARED_API_CONTRACT.md for migration and website cutover requirements.",
-    "version": "shared-v1-review-fonts-2026-09-12"
+    "version": "shared-v1-store-submission-2026-09-13"
   },
   "paths": {
     "/api/health/live": {
@@ -12,6 +12,7 @@
           "Capabilities"
         ],
         "summary": "Live",
+        "description": "Process liveness only (never authentication readiness). Production evidence 12 Sep 2026: a build whose\n/health answered 503 was deployed and served, so the strict endpoints below stay truthful.",
         "operationId": "live_api_health_live_get",
         "responses": {
           "200": {
@@ -123,6 +124,7 @@
           "Capabilities"
         ],
         "summary": "Health",
+        "description": "Strict readiness: 503 while any non-optional authentication flow is unconfigured or the database is\nunreachable. Never unconditional 200. The optional review flow is reported but never affects `ready`.",
         "operationId": "health_api_health_ready_get",
         "responses": {
           "200": {
@@ -234,6 +236,7 @@
           "Capabilities"
         ],
         "summary": "Health",
+        "description": "Strict readiness: 503 while any non-optional authentication flow is unconfigured or the database is\nunreachable. Never unconditional 200. The optional review flow is reported but never affects `ready`.",
         "operationId": "health_api_health_get",
         "responses": {
           "200": {
@@ -2354,7 +2357,7 @@
           "Store review access"
         ],
         "summary": "Review Login",
-        "description": "Reviewer ID + reusable access key -> normal canonical session bound to the review scope.\nMissing review configuration denies access; it never falls back to production data.",
+        "description": "Reviewer ID + reusable access key -> normal canonical session bound to the review scope.\nMissing OR unusable review storage denies access; it never falls back to production data.",
         "operationId": "review_login_api_auth_review_login_post",
         "requestBody": {
           "content": {
@@ -2365,6 +2368,659 @@
             }
           },
           "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/review/status": {
+      "get": {
+        "tags": [
+          "Store review owner console"
+        ],
+        "summary": "Status",
+        "operationId": "status_api_admin_review_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/review/challenge": {
+      "post": {
+        "tags": [
+          "Store review owner console"
+        ],
+        "summary": "Challenge",
+        "operationId": "challenge_api_admin_review_challenge_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/review/keys": {
+      "post": {
+        "tags": [
+          "Store review owner console"
+        ],
+        "summary": "Keys",
+        "operationId": "keys_api_admin_review_keys_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/consent": {
+      "get": {
+        "tags": [
+          "AI consent"
+        ],
+        "summary": "Read Consent",
+        "operationId": "read_consent_api_ai_consent_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AI consent"
+        ],
+        "summary": "Decide",
+        "operationId": "decide_api_ai_consent_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentDecision"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
@@ -21059,6 +21715,30 @@
         ],
         "title": "Commit"
       },
+      "ConsentDecision": {
+        "properties": {
+          "granted": {
+            "type": "boolean",
+            "title": "Granted"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "assistant",
+              "profile",
+              "quick_prompt"
+            ],
+            "title": "Source",
+            "default": "assistant"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "granted"
+        ],
+        "title": "ConsentDecision"
+      },
       "Conversion": {
         "properties": {
           "role": {
@@ -21415,6 +22095,64 @@
           "total_chunks"
         ],
         "title": "Init"
+      },
+      "KeyAction": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "provision",
+              "rotate",
+              "revoke",
+              "reset_data"
+            ],
+            "title": "Action"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Reviewer Id",
+            "default": ""
+          },
+          "otp": {
+            "type": "string",
+            "pattern": "^[0-9]{4}$",
+            "title": "Otp"
+          },
+          "challenge_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Challenge Id"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "production"
+            ],
+            "title": "Environment",
+            "default": "production"
+          },
+          "api_base_url": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Api Base Url",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "otp"
+        ],
+        "title": "KeyAction"
       },
       "KnowledgeCreate": {
         "properties": {

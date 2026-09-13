@@ -1,4 +1,4 @@
-"""Store-review access isolation: reviewer accounts live ONLY in the separate review database.
+"""Store-review access isolation: reviewer accounts live ONLY in the `review__*` collections (application-enforced).
 
 Every assertion runs against isolated synthetic databases with intercepted transports. The
 production double is `isolated_db`/`seeded_users`; the review copy is `review_env`. No real SMS,
@@ -31,14 +31,15 @@ async def review_login(api_client, reviewer_id, key):
     return await api_client.post("/api/auth/review/login", json={"reviewer_id": reviewer_id, "access_key": key})
 
 
-async def test_review_login_is_denied_when_no_review_database_is_configured(api_client, isolated_db):
+async def test_review_login_is_denied_when_review_access_is_disabled(api_client, isolated_db):
     res = await api_client.post("/api/auth/review/login", json={"reviewer_id": "store-review-admin", "access_key": "x" * 43})
     assert res.status_code == 503 and res.json()["code"] == "REVIEW_UNAVAILABLE"
     health = await api_client.get("/api/health")
     review = health.json()["flows"]["review"]
-    assert review["ready"] is False and review["issues"] == ["REVIEW_DB_NAME"] and review["optional"] is True
-    assert review["configured"] is False and review["usable"] is False
-    assert health.json()["configuration"]["REVIEW_DB_NAME"] is False and health.json()["configuration"]["REVIEW_DB_USABLE"] is False
+    assert review["ready"] is False and review["issues"] == ["REVIEW_ACCESS_DISABLED"] and review["optional"] is True
+    assert review["enabled"] is False and review["usable"] is False and review["storage"] == "prefixed_collections"
+    assert review["isolation"] == "application_enforced" and review["accounts_enabled"] is None
+    assert health.json()["configuration"]["REVIEW_ACCESS_ENABLED"] is False and health.json()["configuration"]["REVIEW_STORAGE_USABLE"] is False
     # The optional review flow never blocks production readiness.
     assert "review" not in [n for n, f in health.json()["flows"].items() if not f["ready"] and n != "review"]
 
@@ -78,11 +79,11 @@ async def test_reviewer_login_rate_limit_is_per_account(api_client, review_env):
     import asyncio
     import time
     keys = await provision(review_env)
-    # The limiter uses fixed 60 s windows; six bcrypt attempts take ~2 s, so start clear of a window boundary.
+    # The limiter uses fixed 60 s windows; eleven bcrypt attempts take ~4 s, so start clear of a window boundary.
     remaining = 60 - (int(time.time()) % 60)
-    if remaining < 5:
+    if remaining < 8:
         await asyncio.sleep(remaining)
-    for _ in range(5):
+    for _ in range(10):
         assert (await review_login(api_client, "store-review-billing", "wrong-key-wrong-key-wrong-key-12")).status_code == 401
     limited = await review_login(api_client, "store-review-billing", keys["store-review-billing"])
     assert limited.status_code == 429 and limited.json()["code"] == "OTP_RATE_LIMIT"
@@ -221,23 +222,100 @@ async def test_forged_scope_claims_and_review_phones_cannot_cross_environments(a
     assert (await login_helper("9000000005"))["user"]["role"] == "customer"
 
 
-async def test_review_deletion_flow_stays_out_of_the_website_outbox(api_client, review_env, seeded_users):
+async def test_simulated_review_otp_is_disclosed_only_to_its_own_authenticated_review_session(api_client, review_env, seeded_users, login_helper):
     keys = await provision(review_env)
+    prod, review = review_env["primary"], review_env["db"]
     customer = (await review_login(api_client, "store-review-customer", keys["store-review-customer"])).json()
+    # Authorised: the reviewer's OWN deletion challenge (subject == authenticated caller) carries the simulated code, and
+    # only the hashed row + a digit-free simulated sms_log entry are stored.
     started = await api_client.post("/api/auth/delete-account/request", headers=bearer(customer))
     assert started.status_code == 200, started.text
-    challenge = await review_env["db"].otp_challenges.find_one({"purpose": "account_deletion"})
-    assert challenge is not None and await review_env["primary"].otp_challenges.count_documents({}) == 0
-    simulated = await review_env["db"].sms_log.find_one({"status": "simulated", "purpose": "account_deletion"})
-    assert simulated is not None
-    # The reviewer sees the flow but the real OTP digits are never transmitted anywhere; a wrong code fails.
-    wrong = await api_client.post("/api/auth/delete-account/confirm", json={"otp": "0000", "challenge_id": started.json()["challenge_id"]}, headers=bearer(customer))
-    assert wrong.status_code in (400, 401)
-    outbox = await api_client.get("/api/integrations/deletions", headers=WEBSITE_KEY)
-    assert outbox.status_code == 200 and outbox.json()["events"] == []
-    # Reset keeps accounts but rebuilds the synthetic dataset.
+    body = started.json()
+    assert body["review_environment"] is True and body["simulated_otp"].isdigit() and len(body["simulated_otp"]) == 4
+    challenge = await review.otp_challenges.find_one({"purpose": "account_deletion", "subject": "review-customer-0001"})
+    assert challenge and body["simulated_otp"] not in str({k: v for k, v in challenge.items() if k != "hash"})
+    simulated = await review.sms_log.find_one({"status": "simulated", "purpose": "account_deletion"}, {"_id": 0})
+    assert simulated and body["simulated_otp"] not in str(simulated) and await prod.otp_challenges.count_documents({}) == 0
+    # Not authorised: a login OTP for ANOTHER synthetic account requested with the same review bearer (subject != caller),
+    # an unauthenticated request, a production customer's own deletion challenge, and a signed-out review session.
+    other = await api_client.post("/api/auth/send-otp", json={"phone": "9100000102", "channel": "mobile"}, headers=bearer(customer))
+    assert other.status_code == 200 and "simulated_otp" not in other.json()
+    assert (await api_client.post("/api/auth/send-otp", json={"phone": "9100000101", "channel": "mobile"})).status_code == 404  # production scope
+    real = await login_helper("9000000005")
+    await prod.otp_challenges.delete_many({"phone": "9000000005"})  # 60 s cooldown row from the login challenge (test only)
+    real_delete = await api_client.post("/api/auth/delete-account/request", headers=bearer(real))
+    assert real_delete.status_code == 200 and "simulated_otp" not in real_delete.json() and ("9000000005", "account_deletion") in review_env["sent_otps"]
+    signed_out = (await review_login(api_client, "store-review-customer", keys["store-review-customer"])).json()
+    assert (await api_client.post("/api/auth/logout", headers=bearer(signed_out))).status_code == 200
+    assert (await api_client.post("/api/auth/delete-account/request", headers=bearer(signed_out))).status_code == 401
+    # Wrong digits fail and count as an attempt; the disclosed code is single use.
+    wrong = await api_client.post("/api/auth/delete-account/confirm", json={"otp": f"{(int(body['simulated_otp']) + 1) % 10000:04d}",
+                                  "challenge_id": body["challenge_id"]}, headers=bearer(customer))
+    assert wrong.status_code == 400 and wrong.json()["code"] == "OTP_INVALID"
+
+
+async def test_reviewer_deletion_then_repeat_login_starts_a_fresh_sample_profile_without_restoring_anything(api_client, review_env, seeded_users, login_helper):
+    keys = await provision(review_env)
+    prod, review = review_env["primary"], review_env["db"]
+    prod_users_before = [u async for u in prod.users.find({}, {"_id": 0}).sort("id", 1)]
+    customer = (await review_login(api_client, "store-review-customer", keys["store-review-customer"])).json()
+    assert customer["profile_recreated"] is False
+    # The sample profile accumulates personal state: AI consent, chat history, a reward balance and an enquiry.
+    assert (await api_client.post("/api/ai/consent", json={"granted": True}, headers=bearer(customer))).json()["granted"] is True
+    await review.ai_chat_history.insert_one({"id": "h1", "user_id": "review-customer-0001", "session_id": "jeweller-review-customer-0001",
+                                             "role": "user", "content": "sample question", "created_at": c.stamp()})
+    assert (await review.users.find_one({"id": "review-customer-0001"}))["reward_points"] == 120
+    started = (await api_client.post("/api/auth/delete-account/request", headers=bearer(customer))).json()
+    done = await api_client.post("/api/auth/delete-account/confirm", json={"otp": started["simulated_otp"], "challenge_id": started["challenge_id"]},
+                                 headers=bearer(customer))
+    assert done.status_code == 200 and done.json()["deleted"] is True, done.text
+    replay = await api_client.post("/api/auth/delete-account/confirm", json={"otp": started["simulated_otp"], "challenge_id": started["challenge_id"]},
+                                   headers=bearer(customer))
+    assert replay.status_code == 401  # session revoked by the deletion; the consumed code cannot be replayed either
+    tomb = await review.users.find_one({"id": "review-customer-0001"}, {"_id": 0})
+    assert tomb["account_status"] == "deleted" and "ai_consent" not in tomb and tomb["phone"].startswith("deleted:")
+    assert await review.ai_chat_history.count_documents({"user_id": "review-customer-0001"}) == 0
+    assert await review.deleted_identities.count_documents({"user_id": "review-customer-0001"}) == 1
+    assert await review.deletion_requests.count_documents({"user_id": "review-customer-0001"}) == 1
+    # Everything stayed in the review copy: production users, tombstones, deletion ledger and website outbox untouched.
+    assert [u async for u in prod.users.find({}, {"_id": 0}).sort("id", 1)] == prod_users_before
+    assert await prod.deleted_identities.count_documents({}) == 0 and await prod.deletion_requests.count_documents({}) == 0
+    assert (await api_client.get("/api/integrations/deletions", headers=WEBSITE_KEY)).json()["events"] == []
+    # Repeat sign-in with the SAME enabled credential: fresh profile, nothing restored, old session still dead.
+    again = await review_login(api_client, "store-review-customer", keys["store-review-customer"])
+    assert again.status_code == 200 and again.json()["profile_recreated"] is True and "fresh sample profile" in again.json()["notice"]
+    assert (await api_client.get("/api/auth/me", headers=bearer(customer))).status_code == 401
+    fresh = await review.users.find_one({"id": "review-customer-0001"}, {"_id": 0})
+    assert fresh["account_status"] == "active" and fresh["review_environment"] is True and fresh["profile_generation"] == 1
+    assert fresh["session_version"] >= 1 and fresh["phone"] == "9100000101" and fresh["reward_points"] == 0
+    assert "ai_consent" not in fresh and (await api_client.get("/api/ai/consent", headers=bearer(again.json()))).json()["granted"] is False
+    assert await review.ai_chat_history.count_documents({"user_id": "review-customer-0001"}) == 0
+    assert await review.deleted_identities.count_documents({"user_id": "review-customer-0001"}) == 0
+    assert await review.review_access_log.count_documents({"event": "review_profile_recreated"}) == 1
+    me = await api_client.get("/api/auth/me", headers=bearer(again.json()))
+    assert me.status_code == 200 and me.json()["role"] == "customer" and me.json()["review_environment"] is True
+    # A REVOKED credential never regains access, and never recreates a profile: delete again, revoke, sign in -> 401.
+    started = (await api_client.post("/api/auth/delete-account/request", headers=bearer(again.json()))).json()
+    assert (await api_client.post("/api/auth/delete-account/confirm", json={"otp": started["simulated_otp"], "challenge_id": started["challenge_id"]},
+                                  headers=bearer(again.json()))).status_code == 200
+    with c.scoped(c.REVIEW):
+        await review_seed.revoke("store-review-customer")
+    denied = await review_login(api_client, "store-review-customer", keys["store-review-customer"])
+    assert denied.status_code == 401
+    assert (await review.users.find_one({"id": "review-customer-0001"}))["account_status"] == "deleted"
+    assert await review.review_access_log.count_documents({"event": "review_profile_recreated"}) == 1
+    # Ordinary customers never auto-recreate: a genuine deletion stays deleted for the normal OTP flow.
+    real = await login_helper("9000000005")
+    await prod.otp_challenges.delete_many({"phone": "9000000005"})  # 60 s cooldown row from the login challenge (test only)
+    started = (await api_client.post("/api/auth/delete-account/request", headers=bearer(real))).json()
+    otp = review_env["sent_otps"][("9000000005", "account_deletion")]
+    assert (await api_client.post("/api/auth/delete-account/confirm", json={"otp": otp, "challenge_id": started["challenge_id"]}, headers=bearer(real))).status_code == 200
+    blocked = await api_client.post("/api/auth/send-otp", json={"phone": "9000000005", "channel": "mobile"})
+    assert blocked.status_code == 404 and blocked.json()["code"] == "USER_NOT_FOUND"  # the erased identity is not a registered number any more
+    assert (await prod.users.find_one({"id": "u_cust2"}))["account_status"] == "deleted"
+    # Reset keeps the credentials but rebuilds the synthetic dataset (also clears the tombstone above).
     with c.scoped(c.REVIEW):
         summary = await review_seed.seed_dataset(reset=True)
         status = await review_seed.status()
     assert summary["products"] == 12 and len(status["accounts"]) == 4 and all("secret_hash" not in a for a in status["accounts"])
-    assert await review_env["db"].otp_challenges.count_documents({}) == 0
+    assert await review.otp_challenges.count_documents({}) == 0 and (await review.users.find_one({"id": "review-customer-0001"}))["account_status"] == "active"

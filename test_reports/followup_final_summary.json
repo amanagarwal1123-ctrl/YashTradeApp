@@ -71,7 +71,7 @@
     "blocker": "User-controlled Save to GitHub action unavailable to this session; public main still baseline on final read-only check"
   },
   "runtime": {
-    "preview": "https://owner-setup-1.preview.emergentagent.com",
+    "preview": "https://trade-app-submit.preview.emergentagent.com",
     "preview_recorded_commit": "unrecorded",
     "production_changes_performed": false,
     "production_app_last_independent_build": "2026.09.09-integration-v7",

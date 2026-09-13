@@ -11,7 +11,6 @@
 
 .PARAMETER Environment   preview or production — recorded in the note and verification so accounts are never confused.
 .PARAMETER DbName        The deployment's DB_NAME exactly as shown in Manage Publishes -> Secrets.
-.PARAMETER ReviewDbName  The deployment's REVIEW_DB_NAME exactly as set in Secrets (must differ from DbName).
 .PARAMETER ApiBaseUrl    Deployed backend base URL ending in /api (used by -Verify and recorded in the note).
 .PARAMETER NotePath      New private file that receives the keys, e.g. "$env:USERPROFILE\Private\yash-review-production.txt".
 .PARAMETER VerifyNote    RECOVERY / re-check: an EXISTING private note written earlier by this tool. Signs in with every key
@@ -21,23 +20,23 @@
                          target - or a note without a recorded backend - is refused before a single request is sent.
 
 .EXAMPLE
-  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review `
+  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod `
       -ApiBaseUrl https://yash-tryon-test.emergent.host/api -Provision -Seed -Status -Verify `
       -NotePath "$env:USERPROFILE\Private\yash-review-production.txt"
 
 .EXAMPLE
-  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review `
+  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod `
       -ApiBaseUrl https://yash-tryon-test.emergent.host/api -VerifyNote "$env:USERPROFILE\Private\yash-review-production.txt"
 
 .EXAMPLE
-  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review -Status
+  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -Status
 
 .EXAMPLE
-  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review `
+  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod `
       -Rotate store-review-admin -ApiBaseUrl https://yash-tryon-test.emergent.host/api -Verify -NotePath "$env:USERPROFILE\Private\yash-review-rotated.txt"
 
 .EXAMPLE
-  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -ReviewDbName jewellers_prod_review -Revoke store-review-telecaller
+  .\Provision-ReviewAccess.ps1 -Environment production -DbName jewellers_prod -Revoke store-review-telecaller
 
 .NOTES
   Exit codes (from the Python tool): 0 = done and, when -Verify/-VerifyNote was given, EVERY key proved end-to-end;
@@ -49,7 +48,6 @@
 param(
     [Parameter(Mandatory)][ValidateSet('preview', 'production')][string]$Environment,
     [Parameter(Mandatory)][string]$DbName,
-    [Parameter(Mandatory)][string]$ReviewDbName,
     [string]$ApiBaseUrl = '',
     [string]$NotePath = '',
     [string]$VerifyNote = '',
@@ -62,7 +60,6 @@ param(
     [string]$Revoke = ''
 )
 $ErrorActionPreference = 'Stop'
-if ($DbName -eq $ReviewDbName) { throw 'ReviewDbName must differ from DbName: review data can never share the production database.' }
 if (($Verify -or $VerifyNote) -and -not $ApiBaseUrl) { throw '-Verify / -VerifyNote need -ApiBaseUrl (deployed backend URL ending in /api).' }
 if ($VerifyNote -and ($Provision -or $Seed -or $ResetData -or $Status -or $Rotate -or $Revoke -or $NotePath -or $Verify)) {
     throw '-VerifyNote is a read-only re-check of an existing note; run it on its own (with -ApiBaseUrl).'
@@ -81,7 +78,7 @@ if ($NotePath) {
 }
 if ($VerifyNote -and -not (Test-Path $VerifyNote)) { throw "VerifyNote file not found: $VerifyNote" }
 
-$arguments = @('tools\provision_review_access.py', '--expected-review-db', $ReviewDbName, '--environment', $Environment)
+$arguments = @('tools\provision_review_access.py', '--expected-db', $DbName, '--environment', $Environment)
 if ($Provision) { $arguments += '--provision' }
 if ($Seed) { $arguments += '--seed' }
 if ($ResetData) { $arguments += '--reset-data' }
@@ -110,7 +107,6 @@ if ($VerifyNote) {
     try {
         $env:MONGO_URL = $plain
         $env:DB_NAME = $DbName
-        $env:REVIEW_DB_NAME = $ReviewDbName
         Push-Location $backend
         try {
             & $python @arguments
@@ -119,7 +115,7 @@ if ($VerifyNote) {
             Pop-Location
         }
     } finally {
-        Remove-Item Env:MONGO_URL, Env:DB_NAME, Env:REVIEW_DB_NAME -ErrorAction SilentlyContinue
+        Remove-Item Env:MONGO_URL, Env:DB_NAME -ErrorAction SilentlyContinue
         $plain = $null
         $secure = $null
         [GC]::Collect()

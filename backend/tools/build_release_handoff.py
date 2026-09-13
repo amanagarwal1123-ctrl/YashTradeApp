@@ -184,23 +184,26 @@ def build(out_path):
         "excluded_by_policy": [".env files", "credentials / connection strings", "OTPs", "private reviewer notes (*review-access*.txt)",
                                "customer data / identity exports / backups", "test databases"],
         "status": {
-            "production_hotfix_2026_09_12": "Optional store-review storage can no longer crash startup: a configured review database the deployment's "
-                                            "MongoDB user is not authorised for (code 13) or cannot reach is marked unusable for the process "
-                                            "(/api/health flows.review.issues=[REVIEW_DB_UNAUTHORIZED|REVIEW_DB_UNAVAILABLE], configuration.REVIEW_DB_USABLE=false), "
-                                            "reviewer sign-in and existing reviewer sessions answer 503 REVIEW_UNAVAILABLE, background workers never poll it, "
-                                            "production flows unaffected; a failing PRIMARY database still aborts startup. Preview backend/.env declares "
-                                            "REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS (no review database anywhere until the owner sets a real, distinct name in Secrets).",
+            "store_submission_2026_09_13": "Store-review isolation = review__ prefixed collections inside DB_NAME (REVIEW_ACCESS_ENABLED=true; the former "
+                                           "separate review database / REVIEW_DB_NAME no longer exists), application-enforced by the signature-verified session scope; "
+                                           "owner-only console /api/admin/review/{status,challenge,keys} (fresh owner OTP per action, keys shown once, bcrypt hashes stored); "
+                                           "AI consent /api/ai/consent gating /api/ai/chat; deep account deletion; simulated review OTP disclosed only to the owning "
+                                           "review session; deleted reviewer profile recreated fresh on next sign-in. Reviewer accounts exist only after the owner provisions them. "
+                                           "Website: no new obligation (WEBSITE_HANDOFF.md, 13 Sep section).",
             "local_tests": {
-                "backend_shared_suite": "see test_reports/pytest/hotfix_full_2026-09-12.xml (Playwright-based UI cases skip in this environment)",
-                "review_storage_hotfix": "test_review_storage_hotfix.py 7/7 incl. a real `mongod --auth` instance whose user holds readWrite on the main database only",
+                "backend_shared_suite": "see test_reports/pytest/store_submission_full_2026-09-13.xml (Playwright-based UI cases skip in this environment)",
+                "review_isolation": "test_review_access_isolation.py 9/9, test_review_prefixed_storage.py 2/2 (real `mongod --auth`, user restricted to the main database), "
+                                    "test_review_owner_console.py 4/4, test_ai_consent_and_deletion.py 3/3",
                 "reviewer_cli": "test_review_provisioning_cli.py 8/8 incl. live-backend exit-code contract 0/1/2; --verify-note pins the backend URL "
                                 "(scheme, host, port, path) before any request -> exit 1 on mismatch, exit 2 + sanitized NOT COMPLETED note entry on transport failure",
                 "placeholder_configuration": "test_placeholder_configuration.py 2/2",
-                "frontend_clean_checkout": "yarn install --frozen-lockfile, yarn test (38 tests, 5 suites), tsc --noEmit, yarn lint — test_reports/clean_checkout_2026-09-12.txt",
+                "frontend_jest": "8 suites / 53 tests incl. reviewKeysAccessGate.test.tsx (owner, reviewer admin, other admin, signed-out, hydrating) and "
+                                 "authSessionWeb.test.tsx (memory-only web session survives a navigator reset, is re-validated by the server, never persisted)",
+                "live_preview": "testing-agent iterations 26/27 (test_reports/iteration_26.json, iteration_27.json) + 13 Sep browser follow-up on the review-keys access gate",
             },
             "github_publication": f"PENDING — owner's Save to GitHub pushes source commit {head[:7]} (and the packaging commit that adds this zip)",
             "production_deployment": "PENDING — production still runs the older build; sequence: republish (registers declared names) → owner sets Secrets "
-                                     "(STAFF_SERVICE_KEY, REVIEW_DB_NAME, BUILD_COMMIT, frontend EXPO_PUBLIC_BACKEND_URL) → republish",
+                                     "(STAFF_SERVICE_KEY, BUILD_COMMIT, frontend EXPO_PUBLIC_BACKEND_URL) → republish",
             "production_login": "UNVERIFIED — readiness booleans prove configuration only; owner OTP test with /auth/me role=admin on both surfaces is outstanding; "
                                 "owner admin recovery (same canonical ID bcdf18c9-dc87-4d46-b580-30cf519103df) not yet applied",
             "preview_sms_test_2026_09_12": "one owner-authorised SMS from the PREVIEW backend to 9999813334: dispatch accepted by MSG91, provider report Delivered; "

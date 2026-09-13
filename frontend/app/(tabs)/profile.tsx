@@ -147,6 +147,7 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>PRIVACY</Text>
           <MenuItem testID="privacy-policy-btn" icon="shield-checkmark" label="Privacy Policy" onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})} />
+          <MenuItem testID="ai-consent-menu-btn" icon="sparkles-outline" label="AI Data Sharing" onPress={() => router.push('/ai-consent')} />
           <MenuItem testID="delete-account-btn" icon="trash" label="Delete My Account" danger onPress={() => router.push('/delete-account')} />
         </View>
 

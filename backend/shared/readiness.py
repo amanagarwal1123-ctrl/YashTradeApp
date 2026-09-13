@@ -6,14 +6,15 @@ from fastapi.responses import JSONResponse
 
 from . import core as c
 from . import owner_admin
+from .ai_consent import AI_CONSENT_VERSION
 
 router = APIRouter(prefix="/api", tags=["Capabilities"])
 CAPABILITIES = {
     "canonical_auth": 1, "enrollment_grants": 1, "staff_directory": 1, "query_ledger": 1,
     "rates_versioning": 1, "pdf_template": 1, "legacy_units": 1, "catalog_pagination": 1,
     "pdf_authoring": 1, "pdf_source_preview": 1, "media_accounting": 1, "managed_delete": 0,
-    "credential_readiness": 1, "customer_id_history": 1, "deletion_outbox_cursor": 1, "review_access": 1,
-    "icon_font_fallback": 1, "owner_admin_bootstrap": 1,
+    "credential_readiness": 1, "customer_id_history": 1, "deletion_outbox_cursor": 1, "review_access": 2,
+    "icon_font_fallback": 1, "owner_admin_bootstrap": 1, "review_owner_console": 1, "ai_consent": 1,
 }
 SECRET_KEYS = ("JWT_SECRET", "ENROLLMENT_INTEGRATION_KEY", "STAFF_SERVICE_KEY")
 CONFIG_KEYS = (*SECRET_KEYS, "MSG91_AUTHKEY", "MSG91_TEMPLATE_ID", "MONGO_URL", "DB_NAME")
@@ -46,16 +47,25 @@ async def readiness():
         if not database_ready:
             issues.append("DATABASE_UNAVAILABLE")
         flows[name] = {"ready": not issues, "issues": issues}
-    # Store-review sign-in needs JWT, the database and a DISTINCT, USABLE review database; never SMS.
-    # A configured name is not proof of usability: an unauthorised/unreachable review database is reported here.
+    # Store-review sign-in needs JWT, the database and USABLE review storage (REVIEW_ACCESS_ENABLED + initialised
+    # `review__*` collections of the same database); never SMS. Isolation is application-enforced by session scope.
     review_issues = [key for key in ("JWT_SECRET", "MONGO_URL", "DB_NAME") if not config[key]]
     review_state = c.review_status()
     if not c.review_available():
         review_issues.append(review_state["reason"])
     if not database_ready:
         review_issues.append("DATABASE_UNAVAILABLE")
+    accounts_enabled = None
+    if c.review_available() and database_ready:
+        try:
+            with c.scoped(c.REVIEW):
+                accounts_enabled = await asyncio.wait_for(
+                    c.db.review_accounts.count_documents({"enabled": True, "revoked_at": None}), timeout=2)
+        except Exception:
+            accounts_enabled = None
     flows["review"] = {"ready": not review_issues, "issues": review_issues, "optional": True,
-                       "configured": c.review_configured(), "usable": c.review_available(), "detail": review_state["detail"]}
+                       "enabled": c.review_configured(), "usable": c.review_available(), "storage": c.REVIEW_STORAGE,
+                       "isolation": "application_enforced", "accounts_enabled": accounts_enabled, "detail": review_state["detail"]}
     # Default owner administrator (OWNER_ADMIN_PHONE): reports what the startup bootstrap did to the DATABASE
     # record in this process - configured / created / promoted / already admin / refused - never a login.
     owner = owner_admin.status()
@@ -63,8 +73,9 @@ async def readiness():
     flows["owner_admin"] = {"ready": not owner_issues, "issues": owner_issues, "state": owner["action"],
                             "phone_suffix": owner["phone_suffix"], "detail": owner["detail"]}
     ready = all(flow["ready"] for name, flow in flows.items() if name != "review")
-    config["REVIEW_DB_NAME"] = c.review_configured()
-    config["REVIEW_DB_USABLE"] = c.review_available()
+    config["REVIEW_ACCESS_ENABLED"] = c.review_configured()
+    config["REVIEW_STORAGE_USABLE"] = c.review_available()
+    config["AI_CONSENT_VERSION"] = AI_CONSENT_VERSION
     config["OWNER_ADMIN_PHONE"] = bool(owner_admin.configured_phone())
     config["BUILD_COMMIT"] = bool(c.setting("BUILD_COMMIT"))
     return {"status": "ok" if ready else "not_ready", "ready": ready,

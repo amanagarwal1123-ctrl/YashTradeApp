@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://owner-setup-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://trade-app-submit.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 PRIVATE_FILE = Path("/tmp/yash-private/preview-review-access.txt")
 
@@ -216,8 +216,8 @@ class TestHealth:
         # in preview per review_request; the body fields still describe review readiness truthfully.
         assert r.status_code in (200, 503)
         j = r.json()
-        assert j.get("build") == "shared-v1-review-fonts-2026-09-12"
-        assert j.get("configuration", {}).get("REVIEW_DB_NAME") is True
+        assert j.get("build") == "shared-v1-store-submission-2026-09-13"
+        assert j.get("configuration", {}).get("REVIEW_ACCESS_ENABLED") is True
         assert j.get("flows", {}).get("review", {}).get("ready") is True
         staff = j.get("flows", {}).get("staff", {})
         assert staff.get("ready") is False

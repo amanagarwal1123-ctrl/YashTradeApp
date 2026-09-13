@@ -270,17 +270,49 @@ async def erase(user, source):
         "$set": {"status": "local_cleanup_pending"}}, upsert=True)
     await cleanup_deletion(uid, number, ref)
     return {"deleted": True, "reference": ref, "status": "external_erasure_pending",
-            "detail": "Local profile anonymized; website/provider erasure requires acknowledgement"}
+            "detail": "Local profile anonymized; website/provider erasure requires acknowledgement",
+            "erasure": await erasure_report(uid)}
+
+
+# Personal-data locations covered by local cleanup. `analytics` is the legacy event collection the app wrote
+# before the analytics_events rename; both are purged so old rows never survive a deletion.
+PERSONAL_COLLECTIONS = (("cart", "user_id"), ("wishlists", "user_id"), ("telecaller_activity", "customer_id"),
+                        ("analytics_events", "user_id"), ("analytics", "user_id"), ("reward_transactions", "user_id"),
+                        ("refresh_tokens", "user_id"), ("ai_reports", "user_id"))
+
+
+async def erasure_report(uid):
+    """Truthful post-deletion inventory: what is proven gone locally, what is anonymized, what external parties
+    still hold. Never claims provider-side erasure; the managed object store has no delete API (managed_delete=0)."""
+    remaining = {coll: await c.db[coll].count_documents({field: uid}) for coll, field in PERSONAL_COLLECTIONS}
+    remaining["ai_chat_history"] = await c.db.ai_chat_history.count_documents({"$or": [{"user_id": uid}, {"session_id": f"jeweller-{uid}"}]})
+    media = await c.db.media_assets.count_documents({"owner_id": uid})
+    return {"local_personal_records_remaining": sum(remaining.values()), "by_collection": remaining,
+            "requests_anonymized": await c.db.requests.count_documents({"user_id": uid, "anonymized": True}),
+            "personal_media_objects": media,
+            "external": {
+                "object_storage": {"provider": "emergent-managed-object-storage", "delete_api": False,
+                                   "personal_uploads_supported_by_app": False,
+                                   "detail": "The app never stores customer photos or files; catalogue media belongs to the business. "
+                                             "Any object owned by a deleted account is detached and access-revoked; byte erasure is not provided by this storage adapter."},
+                "ai_provider": {"provider": "Anthropic (Claude) via Emergent LLM gateway", "delete_api": False,
+                                "detail": "Only typed messages and a pseudonymous session id were transmitted; no per-user provider deletion API exists. "
+                                          "Provider retention follows the provider's own policy and is not proven erased."},
+                "sms_provider": {"provider": "MSG91", "delete_api": False, "detail": "Delivery logs held by the provider are outside this system."},
+                "website": {"acknowledgement": "pending until the enrollment website acknowledges the erasure event"}}}
 
 
 async def cleanup_deletion(uid, number, ref):
-    for coll, query in (("cart", {"user_id": uid}), ("wishlists", {"user_id": uid}),
-        ("ai_chat_history", {"$or": [{"user_id": uid}, {"session_id": f"jeweller-{uid}"}]}),
-        ("telecaller_activity", {"customer_id": uid}), ("analytics_events", {"user_id": uid}),
-        ("reward_transactions", {"user_id": uid}), ("otp_challenges", {"phone": number}),
-        ("auth_grants", {"phone": number}), ("sms_log", {"phone": number}),
-        ("refresh_tokens", {"user_id": uid}), ("ai_reports", {"user_id": uid})):
-        await c.db[coll].delete_many(query)
+    for coll, field in PERSONAL_COLLECTIONS:
+        await c.db[coll].delete_many({field: uid})
+    await c.db.ai_chat_history.delete_many({"$or": [{"user_id": uid}, {"session_id": f"jeweller-{uid}"}]})
+    for coll, query in (("otp_challenges", {"phone": number}), ("auth_grants", {"phone": number}), ("sms_log", {"phone": number})):
+        if number:
+            await c.db[coll].delete_many(query)
+    # Media accounting rows owned by the account lose their owner link (no customer upload feature exists today;
+    # the guard keeps any future personal object detached). The managed store cannot delete bytes (managed_delete=0).
+    await c.db.media_assets.update_many({"owner_id": uid}, {"$set": {"owner_id": f"deleted:{uid}", "owner_erased_at": c.stamp(),
+                                                                       "access_revoked": True}})
     # Preserve anonymous operational totals, not personal/free-text trade snapshots.
     async for q in c.db.requests.find({"user_id": uid}, {"_id": 0}):
         events = [{k: v for k, v in e.items() if k not in {"notes", "old", "new", "actor_name"}}
@@ -290,8 +322,12 @@ async def cleanup_deletion(uid, number, ref):
             "notes": "", "admin_notes": "", "notes_history": [], "events": events, "anonymized": True},
             "$unset": {"customer_name": "", "customer_phone": "", "customer_shop_name": "", "customer_location": "",
                        "cart_items": "", "preferred_time": "", "category": "", "payload_hash": ""}})
+    # The tombstone keeps a session_version ABOVE every issued token, so any surviving token is refused as a revoked
+    # session (401), never evaluated as an "inactive account" (403).
+    current = await c.db.users.find_one({"id": uid}, {"_id": 0, "session_version": 1}) or {}
     await c.db.users.replace_one({"id": uid}, {"id": uid, "phone": f"deleted:{uid}", "role": "customer", "name": "Deleted customer",
-        "account_status": "deleted", "status": "deleted", "deleted_at": c.stamp(), "onboarding_status": "deleted"})
+        "account_status": "deleted", "status": "deleted", "deleted_at": c.stamp(), "onboarding_status": "deleted",
+        "session_version": int(current.get("session_version", 0)) + 1})
     await c.db.deletion_requests.update_one({"reference": ref}, {"$set": {
         "status": "external_erasure_pending", "local_completed_at": c.stamp()},
         "$unset": {"phone": "", "name": "", "shop_name": ""}})
@@ -306,7 +342,7 @@ class DeleteConfirm(BaseModel):
 
 @router.post("/auth/delete-account/request")
 async def delete_start(request: Request, user=Depends(c.allow("customer"))):
-    return await start_challenge(c.phone(user["phone"]), "account_deletion", user["id"], request)
+    return await start_challenge(c.phone(user["phone"]), "account_deletion", user["id"], request, disclose_to=user["id"])
 
 
 @router.post("/auth/delete-account/confirm")

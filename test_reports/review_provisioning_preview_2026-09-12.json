@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-12T11:22:51.968424+00:00",
   "environment": "preview",
-  "backend": "https://owner-setup-1.preview.emergentagent.com/api",
+  "backend": "https://trade-app-submit.preview.emergentagent.com/api",
   "review_db": "jewellers_app_review",
   "primary_db": "jewellers_app (untouched by the tool)",
   "command": "python tools/provision_review_access.py --expected-review-db jewellers_app_review --provision --seed --status --environment preview --api-base-url <preview>/api --verify --write-note <private /tmp file>",

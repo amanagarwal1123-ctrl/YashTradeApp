@@ -59,7 +59,7 @@ def enrich_pipeline():
                   "status": {"$switch": {"branches": [{"case": {"$eq": ["$status", k]}, "then": v}
                                                            for k, v in ALIASES.items()], "default": "$status"}},
                   "version": {"$ifNull": ["$version", 0]}, "assignee_id": {"$ifNull": ["$assignee_id", "$assigned_to"]}}},
-        {"$lookup": {"from": "users", "localField": "customer_id", "foreignField": "id", "as": "_customers",
+        {"$lookup": {"from": c.collection_name("users"), "localField": "customer_id", "foreignField": "id", "as": "_customers",
             "pipeline": [{"$project": {"_id": 0, "name": 1, "phone": 1, "shop_name": 1, "location": 1, "city": 1}}]}},
         {"$set": {"_customer": {"$arrayElemAt": ["$_customers", 0]}}},
         {"$set": {"customer_name": {"$ifNull": ["$_customer.name", "$user_name"]},

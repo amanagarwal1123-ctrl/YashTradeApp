@@ -20,14 +20,19 @@ dispatch_sms = None
 put_object = None
 get_object = None
 load_dotenv()
-BUILD = "shared-v1-review-fonts-2026-09-12"
+BUILD = "shared-v1-store-submission-2026-09-13"
 ROLES = {"customer", "admin", "telecaller", "billing_executive"}
 STAFF = ROLES - {"customer"}
 
 # Data scope of the CURRENT request/task. None = genuine production data; "review" = the
-# isolated store-review database. It is derived ONLY from a signature-verified session or a
-# stored review refresh token, never from a client-supplied role, flag or database name.
+# isolated store-review copy. It is derived ONLY from a signature-verified session or a
+# stored review refresh token, never from a client-supplied role, flag or collection name.
 REVIEW = "review"
+# APPLICATION-ENFORCED isolation (not database-level): every collection touched in review scope is the
+# same-named collection of the PRIMARY database carrying this prefix. The deployment's MongoDB user
+# needs no rights beyond its main database. Nothing in production scope ever resolves a prefixed name.
+REVIEW_PREFIX = "review__"
+REVIEW_STORAGE = "prefixed_collections"
 _scope = contextvars.ContextVar("yash_data_scope", default=None)
 _primary_db = None
 _review_db = None
@@ -43,8 +48,19 @@ def in_review():
     return _scope.get() == REVIEW
 
 
+def collection_name(name):
+    """Physical collection name of `name` in the CURRENT scope (for aggregation `$lookup` targets, which
+    MongoDB resolves by literal name and therefore bypass the database proxy)."""
+    return REVIEW_PREFIX + name if in_review() else name
+
+
+def review_enabled_setting():
+    """REVIEW_ACCESS_ENABLED=true|1|yes|on switches the optional store-review environment on for a deployment."""
+    return setting("REVIEW_ACCESS_ENABLED").lower() in {"1", "true", "yes", "on"}
+
+
 def review_configured():
-    """A distinct review database NAME is configured (non-placeholder). Says nothing about usability."""
+    """The store-review environment is switched on for this process (REVIEW_ACCESS_ENABLED). Says nothing about usability."""
     return _review_db is not None
 
 
@@ -56,8 +72,40 @@ def review_available():
 def review_status():
     """Machine-readable availability for readiness: reason codes, never provider payloads."""
     if _review_db is None:
-        return {"available": False, "reason": "REVIEW_DB_NAME", "detail": "no distinct review database configured"}
+        return {"available": False, "reason": "REVIEW_ACCESS_DISABLED", "detail": "store-review environment is switched off (REVIEW_ACCESS_ENABLED)"}
     return dict(_review_state)
+
+
+class _PrefixedDatabase:
+    """The store-review view of the primary database: `view.users` is `primary["review__users"]`.
+    Only attribute/item access, `command` (ping) and `list_collection_names` are exposed, so no code
+    path can reach an unprefixed collection through this handle."""
+
+    def __init__(self, database):
+        self._database = database
+
+    @property
+    def name(self):
+        return self._database.name
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._database[REVIEW_PREFIX + name]
+
+    def __getitem__(self, name):
+        return self._database[REVIEW_PREFIX + name]
+
+    async def command(self, *args, **kwargs):
+        return await self._database.command(*args, **kwargs)
+
+    async def list_collection_names(self, **kwargs):
+        names = await self._database.list_collection_names(**kwargs)
+        return [n[len(REVIEW_PREFIX):] for n in names if n.startswith(REVIEW_PREFIX)]
+
+
+def review_view(database):
+    return _PrefixedDatabase(database)
 
 
 @contextmanager
@@ -100,54 +148,49 @@ class _DatabaseProxy:
 db = _DatabaseProxy()
 
 
-def configure(database, sender, put, get, review_database=None, review_blobs=None):
-    """review_database: Motor handle of the isolated review copy. review_blobs: a SYNCHRONOUS
-    pymongo collection of that same database used by the thread-based media functions.
-    Configuring a review database does NOT make it usable: initialize_review() must prove it first."""
+def configure(database, sender, put, get, review_enabled=False, review_blobs=None):
+    """review_enabled: switch the store-review environment on; its data is the `review__*` collections of
+    `database`. review_blobs: a SYNCHRONOUS pymongo handle of `database["review__review_blobs"]` used by the
+    thread-based media functions. Enabling does NOT make review usable: initialize_review() must prove it first."""
     global _primary_db, _review_db, _review_blobs, dispatch_sms, put_object, get_object
-    if review_database is not None and review_database.name == database.name:
-        raise RuntimeError("REVIEW_DB_NAME must differ from DB_NAME; review data can never share production")
-    _primary_db, _review_db, _review_blobs = database, review_database, review_blobs
-    _review_state.update(available=False, reason="REVIEW_DB_UNINITIALIZED" if review_database is not None else "REVIEW_DB_NAME",
-                         detail="review storage not initialised in this process" if review_database is not None else "no distinct review database configured")
+    _primary_db = database
+    _review_db = review_view(database) if review_enabled else None
+    _review_blobs = review_blobs if review_enabled else None
+    _review_state.update(available=False, reason="REVIEW_STORAGE_UNINITIALIZED" if review_enabled else "REVIEW_ACCESS_DISABLED",
+                         detail="review storage not initialised in this process" if review_enabled
+                         else "store-review environment is switched off (REVIEW_ACCESS_ENABLED)")
     dispatch_sms, put_object, get_object = sender, put, get
 
 
 _review_blobs = None
-_review_state = {"available": False, "reason": "REVIEW_DB_NAME", "detail": "no distinct review database configured"}
+_review_state = {"available": False, "reason": "REVIEW_ACCESS_DISABLED", "detail": "store-review environment is switched off (REVIEW_ACCESS_ENABLED)"}
 
 
 async def initialize_review():
-    """Optional store-review storage: prove the configured review database is usable (ping + indexes) or mark
-    it UNAVAILABLE for this process. Only MongoDB failures of the REVIEW database are absorbed (authorisation,
-    connectivity); they are logged as sanitized warnings and never abort startup. Programming errors propagate.
-    Never touches the primary database and never falls back to it. Returns True when review storage is usable."""
+    """Optional store-review storage: prove the prefixed review collections are usable (ping + indexes) or mark
+    them UNAVAILABLE for this process. Only MongoDB failures are absorbed (logged as sanitized warnings, never
+    aborting startup); programming errors propagate. Never touches an unprefixed collection and never falls back
+    to production scope. Returns True when review storage is usable."""
     import logging
-    from pymongo.errors import OperationFailure, PyMongoError
+    from pymongo.errors import PyMongoError
 
     log = logging.getLogger("shared")
     if _review_db is None:
-        _review_state.update(available=False, reason="REVIEW_DB_NAME", detail="no distinct review database configured")
+        _review_state.update(available=False, reason="REVIEW_ACCESS_DISABLED",
+                             detail="store-review environment is switched off (REVIEW_ACCESS_ENABLED)")
         return False
     _review_state.update(available=True, reason=None, detail="initialising")  # lets ensure_indexes() reach the review handle
     try:
         with scoped(REVIEW):
             await ensure_indexes()
-    except OperationFailure as exc:
-        unauthorized = exc.code in (13, 8000) or "not authorized" in str(exc.details or {}).lower()
-        _review_state.update(available=False, reason="REVIEW_DB_UNAUTHORIZED" if unauthorized else "REVIEW_DB_UNAVAILABLE",
-                             detail=f"review database rejected initialisation (MongoDB error code {exc.code})")
-        log.warning("Store-review storage DISABLED for this process: the configured review database refused index "
-                    "initialisation (MongoDB code %s, %s). Reviewer sign-in answers 503; production data is unaffected.",
-                    exc.code, "not authorized" if unauthorized else "operation failure")
-        return False
     except PyMongoError as exc:
-        _review_state.update(available=False, reason="REVIEW_DB_UNAVAILABLE",
-                             detail=f"review database unreachable during initialisation ({type(exc).__name__})")
-        log.warning("Store-review storage DISABLED for this process: review database unreachable (%s). "
+        code = getattr(exc, "code", None)
+        _review_state.update(available=False, reason="REVIEW_STORAGE_UNAVAILABLE",
+                             detail=f"review collections rejected initialisation ({type(exc).__name__}{f', MongoDB code {code}' if code else ''})")
+        log.warning("Store-review storage DISABLED for this process: the review__ collections refused initialisation (%s). "
                     "Reviewer sign-in answers 503; production data is unaffected.", type(exc).__name__)
         return False
-    _review_state.update(available=True, reason=None, detail="review database initialised")
+    _review_state.update(available=True, reason=None, detail=f"review storage initialised ({REVIEW_STORAGE} in the primary database)")
     return True
 
 

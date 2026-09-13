@@ -35,9 +35,10 @@ def cli(review_env, *flags, env_overrides=None, expect_ok=True, expect_code=None
     """Run the operator tool as a real subprocess. expect_code: 0 (stdout JSON), 1 (blocked, stderr JSON) or
     2 (verification failed/incomplete, stdout JSON). expect_ok is shorthand for 0 / 1."""
     code = expect_code if expect_code is not None else (0 if expect_ok else 1)
-    env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]}
+    env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_ACCESS_ENABLED": "true"}
+    env.pop("REVIEW_DB_NAME", None)
     env.update(env_overrides or {})
-    proc = subprocess.run([sys.executable, str(TOOL), "--expected-review-db", env["REVIEW_DB_NAME"] or review_env["name"], *flags],
+    proc = subprocess.run([sys.executable, str(TOOL), "--expected-db", env["DB_NAME"] or review_env["name"], *flags],
                           cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == code, (proc.returncode, proc.stderr[-400:].replace(review_env["name"], "<review-db>"))
     if code == 1:
@@ -58,7 +59,8 @@ async def login(api_client, reviewer_id, key):
 
 async def test_cli_provisions_seeds_reports_status_and_is_idempotent_on_repeat(api_client, review_env, seeded_users):
     out, err = cli(review_env, "--provision", "--seed", "--status")
-    assert out["review_db"] == review_env["name"] and out["primary_db_untouched"] is True
+    assert out["database"] == review_env["name"] and out["unprefixed_collections_untouched"] is True
+    assert out["storage"] == "prefixed_collections" and out["isolation"] == "application_enforced"
     assert sorted(out["new_accounts"]) == sorted(ROLES)
     assert out["dataset"] == {"users": 10, "products": 12, "requests": 8, "rate_slabs": 6}
     keys = keys_from(err)
@@ -99,13 +101,13 @@ async def test_cli_provisions_seeds_reports_status_and_is_idempotent_on_repeat(a
 
 
 async def test_cli_fails_closed_on_missing_or_unsafe_review_configuration(review_env):
-    for overrides, flags in (({"REVIEW_DB_NAME": ""}, ("--provision",)),
-                             ({"REVIEW_DB_NAME": review_env["primary"].name}, ("--provision",)),
+    for overrides, flags in (({"DB_NAME": ""}, ("--provision",)),
+                             ({"DB_NAME": "SET_IN_PUBLISH_SECRETS"}, ("--provision",)),
                              ({"MONGO_URL": ""}, ("--status",))):
         blocked, _ = cli(review_env, *flags, env_overrides=overrides, expect_ok=False)
         assert blocked["outcome"] == "blocked" and blocked["error_type"] == "ValueError"
-    mismatch = subprocess.run([sys.executable, str(TOOL), "--expected-review-db", "some_other_db", "--provision"], cwd=BACKEND,
-                              env={**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]},
+    mismatch = subprocess.run([sys.executable, str(TOOL), "--expected-db", "some_other_db", "--provision"], cwd=BACKEND,
+                              env={**os.environ, "DB_NAME": review_env["primary"].name},
                               capture_output=True, text=True, timeout=120)
     assert mismatch.returncode == 1 and "does not match" in mismatch.stderr
     note_needs_env, _ = cli(review_env, "--provision", "--write-note", "/tmp/never-written.txt", expect_ok=False)
@@ -206,8 +208,10 @@ def test_verify_step_checks_role_scope_logout_and_session_reuse(monkeypatch):
             calls.append(("POST", url))
             if url.endswith("/auth/review/login"):
                 tokens = {"store-review-admin": "t1", "store-review-billing": "t2", "store-review-telecaller": "t4"}
+                roles = {"store-review-admin": "admin", "store-review-billing": "billing_executive", "store-review-telecaller": "telecaller"}
                 if json["reviewer_id"] in tokens:
-                    return Response(200, {"token": tokens[json["reviewer_id"]], "review_environment": True})
+                    closed.discard(tokens[json["reviewer_id"]])  # a repeat sign-in opens a fresh session for the same token id
+                    return Response(200, {"token": tokens[json["reviewer_id"]], "review_environment": True, "user": {"role": roles[json["reviewer_id"]]}})
                 return Response(401, {"code": "REVIEW_CREDENTIALS_INVALID"})
             token = headers["Authorization"].split()[1]
             if token == "t4":
@@ -225,7 +229,7 @@ def test_verify_step_checks_role_scope_logout_and_session_reuse(monkeypatch):
     monkeypatch.setattr(httpx, "Client", FakeClient)
     results = tool._verify_issued("https://backend.example/api/", {"store-review-admin": "k1", "store-review-billing": "k2",
                                                                     "store-review-customer": "k3", "store-review-telecaller": "k4"})
-    assert results["store-review-admin"] == {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}
+    assert results["store-review-admin"] == {"ok": True, "role": "admin", "review_environment": True, "session_closed": True, "repeat_login": True}
     assert results["store-review-billing"]["ok"] is False and results["store-review-billing"]["step"] == "role"
     assert results["store-review-customer"] == {"ok": False, "step": "login", "http_status": 401, "code": "REVIEW_CREDENTIALS_INVALID"}
     # A failed logout is never reported as a closed session or a PASS.
@@ -262,7 +266,9 @@ def test_verify_note_recovery_appends_results_without_mutation(monkeypatch, tmp_
 
         def post(self, url, json=None, headers=None):
             if url.endswith("/auth/review/login"):
-                return Response(200, {"token": "tok-" + json["reviewer_id"], "review_environment": True})
+                self.closed.discard("Bearer tok-" + json["reviewer_id"])
+                return Response(200, {"token": "tok-" + json["reviewer_id"], "review_environment": True,
+                                      "user": {"role": "customer" if "customer" in json["reviewer_id"] else "admin"}})
             self.closed.add(headers["Authorization"])
             return Response(200, {"logged_out": True})
 
@@ -281,7 +287,7 @@ def test_verify_note_recovery_appends_results_without_mutation(monkeypatch, tmp_
     # The note's own header pins environment + review database + BACKEND: mismatches are refused before any request.
     with pytest.raises(ValueError, match="issued for PRODUCTION"):
         tool._verify_note(str(note), "https://backend.example/api", "preview", "rev_db")
-    with pytest.raises(ValueError, match="review database differs"):
+    with pytest.raises(ValueError, match="database differs"):
         tool._verify_note(str(note), "https://backend.example/api", "production", "other_db")
     for other in ("https://other.example/api", "https://backend.example:8443/api", "http://backend.example/api", "https://backend.example/api/v2"):
         with pytest.raises(ValueError, match="pins backend"):
@@ -291,8 +297,8 @@ def test_verify_note_recovery_appends_results_without_mutation(monkeypatch, tmp_
     assert tool._target_identity("https://Backend.Example:443/api/") == tool._target_identity("https://backend.example/api")
     checked = tool._verify_note(str(note), "https://backend.example/api", "production", "rev_db")
     assert checked["error"] is None and checked["accounts"] == ["store-review-admin", "store-review-customer"]
-    assert checked["results"] == {"store-review-customer": {"ok": True, "role": "customer", "review_environment": True, "session_closed": True},
-                                  "store-review-admin": {"ok": True, "role": "admin", "review_environment": True, "session_closed": True}}
+    assert checked["results"] == {"store-review-customer": {"ok": True, "role": "customer", "review_environment": True, "session_closed": True, "repeat_login": True},
+                                  "store-review-admin": {"ok": True, "role": "admin", "review_environment": True, "session_closed": True, "repeat_login": True}}
     text = note.read_text()
     assert "VERIFICATION RE-RUN" in text and text.count("PASS") == 2 and "key-c-000000000000000000000000000" in text
     # A note that never recorded its backend cannot be verified against any target (strict, exit 1 in the CLI).
@@ -325,7 +331,8 @@ def live_server(review_env):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_DB_NAME": review_env["name"]}
+    env = {**os.environ, "DB_NAME": review_env["primary"].name, "REVIEW_ACCESS_ENABLED": "true"}
+    env.pop("REVIEW_DB_NAME", None)
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                             cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}/api"
@@ -366,7 +373,7 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
                        "--verify", "--write-note", str(note1))
         assert out["outcome"] == "ok" and out["verified_all"] is True and out["all_four_roles_verified"] is True
         assert sorted(out["verified_accounts"]) == sorted(ROLES) and out["issued_accounts"] == sorted(ROLES)
-        assert all(r == {"ok": True, "role": ROLES[rid], "review_environment": True, "session_closed": True} for rid, r in out["verification"].items())
+        assert all(r == {"ok": True, "role": ROLES[rid], "review_environment": True, "session_closed": True, "repeat_login": True} for rid, r in out["verification"].items())
         assert len(out["status"]["accounts"]) == 4  # account table survives beside the run outcome
         assert keys_from(err) == {} and "ONE-TIME" not in err
         text1 = note1.read_text()
@@ -374,7 +381,7 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
         assert set(keys) == set(ROLES) and "PRODUCTION" in text1 and text1.count("PASS") == 4 and "FAIL" not in text1
         assert not any(k in json.dumps(out) for k in keys.values())
         # Every verification session was closed on the server: the audit shows logins and logouts, no live sessions leak.
-        assert await review_env["db"].review_access_log.count_documents({"event": "review_login_succeeded", "success": True}) == 4
+        assert await review_env["db"].review_access_log.count_documents({"event": "review_login_succeeded", "success": True}) == 8  # sign-in + repeat sign-in per role
         # Recovery re-verification of the stored note against the live backend: exit 0, results appended, nothing mutated.
         before = {row["reviewer_id"]: row["secret_hash"] async for row in review_env["db"].review_accounts.find({})}
         again, _ = cli(review_env, "--verify-note", str(note1), "--environment", "production", "--api-base-url", live_server)
@@ -451,9 +458,15 @@ async def test_review_ai_assistant_is_genuine_but_bounded_and_isolated(api_clien
         await review_seed.seed_dataset()
         keys = await review_seed.provision_accounts()
     customer = (await login(api_client, "store-review-customer", keys["store-review-customer"])).json()
+    # Consent gate applies to reviewers too (they grant it on synthetic data); nothing reaches the provider before it.
+    gated = await api_client.post("/api/ai/chat", json={"message": "How do I pitch silver payal?"}, headers=bearer(customer))
+    assert gated.status_code == 403 and gated.json()["code"] == "AI_CONSENT_REQUIRED" and sent == []
+    assert (await api_client.post("/api/ai/consent", json={"granted": True}, headers=bearer(customer))).json()["granted"] is True
+    assert await review_env["primary"].users.count_documents({"ai_consent.granted": True}) == 0  # consent recorded in review scope only
     reply = await api_client.post("/api/ai/chat", json={"message": "How do I pitch silver payal?"}, headers=bearer(customer))
     assert reply.status_code == 200 and reply.json()["response"].startswith("Synthetic assistant reply") and not reply.json().get("error")
-    assert sent[-1] == ("message", "jeweller-review-customer-0001", "How do I pitch silver payal?")
+    assert sent[-1][0] == "message" and sent[-1][2] == "How do I pitch silver payal?"
+    assert "review-customer-0001" not in sent[-1][1] and sent[-1][1].startswith("yt-")  # provider sees a keyed pseudonym only
     assert await review_env["db"].ai_chat_history.count_documents({"user_id": "review-customer-0001"}) == 2
     assert await review_env["primary"].ai_chat_history.count_documents({}) == 0
     # Bounded: over-long prompts and the daily budget stop before the provider is called.
@@ -467,6 +480,7 @@ async def test_review_ai_assistant_is_genuine_but_bounded_and_isolated(api_clien
     assert capped.json()["error"] is True and capped.json()["review_limit"] == "daily_messages" and len(sent) == calls_before
     # Production sessions are not subject to the review budget and keep their own history.
     real = await login_helper("9000000005")
+    await api_client.post("/api/ai/consent", json={"granted": True}, headers=bearer(real))
     real_reply = await api_client.post("/api/ai/chat", json={"message": "y" * 700}, headers=bearer(real))
     assert real_reply.status_code == 200 and not real_reply.json().get("error") and len(sent) == calls_before + 2
     assert await review_env["primary"].ai_chat_history.count_documents({"user_id": real["user"]["id"]}) == 2

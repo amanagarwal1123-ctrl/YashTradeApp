@@ -1,5 +1,5 @@
 """Bootstrap placeholders (e.g. SET_IN_PUBLISH_SECRETS) declared in backend/.env so the platform registers the
-key NAME must behave as ABSENT configuration in executable code: they never become a review database handle,
+key NAME must behave as ABSENT configuration in executable code: they never switch the store-review environment on,
 never pass as a staff credential and never appear as a verified deployment commit. Proven against the real
 backend process started with placeholder values, plus the operator CLI."""
 import json
@@ -26,7 +26,7 @@ def placeholder_server():
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     primary = f"bootstrap_primary_{uuid.uuid4().hex[:8]}"
-    env = {**os.environ, "DB_NAME": primary, "REVIEW_DB_NAME": PLACEHOLDER, "STAFF_SERVICE_KEY": PLACEHOLDER,
+    env = {**os.environ, "DB_NAME": primary, "REVIEW_ACCESS_ENABLED": PLACEHOLDER, "STAFF_SERVICE_KEY": PLACEHOLDER,
            "BUILD_COMMIT": PLACEHOLDER}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                             cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -58,10 +58,10 @@ def test_placeholder_values_are_unconfigured_in_the_running_backend(placeholder_
     body = health.json()
     assert health.status_code == 503 and body["ready"] is False
     review = body["flows"]["review"]
-    assert review["ready"] is False and review["issues"] == ["REVIEW_DB_NAME"] and review["optional"] is True
-    assert review["configured"] is False and review["usable"] is False  # a placeholder never produces a database handle
+    assert review["ready"] is False and review["issues"] == ["REVIEW_ACCESS_DISABLED"] and review["optional"] is True
+    assert review["enabled"] is False and review["usable"] is False  # a placeholder never switches review access on
     assert "STAFF_SERVICE_KEY" in body["flows"]["staff"]["issues"] and body["flows"]["staff"]["ready"] is False
-    assert body["configuration"]["REVIEW_DB_NAME"] is False and body["configuration"]["REVIEW_DB_USABLE"] is False
+    assert body["configuration"]["REVIEW_ACCESS_ENABLED"] is False and body["configuration"]["REVIEW_STORAGE_USABLE"] is False
     assert body["configuration"]["BUILD_COMMIT"] is False
     assert body["commit"] == "unrecorded" and PLACEHOLDER not in json.dumps(body)
     # Readiness never claims what it has not exercised.
@@ -77,10 +77,10 @@ def test_placeholder_values_are_unconfigured_in_the_running_backend(placeholder_
     assert PLACEHOLDER not in names and not any(PLACEHOLDER.lower() in n.lower() for n in names)
 
 
-def test_cli_refuses_placeholder_review_database_before_touching_mongo():
+def test_cli_refuses_placeholder_database_before_touching_mongo():
     primary = f"bootstrap_cli_{uuid.uuid4().hex[:8]}"
-    env = {**os.environ, "DB_NAME": primary, "REVIEW_DB_NAME": PLACEHOLDER}
-    proc = subprocess.run([sys.executable, str(TOOL), "--expected-review-db", PLACEHOLDER, "--provision", "--seed", "--status"],
+    env = {**os.environ, "DB_NAME": PLACEHOLDER}
+    proc = subprocess.run([sys.executable, str(TOOL), "--expected-db", PLACEHOLDER, "--provision", "--seed", "--status"],
                           cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120)
     assert proc.returncode == 1 and proc.stdout == ""
     blocked = json.loads(proc.stderr.strip().splitlines()[-1])

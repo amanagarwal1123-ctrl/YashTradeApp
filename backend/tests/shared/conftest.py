@@ -234,25 +234,21 @@ async def login_helper(api_client, isolated_db, seeded_users):
 
 @pytest_asyncio.fixture(loop_scope="function")
 async def review_env(isolated_db, monkeypatch):
-    """Adds a SEPARATE synthetic review database beside the isolated production double and routes
-    server/shared data access through the scope-aware proxy (as production wiring does)."""
+    """Switches the store-review environment ON for the isolated production double: review data lives in the
+    `review__*` collections of the SAME synthetic database (exactly as production wiring does) and server/shared
+    data access is routed through the scope-aware proxy. `db` is the prefixed VIEW, `primary` the raw database."""
     from pymongo import MongoClient
-    mongo_url = os.environ["MONGO_URL"]
-    client = AsyncIOMotorClient(mongo_url, maxPoolSize=10, minPoolSize=2)
-    sync_client = MongoClient(mongo_url)
-    name = f"shared_review_{uuid.uuid4().hex[:10]}"
-    review_db = client[name]
-    c.configure(isolated_db["db"], c.dispatch_sms, c.put_object, c.get_object,
-                review_database=review_db, review_blobs=sync_client[name].review_blobs)
+    primary = isolated_db["db"]
+    sync_client = MongoClient(os.environ["MONGO_URL"])
+    c.configure(primary, c.dispatch_sms, c.put_object, c.get_object, review_enabled=True,
+                review_blobs=sync_client[primary.name][c.REVIEW_PREFIX + "review_blobs"])
     monkeypatch.setattr(c, "db", c._DatabaseProxy(), raising=False)
     monkeypatch.setattr(server, "db", c.db, raising=False)
     monkeypatch.setattr(server, "put_object", c.store_object, raising=False)
     monkeypatch.setattr(server, "get_object", c.fetch_object, raising=False)
     monkeypatch.setattr(server, "_dispatch_sms_otp", c.send_sms, raising=False)
-    assert await c.initialize_review() is True  # proves the separate review copy is usable before any test touches it
-    yield {"db": review_db, "name": name, "primary": isolated_db["db"], "sent_otps": isolated_db["sent_otps"],
+    assert await c.initialize_review() is True  # proves the review__ collections are usable before any test touches them
+    yield {"db": c.review_view(primary), "name": primary.name, "primary": primary, "sent_otps": isolated_db["sent_otps"],
            "object_store": isolated_db["object_store"]}
-    c.configure(isolated_db["db"], c.dispatch_sms, c.put_object, c.get_object)
-    await client.drop_database(name)
-    client.close()
+    c.configure(primary, c.dispatch_sms, c.put_object, c.get_object)
     sync_client.close()
