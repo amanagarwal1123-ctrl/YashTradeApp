@@ -8,7 +8,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://yash-trade-backend.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://owner-setup-1.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 INTEGRATION_KEY = "CVO6i5qVspaaYOtn9Esh-KPOHmrgtI9Z4-KYFFtSJGUxeKmR"
 BUILD = "2026.09.09-integration-v6"

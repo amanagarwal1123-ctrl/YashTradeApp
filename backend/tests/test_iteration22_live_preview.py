@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://yash-trade-backend.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://owner-setup-1.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 PRIVATE_FILE = Path("/tmp/yash-private/preview-review-access.txt")
 

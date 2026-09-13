@@ -12,7 +12,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL',
-                          'https://yash-trade-backend.preview.emergentagent.com').rstrip('/')
+                          'https://owner-setup-1.preview.emergentagent.com').rstrip('/')
 API = f"{BASE_URL}/api"
 
 CUSTOMER = "8888800001"        # website-registered customer

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://yash-trade-backend.preview.emergentagent.com"
+API_URL="https://owner-setup-1.preview.emergentagent.com"
 
 # Login
 TOKEN=$(curl -s -X POST "$API_URL/api/auth/verify-otp" \

@@ -1,7 +1,7 @@
 """Iteration 23 live-preview backend verification.
 
 Runs against EXPO_PUBLIC_BACKEND_URL (or EXPO_BACKEND_URL) — the preview backend
-at https://yash-trade-backend.preview.emergentagent.com/api. Never sends SMS,
+at https://owner-setup-1.preview.emergentagent.com/api. Never sends SMS,
 never prints reviewer access keys.
 """
 
@@ -14,7 +14,7 @@ import requests
 BASE_URL = (
     os.environ.get("EXPO_BACKEND_URL")
     or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://yash-trade-backend.preview.emergentagent.com"
+    or "https://owner-setup-1.preview.emergentagent.com"
 ).rstrip("/")
 
 API = f"{BASE_URL}/api"

@@ -9,7 +9,7 @@ import json
 import sys
 
 # Configuration
-BASE_URL = "https://yash-trade-backend.preview.emergentagent.com/api"
+BASE_URL = "https://owner-setup-1.preview.emergentagent.com/api"
 print(f"Testing new backend API endpoints at: {BASE_URL}")
 
 class NewEndpointsTestRunner:

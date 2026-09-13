@@ -20,7 +20,7 @@ App Store and Play reviewers sign in with a **Reviewer ID + reusable access key*
 
 | | Preview (this workspace) | Production (owner-run) |
 |---|---|---|
-| Backend | `https://yash-trade-backend.preview.emergentagent.com/api` | `https://yash-tryon-test.emergent.host/api` after Redeploy with `REVIEW_DB_NAME` |
+| Backend | `https://owner-setup-1.preview.emergentagent.com/api` | `https://yash-tryon-test.emergent.host/api` after Redeploy with `REVIEW_DB_NAME` |
 | Review database | none while `backend/.env` carries the placeholder `REVIEW_DB_NAME=SET_IN_PUBLISH_SECRETS` (since the hotfix); `jewellers_app_review` was the preview value used for the automated reviewer tests and is what the first production deployment inherited without access rights | your own name, e.g. `<DB_NAME>_review`, set in Manage Publishes → Secrets — the deployment's MongoDB user must hold readWrite on it |
 | Who provisioned | agent, for automated testing only | **owner**, on the owner's PC |
 | Where the keys are | private `/tmp` file inside the disposable preview container; rotated after testing | private file on the owner's PC (`-NotePath`), then the store review forms |

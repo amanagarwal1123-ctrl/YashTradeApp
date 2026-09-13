@@ -13,7 +13,7 @@ from datetime import datetime
 import fitz  # PyMuPDF
 
 # Configuration
-BASE_URL = "https://yash-trade-backend.preview.emergentagent.com/api"
+BASE_URL = "https://owner-setup-1.preview.emergentagent.com/api"
 ADMIN_PHONE = "9999999999"
 OTP = "1234"
 
