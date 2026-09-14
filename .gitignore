@@ -94,3 +94,6 @@ backend/import-tmp/
 
 # Owner operator virtualenv (Windows/macOS/Linux) - never committed
 backend/.operator-venv/
+.env
+.env.*
+*.env
