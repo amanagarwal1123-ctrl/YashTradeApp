@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Comprehensive Backend Testing for Yash Trade Jewellery App - Virtual Try-On Feature
-Testing all backend APIs at https://trade-app-submit.preview.emergentagent.com
+Testing all backend APIs at https://yash-review-deploy.preview.emergentagent.com
 """
 
 import requests
@@ -11,7 +11,7 @@ import json
 from PIL import Image, ImageDraw
 
 # Configuration
-API_URL = "https://trade-app-submit.preview.emergentagent.com"
+API_URL = "https://yash-review-deploy.preview.emergentagent.com"
 ADMIN_PHONE = "9999999999"
 CUSTOMER_PHONE = "8888888888"
 TEST_OTP = "1234"

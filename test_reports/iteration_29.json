@@ -1,0 +1,31 @@
+{
+  "label": "PREVIEW live iteration 29 - RETEST of iteration 28's two findings only (backend-only; frontend skipped per request).",
+  "environment": "PREVIEW https://yash-review-deploy.preview.emergentagent.com. DB jewellers_app. Reviewer key read from /tmp/yash-private/preview-review-access-2026-09-14.txt (never printed).",
+  "summary": "All retest items and both regressions pass. B4-retest: fresh /api/auth/review/login as store-review-customer -> POST /api/auth/delete-account/request (simulated_otp+challenge_id) -> /api/auth/delete-account/confirm returns 200 with status 'external_erasure_pending'. In MongoDB, review__integration_outbox id 'DEL-review-customer-0001' now has required_acknowledgements == ['website'] exactly and status 'pending' (previous $setOnInsert legacy value ['website','sms_provider','ai_provider'] has been overwritten by shared/people.py's $set + startup reconcile_outbox_acknowledgements()). review__deletion_requests reference 'DEL-review-customer-0001' has status 'external_erasure_pending' with NO phone/name fields. Unprefixed users/requests/sms_log/deletion_requests/integration_outbox counts unchanged before vs after (they are all 0). Re-login with the same key returns 200 and profile_recreated=true. B3-retest: with the reviewer (customer) bearer, GET /api/admin/review/status -> 403 'REVIEW_SCOPE_FORBIDDEN' (no 'PERMISSION_DENIED' in body); anonymous GET /api/admin/review/status -> 401 'AUTH_REQUIRED'. Startup reconciliation proof (read-only Mongo): no review__integration_outbox or unprefixed integration_outbox account_erased row still lists 'sms_provider' or 'ai_provider' in required_acknowledgements. Regression: pytest -q on tests/shared/test_ai_consent_and_deletion.py + test_review_owner_console.py + test_website_dependencies_d2_d3_d4.py -> 17 passed (includes test_reconcile_converges_erasure_events_written_by_older_builds).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration29_live_preview.py",
+    "/app/test_reports/pytest/iteration29.xml",
+    "/app/test_reports/pytest/iteration29_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "shared/people.py:368-370 now writes required_acknowledgements with $set (not $setOnInsert), so a retried write always converges on the canonical ['website'] list.",
+    "shared/people.py:282-288 (reconcile_outbox_acknowledgements) is wired into shared/install.py start_worker for every usable scope; the preview row DEL-review-customer-0001 was already converged before the retest ran.",
+    "shared/review_admin.py::owner_console now checks c.in_review() BEFORE the admin/owner checks, so a reviewer-customer session correctly surfaces REVIEW_SCOPE_FORBIDDEN instead of the generic PERMISSION_DENIED."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration29_live_preview.py",
+    "/app/test_reports/pytest/iteration29.xml",
+    "/app/test_reports/pytest/iteration29_regression.xml",
+    "/app/test_reports/iteration_29.json"
+  ],
+  "success_rate": {"backend": "100% (5/5 iteration29 live tests pass; 17/17 shared regression tests pass)", "frontend": "not tested (backend-only retest per request)"},
+  "seed_data_creation": "None. B4 tombstoned review-customer-0001 once inside review scope; the same login flow immediately recreated a fresh sample profile (profile_recreated=true). Unprefixed collections untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 28's HIGH (legacy review__integration_outbox row ack list) and MINOR (owner console 403 code) are both fixed and verified live. shared/people.py now $sets required_acknowledgements and reconcile_outbox_acknowledgements() runs on startup for each usable scope; shared/review_admin.py::owner_console evaluates c.in_review() first. Reviewer key file at /tmp/yash-private/preview-review-access-2026-09-14.txt is intact.",
+  "rca_of_issue": "Prior root cause: shared/people.py used $setOnInsert for required_acknowledgements on integration_outbox, so a pre-existing row created by an older build kept its stale ack list and the review_admin.owner_console evaluated admin-role before scope so a non-admin reviewer got the generic 403. Fixes verified live: (1) people.py:370 now uses $set for required_acknowledgements and people.reconcile_outbox_acknowledgements() runs at startup via install.start_worker for every usable scope, converging pre-existing rows to REQUIRED_ACKNOWLEDGEMENTS=['website']; (2) review_admin.owner_console checks c.in_review() before c.admin so a review-scope customer surfaces REVIEW_SCOPE_FORBIDDEN. Reproduction of fix: `python3 -c \"from pymongo import MongoClient; print(MongoClient('mongodb://localhost:27017')['jewellers_app']['review__integration_outbox'].find_one({'id':'DEL-review-customer-0001'}, {'_id':0,'required_acknowledgements':1,'status':1}))\"` returns {'required_acknowledgements': ['website'], 'status': 'pending'}.",
+  "hard_rules_observed": "Reviewer key was read only from /tmp/yash-private and never printed/logged/screenshotted. No production-scope OTPs, deletions, phone-change or admin/sms endpoints were called. Owner console was probed READ-only (/status) with a reviewer session and stopped at the 403. No owner/admin session created. The disposable review-customer profile was tombstoned once inside review scope and re-created by the same login (profile_recreated=true). Unprefixed users/requests/sms_log/deletion_requests/integration_outbox were untouched (before==after)."
+}

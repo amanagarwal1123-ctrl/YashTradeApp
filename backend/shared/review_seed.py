@@ -221,13 +221,13 @@ ROLE_LABELS = {"customer": "Customer (retail jeweller)", "admin": "Admin (owner 
                "telecaller": "Telecaller (follow-up desk)", "billing_executive": "Billing executive"}
 NOT_RECORDED = "(not recorded)"
 SIGN_IN_STEPS = [
-    "1. Open the Yash Trade app. On the login screen tap 'Store reviewer access' (small link under the footer).",
-    "2. Enter the Reviewer ID and the Access key exactly as written, then tap SIGN IN.",
+    "1. Open the Yash Trade app. On the login screen tap 'Help' (link under the footer), then 'App review access' > 'Open reviewer sign-in'.",
+    "2. Enter the Reviewer ID and the Access key exactly as written, then tap SIGN IN AS REVIEWER.",
     "3. A gold 'STORE-REVIEW ENVIRONMENT' banner confirms the session. No SMS, OTP or phone number is required.",
 ]
 STORE_FORM_TEXT = [
     "Sign-in type: username + password style (Reviewer ID + Access key). No SMS, OTP or phone number is needed to sign in.",
-    "Steps: Login screen > 'Store reviewer access' > enter Reviewer ID and Access key > SIGN IN.",
+    "Steps: Login screen > Help > App review access > Open reviewer sign-in > enter Reviewer ID and Access key > SIGN IN AS REVIEWER.",
     "Customer role shows catalogue, rates, requests, rewards and the AI assistant on sample data (the assistant asks for AI data-sharing consent first; declining keeps every other feature available).",
     "Admin/Telecaller/Billing roles open the staff panel with sample customers and enquiries.",
     "Account deletion (Profile > Delete My Account) can be completed on the sample profile: SMS is simulated, so the one-time code is shown on the screen itself. Deleting removes the sample profile's data; the next sign-in with the same Reviewer ID and Access key starts a fresh sample profile (nothing from the deleted one comes back).",

@@ -22,9 +22,13 @@ router = APIRouter(prefix="/api/admin/review", tags=["Store review owner console
 PURPOSE = "review_keys"
 
 
-async def owner_console(user=Depends(c.admin)):
+async def owner_console(user=Depends(c.current_user)):
+    # Scope first: EVERY reviewer account (any role) gets the same answer, so the console never leaks whether a
+    # sample account happens to carry the admin role. Then the production role and owner checks.
     if c.in_review():
         c.fail(403, "REVIEW_SCOPE_FORBIDDEN", "Reviewer accounts cannot manage store-review access")
+    if user["role"] != "admin":
+        c.fail(403, "PERMISSION_DENIED", "You do not have permission for this action")
     if not is_owner(user):
         c.fail(403, "OWNER_ADMIN_REQUIRED", "Only the owner administrator can manage store-review access")
     return user

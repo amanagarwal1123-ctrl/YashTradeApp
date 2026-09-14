@@ -14,26 +14,34 @@ from pydantic import BaseModel, ConfigDict
 from . import core as c
 
 router = APIRouter(prefix="/api", tags=["AI consent"])
-AI_CONSENT_VERSION = "2026-09-13"
+AI_CONSENT_VERSION = "2026-09-14"
 AI_MODEL = "claude-sonnet-4-5-20250929"
+# Mirrors the provider request built in server.py::ai_chat: system instruction + up to the last 10 stored turns of
+# the same conversation + the new message, relayed by the Emergent LLM gateway under the business's gateway
+# credential. No phone, name, account ID or session identifier is added to the request - but the user's own text
+# is transferred exactly as written, so it CAN contain such details if the user types them.
 RECIPIENTS = [{
     "name": "Anthropic PBC",
     "service": f"Claude ({AI_MODEL})",
     "role": "AI model provider (third party)",
     "via": "Emergent LLM gateway (integrations.emergentagent.com), which relays the request to the provider",
     "location": "United States",
-    "data_sent": ["The text you type or the quick prompt you tap",
-                  "Up to the last 10 messages of the same conversation, so the assistant has context",
-                  "Your chosen reply language (English / Hindi / Punjabi)",
-                  "A pseudonymous session identifier that does not contain your phone number, name or account ID"],
-    "data_not_sent": ["Your name, phone number, shop name or location", "Your enquiries, orders, cart, wishlist or reward balance",
-                      "Any photo or file (the app does not collect customer photos)"],
+    "data_sent": ["The exact text of every message you type and every quick prompt you tap - including any name, phone number, "
+                  "address or other detail you choose to write in it",
+                  "The earlier messages and replies of the same conversation (up to the last 10 stored), so the assistant has context",
+                  "Our fixed instruction describing the assistant's role and your chosen reply language (English / Hindi / Punjabi)",
+                  "Our gateway credential, which identifies Yash Trade as the sender - not you"],
+    "data_not_sent": ["Your profile fields - name, phone number, shop name, city - are not attached automatically; only what you write "
+                      "yourself is transferred",
+                      "Your account ID, enquiries, orders, cart, wishlist and reward balance are not attached",
+                      "No photo or file is sent - the assistant is text-only"],
     "purpose": "Generate the assistant's reply to your question",
-    "retention": "Our copy is deleted when you withdraw consent or delete your account. The provider processes the "
-                 "request under its own policy; there is no per-user deletion request we can send to the provider, so "
-                 "we do not claim its copy is erased.",
+    "retention": "Our copy of the conversation stays in the app until you withdraw consent or delete your account; then it is "
+                 "deleted. The gateway and the provider process the request under their own terms. We have no per-user deletion "
+                 "request to send them, so we do not claim their copies are erased and we do not state a retention period for them.",
 }]
 WITHDRAWAL_EFFECTS = ["No further text is sent to the AI provider", "Your stored AI chat history in the app is deleted immediately",
+                      "Copies already processed by the provider and its gateway are not erased by this",
                       "Every other part of the app keeps working normally", "You can grant consent again at any time"]
 
 
@@ -104,4 +112,5 @@ async def decide(req: ConsentDecision, user=Depends(c.current_user)):
                                                       "$inc": {"ai_consent.epoch": 1}, "$push": {"ai_consent_events": event}})
     deleted = await purge_history(user["id"])
     return {**describe(await c.db.users.find_one({"id": user["id"]}, {"_id": 0})), "history_deleted": deleted,
-            "provider_copy": "not erased: the provider offers no per-user deletion request; see recipients[].retention"}
+            "provider_copy": "not erased: copies already processed by the AI provider and its gateway stay under their own terms; "
+                             "there is no per-user deletion request we can send (see recipients[].retention)"}

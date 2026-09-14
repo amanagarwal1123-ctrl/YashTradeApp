@@ -3,7 +3,7 @@ import pytest
 import httpx
 import os
 
-API_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://trade-app-submit.preview.emergentagent.com"
+API_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://yash-review-deploy.preview.emergentagent.com"
 BASE = f"{API_URL}/api"
 
 def get_token(phone: str) -> str:

@@ -243,6 +243,11 @@ async def _msg91_send_flow(mobile: str, otp: str) -> Dict[str, Any]:
         body = {"message": resp.text[:120]}
     return {"status_code": resp.status_code, "body": body}
 
+# SMS delivery logs hold a phone number: they exist for OTP delivery diagnostics only and expire after
+# shared.core.SMS_LOG_RETENTION_DAYS (TTL index on `expires_at`, created by core.indexes()); an account deletion
+# removes the number's rows immediately regardless.
+from shared.core import SMS_LOG_RETENTION_DAYS
+
 async def _dispatch_sms_otp(phone: str, otp: str, purpose: str) -> Dict[str, Any]:
     """Send `otp` to a real number via the MSG91 Flow API with pre-flight validation and
     delivery tracking. Every attempt is written to `sms_log`. Raises HTTPException (400/503)
@@ -254,7 +259,8 @@ async def _dispatch_sms_otp(phone: str, otp: str, purpose: str) -> Dict[str, Any
     now = datetime.now(timezone.utc)
     entry: Dict[str, Any] = {
         "id": str(uuid.uuid4()), "phone": digits, "mobile": mobile, "purpose": purpose, "build": APP_BUILD,
-        "sent_at": now.isoformat(), "sent_ts": now.timestamp(), "status": "rejected", "error": None,
+        "sent_at": now.isoformat(), "sent_ts": now.timestamp(), "expires_at": now + timedelta(days=SMS_LOG_RETENTION_DAYS),
+        "status": "rejected", "error": None,
         "request_id": None, "delivery_status": "n/a", "delivery_detail": "", "checks": [],
         "msg91_request_date": None, "msg91_status": None, "last_checked_at": None, "delivered_at": None,
     }

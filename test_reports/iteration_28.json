@@ -1,0 +1,55 @@
+{
+  "label": "PREVIEW live iteration 28 - Play submission changes: Login->Help->App review access; AI consent v2026-09-14 wording; deletion outbox/erasure/ttl; splash+android assets; store-form/reviewer note phrasing.",
+  "environment": "PREVIEW https://yash-review-deploy.preview.emergentagent.com. DB jewellers_app. Reviewer key read from /tmp/yash-private/preview-review-access-2026-09-14.txt only (never printed).",
+  "summary": "F1 fully green: /login shows the footer Help link (testID login-help-link), no 'Store reviewer access' text or review-access-link testID; Help label localises to सहायता / ਮਦਦ under login-lang-hi/pa. Tapping Help opens /help WITHOUT any /api/auth/send-otp call and renders help-enroll-btn, help-privacy-btn, help-review-access-link and help-back-btn. F2 fully green: help-review-access-link -> /review-access (reviewer-id-input, reviewer-key-input, review-login-btn) -> sign in as store-review-customer using the private key -> home with review-environment-banner. Profile -> ai-consent-menu-btn -> /ai-consent shows the card mentioning 'as written', 'NOT ATTACHED AUTOMATICALLY', 'choose to write', 'Anthropic PBC'; 'NEVER SENT' is absent. ai-consent-allow renders ai-consent-granted with 'NOT ATTACHED AUTOMATICALLY', 'WITHDRAWING WILL' and 'not erased by this'. F3 fully green: Profile -> delete-account-btn -> /delete-account shows 'WHAT WILL BE REMOVED' (including 'OTP, sign-in grant and SMS-delivery log rows for your number'), the kept list references 'kept until the website confirms', and testID delete-not-erased begins 'Not erased by this request: the SMS provider (MSG91)...'. Backend: B1 health returns 503 with flows.review.ready=true and flows.owner_admin.state='already_admin' (expected); B2 AI consent GET has current_version 2026-09-14, Anthropic PBC recipient, 'choose to write', no 'session identifier', 'not attached automatically', retention wording and provider-copy withdrawal effect; POST grant/withdraw succeed with provider_copy starting 'not erased'; /api/ai/chat returns 403 AI_CONSENT_REQUIRED without consent. B3 owner-scope endpoint blocks the reviewer but with the GENERIC 403 code PERMISSION_DENIED instead of REVIEW_SCOPE_FORBIDDEN (see backend_issues.minor); review_seed.SIGN_IN_STEPS / STORE_FORM_TEXT contain 'Help', 'App review access', 'Open reviewer sign-in' and do NOT contain 'Store reviewer access'; private note file contains the exact phrase 'tap 'Help' (link under the footer), then 'App review access''. B4 deletion path: request/confirm return status='external_erasure_pending' with erasure.retained_by_app keys, sms_provider/ai_provider erasure='not_requested', no 'pseudonymous' in ai_provider.detail, and detail mentions 'SMS-provider and AI-provider copies are not erased'; unprefixed users/requests/sms_log/deletion_requests/integration_outbox counts are unchanged; review__sms_log rows all have expires_at; re-login returns profile_recreated=true. HOWEVER the outbox row DEL-review-customer-0001 in review__integration_outbox still lists required_acknowledgements=['website','sms_provider','ai_provider'] because the code uses $setOnInsert and the row was created by a previous build on 2026-09-13 (see backend_issues.critical). B5 assets: app.json references icon/android.icon/adaptiveIcon.foregroundImage/web.favicon/expo-splash-screen.image all exist under /app/frontend; icon, android.icon, adaptive-icon and splash-icon are 1024x1024, splash-icon is RGBA; legacy react-logo.png / splash-image.png / app-image.png are gone. B6 regression: tests/shared/test_ai_consent_and_deletion.py, test_review_provisioning_cli.py and test_website_dependencies_d2_d3_d4.py all pass (20/20).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "review__integration_outbox / POST /api/auth/delete-account/confirm", "issue": "Existing outbox row 'DEL-review-customer-0001' still has required_acknowledgements=['website','sms_provider','ai_provider'] because shared/people.py:347 uses $setOnInsert; a row created by a prior build on 2026-09-13 was not migrated. Fresh inserts (per the new code) would be ['website'] only, but the spec asserts the observed row must be ['website']. Recommend a one-shot migration to $set required_acknowledgements=['website'] on outbox events of type 'account_erased' whose row was created before the new build, OR switch the upsert to also $set required_acknowledgements on every write.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/admin/review/status", "issue": "With a review-scope CUSTOMER bearer the endpoint responds 403 with code PERMISSION_DENIED (from c.admin) instead of REVIEW_SCOPE_FORBIDDEN. The REVIEW_SCOPE_FORBIDDEN branch in shared/review_admin.py:owner_console runs only after c.admin succeeds, so a non-admin reviewer never reaches it. Consider reordering the check (assert c.in_review() first when caller is authenticated) or reissuing tests against a reviewer-admin session. Behaviourally it is still blocked, so this is a copy/code mismatch, not a security gap."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "console (unchanged from previous iterations)", "issues": ["'shadow*' style props deprecated - use 'boxShadow'", "props.pointerEvents deprecated - use style.pointerEvents"]}
+    ],
+    "react_native_issues": [
+      {"component": "styling", "issue": "Deprecated 'shadow*' style props still present on login/review-access/panel/ai-assistant/review-keys screens (unchanged)."},
+      {"component": "pointerEvents", "issue": "Deprecated props.pointerEvents still used instead of style.pointerEvents (unchanged)."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration28_live_preview.py",
+    "/app/test_reports/pytest/iteration28.xml",
+    "/app/test_reports/pytest/iteration28_regression.xml"
+  ],
+  "action_items": [
+    "Migrate review__integration_outbox events of type 'account_erased' created before the 2026-09-14 build so required_acknowledgements=['website']; either a startup migration or change shared/people.py:347 to also $set required_acknowledgements=['website'] (idempotent) on write. Add a shared test that asserts new-and-legacy rows both end up ['website'].",
+    "In shared/review_admin.py::owner_console consider evaluating c.in_review() BEFORE c.admin (or return REVIEW_SCOPE_FORBIDDEN for any authenticated review-scope caller) so the surfaced 403 code matches the reviewer-facing story that the review request expects. Optionally document that PERMISSION_DENIED is acceptable for reviewer-customer.",
+    "Optional: migrate deprecated shadow* / props.pointerEvents on login/review-access/panel/ai-assistant/review-keys/delete-account (still present, unchanged from iteration 26/27)."
+  ],
+  "critical_code_review_comments": [
+    "F1 correctly makes /help public: no /api/auth/send-otp call is fired on the Help path; language switching on /login also localises the Help label as expected.",
+    "AI consent wording and version 2026-09-14 are consistent between /api/ai/consent JSON and the /ai-consent card; ai-consent-granted view mirrors WITHDRAWAL_EFFECTS from shared/ai_consent.py.",
+    "delete-account UI copy matches the erasure_report contract (retained_by_app + external sms/ai providers not_requested) so users see what the API actually stores."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration28_live_preview.py",
+    "/app/test_reports/pytest/iteration28.xml",
+    "/app/test_reports/pytest/iteration28_regression.xml",
+    "/app/test_reports/iteration_28.json"
+  ],
+  "success_rate": {
+    "backend": "78% live (7/9 live preview cases pass: B1, B2 shape/grant-withdraw/chat-gate, B3 seed-texts/note-phrase, B5 assets. Fails: B3 owner-scope code mismatch, B4 outbox required_acknowledgements). B6 shared regression 20/20 pass.",
+    "frontend": "100% (F1, F2 sign-in + banner + AI consent card/allow/granted, F3 delete-account copy including delete-not-erased). Withdraw confirm dialog was accepted via page.on('dialog') so the post-withdraw state was reached; the earlier 'OFF note' assertion mismatch was a script glitch, not a UI bug - allow/withdraw endpoint verified end-to-end via B2 backend test."
+  },
+  "seed_data_creation": "None new. B4 tombstoned review-customer-0001 once; the same login flow immediately recreated a fresh sample profile (profile_recreated=true).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only two backend deviations block the spec: (1) legacy review outbox row 'DEL-review-customer-0001' still has required_acknowledgements=['website','sms_provider','ai_provider'] because $setOnInsert never rewrote it (the new code path would emit ['website']); a one-shot migration or converting the write to $set will fix this. (2) /api/admin/review/status returns PERMISSION_DENIED for a reviewer-customer session because c.admin runs before the REVIEW_SCOPE_FORBIDDEN branch in owner_console; reorder the check or accept PERMISSION_DENIED as valid for non-admin reviewers. Everything else (F1, F2, F3, B1, B2, B3-texts+note, B4 body shape/kept-mongo/prod-untouched/re-login, B5 assets, B6 20/20) is green. Reviewer key file is intact and unrotated.",
+  "rca_of_issue": "shared/people.py:347 - `await c.db.integration_outbox.update_one({'id': ref}, {'$setOnInsert': {..., 'required_acknowledgements': ['website']}}, upsert=True)` never updates the 'required_acknowledgements' field of a pre-existing row. Because DEL-review-customer-0001 was inserted by an earlier build (2026-09-13) with the old value, the review-scope deletion path in the deployed preview does not converge on the new declaration. Reproduction: `python3 -c \"from pymongo import MongoClient; print(MongoClient('mongodb://localhost:27017')['jewellers_app']['review__integration_outbox'].find_one({'id':'DEL-review-customer-0001'}, {'_id':0,'required_acknowledgements':1}))\"`. Fix: (a) change $setOnInsert->$set for required_acknowledgements (idempotent), or (b) run a one-time migration setting required_acknowledgements=['website'] where type=='account_erased'.",
+  "hard_rules_observed": "Reviewer key was read from /tmp/yash-private only; never printed/screenshotted/logged. No production-scope OTPs/deletion/phone-change/admin SMS were triggered. Owner console was probed READ-only via /status and stopped at the 403. The disposable reviewer profile was tombstoned once inside review-scope and immediately recreated by the same login (profile_recreated=true). Unprefixed collections (users/requests/sms_log/deletion_requests/integration_outbox) were read-only and unchanged."
+}

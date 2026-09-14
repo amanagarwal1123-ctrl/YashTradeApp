@@ -13,7 +13,7 @@ import json
 from typing import Dict, List, Any
 
 # Configuration
-BASE_URL = "https://trade-app-submit.preview.emergentagent.com/api"
+BASE_URL = "https://yash-review-deploy.preview.emergentagent.com/api"
 ADMIN_PHONE = "9999999999"
 ADMIN_OTP = "1234"
 

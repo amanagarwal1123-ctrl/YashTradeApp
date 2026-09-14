@@ -40,6 +40,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#050505' }, animation: 'slide_from_right' }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="login" />
+            <Stack.Screen name="help" options={{ presentation: 'modal' }} />
             <Stack.Screen name="verify-otp" />
             <Stack.Screen name="review-access" options={{ presentation: 'modal' }} />
             <Stack.Screen name="(tabs)" />

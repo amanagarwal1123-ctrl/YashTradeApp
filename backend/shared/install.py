@@ -77,6 +77,12 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
         # workers only iterate scopes that are actually usable. Primary-database failures are NOT absorbed here
         # (they surface from the primary ensure_indexes() at startup as before).
         await c.initialize_review()
+        # Contract correction (14 Sep 2026): erasure events only await the website; converge rows from older builds
+        # in every usable scope before the workers start.
+        from .people import reconcile_outbox_acknowledgements
+        for data_scope in c.scopes():
+            with c.scoped(data_scope):
+                await reconcile_outbox_acknowledgements()
         app.state.pdf_worker = asyncio.create_task(worker_loop())
         app.state.deletion_worker = asyncio.create_task(deletion_retry_loop())
 

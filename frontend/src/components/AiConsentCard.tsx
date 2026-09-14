@@ -29,8 +29,10 @@ export default function AiConsentCard({ info, busy, onAllow, onDecline, declineL
         <Text style={st.title}>Allow AI data sharing?</Text>
       </View>
       <Text style={st.lead}>
-        The AI assistant (including the quick prompts) sends your text to a third-party AI provider. Nothing is sent until you allow it.
-        {info.outdated ? ' Our AI terms changed, so we are asking again.' : ''}
+        The AI assistant (including the quick prompts) sends what you write to a third-party AI provider. Your profile is not attached, but
+        anything you type yourself — including a name, phone number or address you choose to write — is transferred as written, together with
+        the earlier turns of the same conversation. Nothing is sent until you allow it.
+        {info.outdated ? ' Our AI disclosure changed, so we are asking again.' : ''}
       </Text>
       {info.recipients.map(r => (
         <View key={r.name} style={st.recipient}>
@@ -38,7 +40,7 @@ export default function AiConsentCard({ info, busy, onAllow, onDecline, declineL
           <Text style={st.recipientVia}>{r.role}. Sent via {r.via}.</Text>
           <Text style={st.sub}>WHAT IS SENT</Text>
           {r.data_sent.map(d => <Row key={d} icon="arrow-up-circle" color={Colors.warning} text={d} />)}
-          <Text style={st.sub}>NEVER SENT</Text>
+          <Text style={st.sub}>NOT ATTACHED AUTOMATICALLY</Text>
           {r.data_not_sent.map(d => <Row key={d} icon="close-circle" color={Colors.textMuted} text={d} />)}
           <Text style={st.sub}>PURPOSE & RETENTION</Text>
           <Text style={st.body}>{r.purpose}. {r.retention}</Text>

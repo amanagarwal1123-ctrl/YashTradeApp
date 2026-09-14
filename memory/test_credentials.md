@@ -25,8 +25,8 @@ containers and are gone. To test a reviewer flow, rotate one account from backen
 (the key lands ONLY in that file; never print/log/screenshot it), and revoke it again afterwards:
 `python tools/provision_review_access.py --expected-db jewellers_app --revoke <reviewer_id>`.
 These are not the store-submission credentials; production accounts are provisioned by the owner from the production app
-(Panel > Store review, fresh owner OTP) or the CLI (STORE_REVIEW_ACCESS.md). Sign-in path in the app: login screen -> "Store reviewer access" link
-(/review-access) -> Reviewer ID + Access key -> SIGN IN; the gold STORE-REVIEW ENVIRONMENT banner
+(Panel > Store review, fresh owner OTP) or the CLI (STORE_REVIEW_ACCESS.md). Sign-in path in the app (since 14 Sep 2026): login screen -> "Help" link (/help, no session needed) -> "App review access" ->
+"Open reviewer sign-in" (/review-access) -> Reviewer ID + Access key -> SIGN IN AS REVIEWER; the gold STORE-REVIEW ENVIRONMENT banner
 confirms the isolated session. Endpoint: POST /api/auth/review/login {reviewer_id, access_key}.
 Owner console (/review-keys, GET/POST /api/admin/review/*): owner administrator only; every write action sends a REAL OTP to
 9999813334 -> automated tests must never trigger provision/rotate/revoke/reset there (read-only GET /status is safe).
@@ -34,3 +34,4 @@ Disposable production-scope fixtures (non-owner admin / customer) used for E2E o
 sessions in the preview DB and have been DELETED; recreate them ad hoc if needed (never dial their 91000099xx numbers).
 Real users: normal MSG91 OTP only. No fixed OTP exists in code (DEMO_PHONES is empty).
 Default owner administrator (12 Sep 2026): backend/.env OWNER_ADMIN_PHONE=9999813334 -> the record with that phone is admin in every environment (preview record bcdf18c9-dc87-4d46-b580-30cf519103df promoted customer->admin by the startup bootstrap; no fixed OTP, no password; real MSG91 OTP only - DO NOT send OTPs to this real number in automated tests). Tests use isolated synthetic databases with OWNER_ADMIN_PHONE set via monkeypatch and intercepted SMS.
+14 Sep 2026: store-review-customer was rotated for testing-agent iterations 28/29 and REVOKED again afterwards; the private note was shredded. All four reviewer accounts are REVOKED (accounts_enabled=0). Reviewer sign-in path is Login -> Help -> App review access -> Open reviewer sign-in.

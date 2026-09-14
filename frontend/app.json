@@ -13,9 +13,10 @@
       "bundleIdentifier": "com.emergent.yashtryontest.lt5e6b"
     },
     "android": {
+      "icon": "./assets/images/icon-android-legacy.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#013625"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.emergent.yashtryontest.lt5e6b"

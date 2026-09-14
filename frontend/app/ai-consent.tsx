@@ -35,7 +35,7 @@ export default function AiConsentScreen() {
   };
 
   const withdraw = () => {
-    confirmAlert('Withdraw AI data sharing?', 'No more text will be sent to the AI provider and your stored AI chat history in the app will be deleted now. The provider\'s own copy is not erased by this. You can allow again later.', async () => {
+    confirmAlert('Withdraw AI data sharing?', 'No more text will be sent to the AI provider and your stored AI chat history in the app will be deleted now. Copies already processed by the AI provider and its gateway are not erased by this — we have no per-user deletion request to send them. You can allow again later.', async () => {
       setBusy(true);
       try {
         const res = await api.post('/ai/consent', { granted: false, source: 'profile' });
@@ -76,7 +76,7 @@ export default function AiConsentScreen() {
                 <Text style={st.muted}>{r.role}. Sent via {r.via}. Location: {r.location}.</Text>
                 <Text style={st.sub}>SENT</Text>
                 {r.data_sent.map(d => <Text key={d} style={st.item}>• {d}</Text>)}
-                <Text style={st.sub}>NEVER SENT</Text>
+                <Text style={st.sub}>NOT ATTACHED AUTOMATICALLY</Text>
                 {r.data_not_sent.map(d => <Text key={d} style={st.item}>• {d}</Text>)}
                 <Text style={st.sub}>RETENTION</Text>
                 <Text style={st.item}>{r.retention}</Text>

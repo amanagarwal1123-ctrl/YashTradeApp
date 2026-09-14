@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="9" time="3.721" timestamp="2026-09-14T14:01:49.052844+00:00" hostname="agent-env-93ff0c3d-1ceb-4a34-9d6a-f97ab57c5df2"><testcase classname="tests.test_iteration28_live_preview" name="test_b1_health" time="0.254" /><testcase classname="tests.test_iteration28_live_preview" name="test_b2_consent_shape" time="0.714" /><testcase classname="tests.test_iteration28_live_preview" name="test_b2_consent_grant_withdraw" time="0.485" /><testcase classname="tests.test_iteration28_live_preview" name="test_b2_chat_gated" time="0.197" /><testcase classname="tests.test_iteration28_live_preview" name="test_b3_owner_scope_forbidden" time="0.283"><failure message="assert 'REVIEW_SCOPE_FORBIDDEN' in '{&quot;code&quot;:&quot;PERMISSION_DENIED&quot;,&quot;detail&quot;:&quot;You do not have permission for this action&quot;}'&#10; +  where '{&quot;code&quot;:&quot;PERMISSION_DENIED&quot;,&quot;detail&quot;:&quot;You do not have permission for this action&quot;}' = &lt;Response [403]&gt;.text">tests/test_iteration28_live_preview.py:98: in test_b3_owner_scope_forbidden
+    assert "REVIEW_SCOPE_FORBIDDEN" in r.text
+E   assert 'REVIEW_SCOPE_FORBIDDEN' in '{"code":"PERMISSION_DENIED","detail":"You do not have permission for this action"}'
+E    +  where '{"code":"PERMISSION_DENIED","detail":"You do not have permission for this action"}' = &lt;Response [403]&gt;.text</failure></testcase><testcase classname="tests.test_iteration28_live_preview" name="test_b3_review_seed_texts" time="0.434" /><testcase classname="tests.test_iteration28_live_preview" name="test_b3_private_note_phrase" time="0.000" /><testcase classname="tests.test_iteration28_live_preview" name="test_b4_deletion_flow_and_outbox" time="1.174"><failure message="AssertionError: ['website', 'sms_provider', 'ai_provider']&#10;assert ['website', '...'ai_provider'] == ['website']&#10;  &#10;  Left contains 2 more items, first extra item: 'sms_provider'&#10;  &#10;  Full diff:&#10;    [&#10;        'website',&#10;  +     'sms_provider',&#10;  +     'ai_provider',&#10;    ]">tests/test_iteration28_live_preview.py:158: in test_b4_deletion_flow_and_outbox
+    assert ob.get("required_acknowledgements") == ["website"], ob.get("required_acknowledgements")
+E   AssertionError: ['website', 'sms_provider', 'ai_provider']
+E   assert ['website', '...'ai_provider'] == ['website']
+E     
+E     Left contains 2 more items, first extra item: 'sms_provider'
+E     
+E     Full diff:
+E       [
+E           'website',
+E     +     'sms_provider',
+E     +     'ai_provider',
+E       ]</failure></testcase><testcase classname="tests.test_iteration28_live_preview" name="test_b5_assets" time="0.016" /></testsuite></testsuites>

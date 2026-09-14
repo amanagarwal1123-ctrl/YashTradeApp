@@ -44,6 +44,10 @@ async def test_no_text_reaches_the_provider_without_current_consent_and_withdraw
     assert info.status_code == 200 and info.json()["granted"] is False and info.json()["current_version"]
     recipient = info.json()["recipients"][0]
     assert recipient["name"] == "Anthropic PBC" and "Emergent" in recipient["via"] and recipient["data_not_sent"]
+    assert any("choose to write" in line for line in recipient["data_sent"])  # typed names/phones ARE transferred as written
+    assert any("not attached automatically" in line for line in recipient["data_not_sent"])
+    assert not any("session identifier" in line for line in recipient["data_sent"])  # no session id reaches the provider
+    assert "retention period" in recipient["retention"] and "not claim" in recipient["retention"]
     assert "AI assistant quick prompts" in info.json()["required_for"]
     # A quick prompt is an ordinary chat message: it is refused too, and the provider is never constructed.
     for text in ("How to pitch silver anklets?", "my own question"):
@@ -144,4 +148,44 @@ async def test_account_deletion_removes_analytics_ai_history_consent_and_reports
     assert (await api_client.post("/api/auth/send-otp", json={"phone": phone, "channel": "mobile"})).status_code in (403, 404)
     outbox = await api_client.get("/api/integrations/deletions", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
     assert outbox.status_code == 200 and outbox.json()["events"][0]["user_id"] == uid
-    assert set(outbox.json()["events"][0]["required_acknowledgements"]) == {"website", "sms_provider", "ai_provider"}
+    event = outbox.json()["events"][0]
+    # Only the website can acknowledge; SMS/AI providers are disclosed as retained, never awaited (no eternal "pending").
+    assert event["required_acknowledgements"] == ["website"]
+    assert report["external"]["sms_provider"]["erasure"] == "not_requested" and report["external"]["ai_provider"]["erasure"] == "not_requested"
+    assert "pseudonymous" not in report["external"]["ai_provider"]["detail"]
+    ack = await api_client.post(f"/api/integrations/deletions/{event['id']}/ack", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
+    assert ack.status_code == 200 and ack.json()["all_acknowledged"] is True
+    deletion = await db.deletion_requests.find_one({"reference": body["reference"]}, {"_id": 0})
+    assert deletion["status"] == "completed" and deletion["completed_at"] and "phone" not in deletion and "name" not in deletion
+
+
+async def test_reconcile_converges_erasure_events_written_by_older_builds(api_client, isolated_db):
+    """Events written before 14 Sep 2026 required acknowledgements from providers that can never acknowledge.
+    The startup reconciliation corrects the requirement, completes events the website already acknowledged, and
+    is idempotent; production-scope rows of other types are untouched."""
+    from shared.people import reconcile_outbox_acknowledgements
+    db = isolated_db["db"]
+    old = ["website", "sms_provider", "ai_provider"]
+    await db.integration_outbox.insert_many([
+        {"id": "DEL-old-pending", "type": "account_erased", "user_id": "old-1", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old},
+        {"id": "DEL-old-acked", "type": "account_erased", "user_id": "old-2", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old,
+         "acknowledged": ["website"], "acknowledged_at": {"website": c.stamp()}},
+        {"id": "other-1", "type": "something_else", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old},
+    ])
+    await db.deletion_requests.insert_many([
+        {"id": "DEL-old-pending", "reference": "DEL-old-pending", "user_id": "old-1", "status": "external_erasure_pending", "requested_at": c.stamp()},
+        {"id": "DEL-old-acked", "reference": "DEL-old-acked", "user_id": "old-2", "status": "external_erasure_pending", "requested_at": c.stamp()},
+    ])
+    first = await reconcile_outbox_acknowledgements()
+    assert first == {"requirements_corrected": 2, "completed": 1}
+    pending = await db.integration_outbox.find_one({"id": "DEL-old-pending"}, {"_id": 0})
+    assert pending["required_acknowledgements"] == ["website"] and pending["status"] == "pending"
+    acked = await db.integration_outbox.find_one({"id": "DEL-old-acked"}, {"_id": 0})
+    assert acked["required_acknowledgements"] == ["website"] and acked["status"] == "acknowledged" and acked["completed_at"]
+    assert (await db.deletion_requests.find_one({"reference": "DEL-old-acked"}, {"_id": 0}))["status"] == "completed"
+    assert (await db.deletion_requests.find_one({"reference": "DEL-old-pending"}, {"_id": 0}))["status"] == "external_erasure_pending"
+    assert (await db.integration_outbox.find_one({"id": "other-1"}, {"_id": 0}))["required_acknowledgements"] == old
+    # Idempotent, and the website's outbox now lists only the still-pending event.
+    assert await reconcile_outbox_acknowledgements() == {"requirements_corrected": 0, "completed": 0}
+    outbox = await api_client.get("/api/integrations/deletions", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
+    assert [e["id"] for e in outbox.json()["events"]] == ["DEL-old-pending"]

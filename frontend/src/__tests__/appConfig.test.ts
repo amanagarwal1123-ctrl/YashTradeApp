@@ -3,7 +3,7 @@
  * NODE_ENV=production and must resolve the canonical production backend, never the preview container.
  * The Metro development preview keeps EXPO_PUBLIC_BACKEND_URL untouched.
  */
-const PREVIEW = 'https://trade-app-submit.preview.emergentagent.com';
+const PREVIEW = 'https://yash-review-deploy.preview.emergentagent.com';
 const PRODUCTION = 'https://yash-tryon-test.emergent.host';
 
 function loadConfig(env: Record<string, string | undefined>) {
@@ -23,7 +23,7 @@ describe('app.config.js backend origin resolution', () => {
 
   it('release build never ships a preview-container origin: it resolves to the canonical production backend', () => {
     expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PRODUCTION);
-    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: 'https://trade-app-submit.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
+    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: 'https://yash-review-deploy.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
     expect(loadConfig({ NODE_ENV: 'production' }).backendUrl).toBe(PRODUCTION);
   });
 

@@ -25,7 +25,7 @@ from pymongo import MongoClient
 
 # --- Setup / fixtures ---------------------------------------------------------
 
-BASE_URL = "https://trade-app-submit.preview.emergentagent.com"
+BASE_URL = "https://yash-review-deploy.preview.emergentagent.com"
 PREVIEW_KEYS_PATH = Path("/tmp/yash-private/preview-review-access-2026-09-13.txt")
 FIXTURES_PATH = Path("/tmp/yash-private/e2e-fixtures.json")
 BACKEND_ENV = dotenv_values("/app/backend/.env")

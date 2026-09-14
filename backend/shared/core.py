@@ -194,11 +194,15 @@ async def initialize_review():
     return True
 
 
+SMS_LOG_RETENTION_DAYS = 90
+
+
 async def send_sms(number, otp, purpose):
     """Transport gate: review sessions never reach the SMS provider; the message is recorded instead."""
     if in_review():
         entry = {"id": secrets.token_hex(12), "phone": number, "purpose": purpose, "status": "simulated",
-                 "simulated": True, "provider": "none", "sent_ts": stamp(), "review_environment": True}
+                 "simulated": True, "provider": "none", "sent_ts": stamp(), "review_environment": True,
+                 "expires_at": now() + timedelta(days=SMS_LOG_RETENTION_DAYS)}
         await db.sms_log.insert_one(dict(entry))
         return entry
     return await dispatch_sms(number, otp, purpose)
@@ -470,6 +474,15 @@ async def indexes():
     await db.telecaller_activity.create_index([("customer_id", 1), ("created_at", -1)])
     await db.import_jobs.create_index("id", unique=True)
     await db.products.create_index("product_code", unique=True, partialFilterExpression={"product_code": {"$type": "string"}})
+    # SMS delivery logs carry a phone number and exist only for OTP-delivery diagnostics: bounded retention via TTL.
+    # Rows written before the window existed get an expiry derived from their numeric send timestamp (or, for the
+    # store-review copy's ISO-string stamps, from the string) so no row is retained indefinitely.
+    await db.sms_log.create_index("expires_at", expireAfterSeconds=0)
+    ttl_ms = SMS_LOG_RETENTION_DAYS * 86400 * 1000
+    await db.sms_log.update_many({"expires_at": {"$exists": False}, "sent_ts": {"$type": "number"}},
+                                 [{"$set": {"expires_at": {"$add": [{"$toDate": {"$multiply": ["$sent_ts", 1000]}}, ttl_ms]}}}])
+    await db.sms_log.update_many({"expires_at": {"$exists": False}, "sent_ts": {"$type": "string"}},
+                                 [{"$set": {"expires_at": {"$add": [{"$toDate": "$sent_ts"}, ttl_ms]}}}])
 
 
 async def ensure_indexes():

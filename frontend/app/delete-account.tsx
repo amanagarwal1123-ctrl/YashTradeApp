@@ -10,8 +10,9 @@ import { showAlert, confirmAlert } from '../src/utils/alert';
 
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
-const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'AI assistant chat history, AI consent record and content reports', 'Usage analytics events recorded by the app', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details'];
-const KEPT = ['Anonymous operational query history (your name, phone, shop and notes are blanked)', 'Deletion reference and keyed identity tombstone to prevent accidental restoration', 'Website, SMS-provider and AI-provider erasure acknowledgements (pending until confirmed)'];
+const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'AI assistant chat history, AI consent record and content reports', 'Any usage analytics events stored for your account', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details', 'OTP, sign-in grant and SMS-delivery log rows for your number'];
+const KEPT = ['Anonymous operational query history (your name, phone, shop and notes are blanked; only status, dates and type remain)', 'Deletion reference and a keyed (hashed) identity tombstone that stops the number from being re-enrolled automatically', 'The erasure event for the enrolment website, kept until the website confirms it has removed its copy'];
+const NOT_ERASED = 'Not erased by this request: the SMS provider (MSG91) keeps its own delivery logs for the one-time codes sent to your number, and, if you used the AI assistant, the AI provider and its gateway keep whatever they retain under their own terms. We have no per-user deletion request to send them and do not state their retention periods.';
 const NOT_COLLECTED = 'The app does not collect photos, files or other personal uploads from customers, so there is no personal media to erase from external storage.';
 
 export default function DeleteAccountScreen() {
@@ -43,7 +44,7 @@ export default function DeleteAccountScreen() {
         const res = await api.post('/auth/delete-account/confirm', { otp });
         await logout();
         const remaining = res?.erasure?.local_personal_records_remaining;
-        showAlert('Local account removed', `Your profile has been anonymized and sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. Website and provider erasure acknowledgements remain pending; provider copies are not proven erased.`);
+        showAlert('Account deleted', `Your profile has been anonymized and all sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. The enrolment website removes its copy on receiving this deletion event; SMS-provider and AI-provider copies are not erased by this request.`);
         router.replace('/login');
       } catch (e: any) {
         setError(e?.message || 'Could not verify OTP');
@@ -65,7 +66,7 @@ export default function DeleteAccountScreen() {
         <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
           <View style={st.warnCard}>
             <Ionicons name="warning" size={22} color={Colors.error} />
-            <Text style={st.warnText}>Deletion revokes your sessions and anonymizes your local profile. Website and provider copies require separate confirmed cleanup. Enrollment retries cannot automatically restore this identity.</Text>
+            <Text style={st.warnText}>Deletion revokes your sessions and removes or anonymizes your data in the app immediately. The enrolment website is notified to remove its copy. Enrollment retries cannot automatically restore this identity.</Text>
           </View>
 
           <Text style={st.label}>WHAT WILL BE REMOVED</Text>
@@ -80,7 +81,8 @@ export default function DeleteAccountScreen() {
             {KEPT.map(item => (
               <View key={item} style={st.row}><Ionicons name="checkmark-circle" size={16} color={Colors.textMuted} /><Text style={st.rowText}>{item}</Text></View>
             ))}
-            <Text style={st.hint}>Ordinary profile identifiers are not retained as an unspecified business record. Any external provider retention must be confirmed separately.</Text>
+            <Text style={st.hint}>Your name, phone number and shop details are not retained as a business record.</Text>
+            <Text style={st.hint} testID="delete-not-erased">{NOT_ERASED}</Text>
             <Text style={st.hint}>{NOT_COLLECTED}</Text>
           </View>
 

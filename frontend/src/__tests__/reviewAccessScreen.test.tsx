@@ -26,6 +26,8 @@ jest.mock('@react-native-async-storage/async-storage', () => require('@react-nat
 import ReviewAccessScreen from '../../app/review-access';
 // eslint-disable-next-line import/first
 import LoginScreen from '../../app/login';
+// eslint-disable-next-line import/first
+import HelpScreen from '../../app/help';
 
 const KEY = 'k'.repeat(44); // issued keys are >= 40 characters; the screen requires at least 20
 const DESTINATIONS: Record<string, string> = {
@@ -43,13 +45,26 @@ async function fillAndSubmit(reviewerId: string, key: string) {
 
 beforeEach(() => { mockReplace.mockReset(); mockPush.mockReset(); mockBack.mockReset(); mockPost.mockReset(); mockLogin.mockReset(); });
 
-describe('login screen -> store reviewer access', () => {
-  it('offers the reviewer entry point under the footer and routes to /review-access', async () => {
+describe('login screen -> Help -> App review access', () => {
+  it('no longer shows a reviewer link on the login screen; the footer offers Help, which needs no session', async () => {
     await render(<LoginScreen />);
-    expect(screen.getByText('Store reviewer access')).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('review-access-link'));
+    expect(screen.queryByText('Store reviewer access')).toBeNull();
+    expect(screen.queryByTestId('review-access-link')).toBeNull();
+    await fireEvent.press(screen.getByTestId('login-help-link'));
+    expect(mockPush).toHaveBeenCalledWith('/help');
+    expect(mockPost).not.toHaveBeenCalled(); // opening Help triggers no OTP or API request
+  });
+
+  it('Help lists "App review access" and routes to the existing /review-access screen without any API call', async () => {
+    await render(<HelpScreen />);
+    expect(screen.getByText('App review access')).toBeTruthy();
+    expect(screen.getByTestId('help-privacy-btn')).toBeTruthy();
+    expect(screen.getByTestId('help-enroll-btn')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('help-review-access-link'));
     expect(mockPush).toHaveBeenCalledWith('/review-access');
-    expect(mockPost).not.toHaveBeenCalled(); // no OTP request is triggered by opening the reviewer screen
+    expect(mockPost).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('help-back-btn'));
+    expect(mockBack).toHaveBeenCalledTimes(1);
   });
 });
 

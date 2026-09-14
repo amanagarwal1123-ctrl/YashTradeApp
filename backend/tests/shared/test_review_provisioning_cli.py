@@ -129,7 +129,7 @@ async def test_cli_private_note_rotate_revoke_and_reset(api_client, review_env, 
         text = note.read_text()
         assert stat.S_IMODE(note.stat().st_mode) == 0o600
         assert "PREVIEW" in text and "http://testserver/api" in text and review_env["name"] in text
-        assert "Store reviewer access" in text and "App Store Connect" in text and "Play Console" in text
+        assert "Help" in text and "App review access" in text and "Store reviewer access" not in text and "App Store Connect" in text and "Play Console" in text
         keys = {m.group(1): m.group(2) for m in re.finditer(r"Reviewer ID: (\S+)\s+Role: .+?Access key: (\S+)$", text, re.M)}
         assert set(keys) == set(ROLES)
         for reviewer_id in ROLES:

@@ -25,7 +25,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DOCUMENTS = [
     "WEBSITE_HANDOFF.md", "YASH_SHARED_API_CONTRACT.md", "WEBSITE_AUTH_FIX_PROMPT.md", "RELEASE_READINESS.md",
-    "STORE_REVIEW_ACCESS.md", "PRODUCTION_ADMIN_RECOVERY.md", "IDENTITY_EXPORT_CONTRACT.md",
+    "STORE_REVIEW_ACCESS.md", "PRODUCTION_ADMIN_RECOVERY.md", "IDENTITY_EXPORT_CONTRACT.md", "WEBSITE_PRIVACY_UPDATE.md",
+    "GOOGLE_PLAY_DATA_SAFETY.md",
 ]
 SCHEMA = "contracts/openapi.shared-v1.json"
 LOCKFILE = "frontend/yarn.lock"                       # the single committed lockfile (Yarn); must be tracked
