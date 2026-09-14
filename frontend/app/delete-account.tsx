@@ -12,7 +12,7 @@ const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-registe
 
 const REMOVED = ['Name, phone, shop and location profile', 'Login access and sessions', 'Cart and wishlist', 'AI assistant chat history, AI consent record and content reports', 'Any usage analytics events stored for your account', 'Reward points and reward history', 'Customer notes and follow-ups', 'Consents and personal query details', 'OTP, sign-in grant and SMS-delivery log rows for your number'];
 const KEPT = ['Anonymous operational query history (your name, phone, shop and notes are blanked; only status, dates and type remain)', 'Deletion reference and a keyed (hashed) identity tombstone that stops the number from being re-enrolled automatically', 'The erasure event for the enrolment website, kept until the website confirms it has removed its copy'];
-const NOT_ERASED = 'Not erased by this request: the SMS provider (MSG91) keeps its own delivery logs for the one-time codes sent to your number, and, if you used the AI assistant, the AI provider and its gateway keep whatever they retain under their own terms. We have no per-user deletion request to send them and do not state their retention periods.';
+const NOT_ERASED = 'Not erased by this request: the SMS provider (MSG91) keeps its own delivery logs for the one-time codes sent to your number, and, if you used the AI assistant, the AI provider and its gateway keep whatever they retain under their own terms. There is no automatic deletion request for these providers. Where a provider accepts a manual request, Yash Trade submits it and records the request date, the provider\'s answer and any retention exception in a ledger you can ask about, quoting your deletion reference. Provider erasure is only counted as done when the provider confirms it in writing; we do not state their retention periods.';
 const NOT_COLLECTED = 'The app does not collect photos, files or other personal uploads from customers, so there is no personal media to erase from external storage.';
 
 export default function DeleteAccountScreen() {
@@ -44,7 +44,7 @@ export default function DeleteAccountScreen() {
         const res = await api.post('/auth/delete-account/confirm', { otp });
         await logout();
         const remaining = res?.erasure?.local_personal_records_remaining;
-        showAlert('Account deleted', `Your profile has been anonymized and all sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. The enrolment website removes its copy on receiving this deletion event; SMS-provider and AI-provider copies are not erased by this request.`);
+        showAlert('Account deleted', `Your profile has been anonymized and all sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. The enrolment website removes its copy on receiving this deletion event. Provider-held copies (SMS delivery logs, AI provider) are NOT erased by this request; their manual erasure requests are tracked separately under your reference.`);
         router.replace('/login');
       } catch (e: any) {
         setError(e?.message || 'Could not verify OTP');

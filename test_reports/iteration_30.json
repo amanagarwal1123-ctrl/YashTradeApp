@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 30: E2E verification of the deletion-status two-outcome model on live preview (backend + frontend). 19/19 backend pytest tests passed and full frontend flow verified: reviewer sign-in via Login -> Help -> App review access, Panel 'Deletions' tab renders the ledger, both cleanup and provider-erasure badges shown separately, provider actions (requested/confirmed/refused+exception/reopen) toggle only the provider-erasure summary while the top-level cleanup badge stays untouched. Validation (>=5 char outcome) triggers 'Not recorded' web dialog. Customer reviewer cannot access /panel admin surface. Production-scope synthetic admin sees 2 superseded rows and 409 DELETION_SUPERSEDED on write. No PII leakage in listing rows. Ledger row DEL-review-customer-0001 left with ai_provider.state='requested' (badge OUTSTANDING), as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration30_live_preview.py",
+    "/app/test_reports/pytest/iteration30_results.xml",
+    "/app/test_reports/iteration30_ledger.jpeg",
+    "/app/test_reports/iteration30_final.jpeg",
+    "/app/test_reports/iteration30_customer_panel.jpeg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_iteration30_live_preview.py (new)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100%"},
+  "seed_data_creation": "No new seed data. Ledger row DEL-review-customer-0001 (review scope) cycled through the full state machine and left at state='requested', provider_erasure='outstanding', row status='external_erasure_pending', cleanup {app: completed, website: pending} unchanged. Production-scope fixtures untouched (token still valid).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reviewer keys in /tmp/yash-private/preview-store-review-{admin,customer}-*.txt. Production fixture in /tmp/yash-private/e2e-fixtures.json. Ledger row DEL-review-customer-0001 currently: status=external_erasure_pending, cleanup={app:completed, website:pending}, providers.ai_provider.state=requested (with 4+ history entries and requested_at set), sms_provider=not_applicable, object_storage=not_applicable. To exercise the state machine again just POST to /api/admin/deletion-requests/DEL-review-customer-0001/providers/ai_provider with a reviewer-admin bearer token. Production superseded rows: DEL-20260909-2626C3 and DEL-20260909-580C74 — write actions return 409 DELETION_SUPERSEDED.",
+  "detailed_backend_verifications": {
+    "GET /api/admin/deletion-requests": "200, response contains requests[], total, provider_procedures{sms_provider,ai_provider,object_storage each with delete_api=false + procedure text}, states dict has exactly 6 entries; review row exposes {status, cleanup, provider_erasure, providers, meaning} with no phone/name/shop_name fields.",
+    "Lifecycle DEL-review-customer-0001 / ai_provider": "confirmed while not_requested -> 409 PROVIDER_STATE; requested with reference+channel -> 200, requested_at set, history entry has actor_id; confirmed 'abc' -> 422 OUTCOME_REQUIRED; refused without exception -> 422 RETENTION_EXCEPTION_REQUIRED; refused with exception -> 200 state=refused, summary provider_erasure=retained_with_exception; reopen -> 200 state=requested, outcome/retention_exception cleared; confirmed with long outcome -> 200 state=confirmed, provider_erasure=completed (others not_applicable); reopen -> state=requested (final).",
+    "Guards": "sms_provider action -> 409 PROVIDER_NOT_APPLICABLE; provider 'foo' -> 404 PROVIDER_UNKNOWN; DEL-missing -> 404 DELETION_NOT_FOUND; body with unknown field -> 422.",
+    "Invariance": "row.status stayed external_erasure_pending and cleanup.website stayed 'pending' across all provider actions.",
+    "Access control": "reviewer-customer bearer token -> 403 on GET listing; no token -> 401.",
+    "Production scope": "GET listing returned total=2 rows both status=superseded_reactivated, cleanup.app='superseded', provider_erasure='superseded', providers preserved (sms_provider not_requested, ai_provider not_requested data_present='unknown', object_storage not_applicable), no PII. POST provider action -> 409 DELETION_SUPERSEDED."
+  },
+  "detailed_frontend_verifications": {
+    "auth path": "Login -> login-help-link -> Help screen -> help-review-access-link -> /review-access -> reviewer-id-input + reviewer-key-input + review-login-btn -> lands at /panel with gold 'STORE-REVIEW ENVIRONMENT · synthetic data · SMS/calls simulated' banner.",
+    "panel-tab-deletions": "Present in horizontal tab bar; click renders deletion-ledger heading 'ACCOUNT DELETION REQUESTS (1)' with legend text 'Two outcomes per request, never merged...'",
+    "row and badges": "deletion-row-DEL-review-customer-0001 shows cleanup-status badge 'APP DONE · WEBSITE ACK PENDING' AND provider-erasure badge 'PROVIDER ERASURE OUTSTANDING'; on expand (deletion-toggle-*): CLEANUP line 'App records: completed · Website copy: pending', PROVIDER ERASURE LEDGER with 3 cards.",
+    "MSG91 + Emergent Managed Object Storage cards": "state 'NOT APPLICABLE', no action buttons rendered (query for act-*-sms_provider / act-*-object_storage = null).",
+    "Anthropic card in REQUESTED": "shows UPDATE REQUEST, RECORD CONFIRMATION, RECORD REFUSAL + EXCEPTION buttons; procedure text 'How to request: Email support@emergent.sh ...' visible.",
+    "validation": "Click RECORD CONFIRMATION, type 'abc' (3 chars), SAVE -> web dialog 'Not recorded — Record what the provider confirmed, in writing'; state stays REQUESTED.",
+    "cancel": "CANCEL hides the outcome form (in-outcome-* becomes hidden).",
+    "confirm flow": "RECORD CONFIRMATION with 'Provider confirmed deletion via ticket TICKET-1' -> state=CONFIRMED, provider-erasure badge 'PROVIDER ERASURE CONFIRMED'; cleanup-status badge UNCHANGED at 'APP DONE · WEBSITE ACK PENDING'.",
+    "reopen": "act-reopen-* -> state back to REQUESTED, badge back to 'PROVIDER ERASURE OUTSTANDING'.",
+    "refuse+exception": "RECORD REFUSAL + EXCEPTION with outcome + reason (>=10 chars) + basis + review date '2027-03-01' -> state=REFUSED, badge 'RETAINED · EXCEPTION RECORDED'.",
+    "final state": "One more REOPEN leaves ai_provider at 'REQUESTED' (badge OUTSTANDING) as requested by the review scope.",
+    "customer reviewer": "store-review-customer login lands on customer home '/'; navigating to /panel shows the panel-login phone/OTP screen (not the admin surface); Deletions tab and deletion-ledger not visible."
+  }
+}

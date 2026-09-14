@@ -5746,6 +5746,288 @@
         }
       }
     },
+    "/api/admin/deletion-requests": {
+      "get": {
+        "tags": [
+          "Account deletion ledger"
+        ],
+        "summary": "List Deletion Requests",
+        "operationId": "list_deletion_requests_api_admin_deletion_requests_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/deletion-requests/{reference}/providers/{provider}": {
+      "post": {
+        "tags": [
+          "Account deletion ledger"
+        ],
+        "summary": "Record Provider Action",
+        "operationId": "record_provider_action_api_admin_deletion_requests__reference__providers__provider__post",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Reference"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderAction"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/requests/staff-options": {
       "get": {
         "tags": [
@@ -11974,130 +12256,6 @@
               "title": "Log Id"
             }
           },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "402": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "428": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Canonical JSON error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharedError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/admin/deletion-requests": {
-      "get": {
-        "summary": "List Deletion Requests",
-        "operationId": "list_deletion_requests_api_admin_deletion_requests_get",
-        "parameters": [
           {
             "name": "authorization",
             "in": "header",
@@ -22389,6 +22547,67 @@
         ],
         "title": "Profile"
       },
+      "ProviderAction": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "confirmed",
+              "refused",
+              "no_procedure",
+              "reopen"
+            ],
+            "title": "Action"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "request_reference": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Request Reference",
+            "default": ""
+          },
+          "channel": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Channel",
+            "default": ""
+          },
+          "outcome": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Outcome",
+            "default": ""
+          },
+          "retention_exception": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RetentionException"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "ProviderAction"
+      },
       "RedeemRequest": {
         "properties": {
           "points": {
@@ -22421,6 +22640,40 @@
           "refresh_token"
         ],
         "title": "Refresh"
+      },
+      "RetentionException": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 10,
+            "title": "Reason"
+          },
+          "basis": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Basis",
+            "default": ""
+          },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "RetentionException"
       },
       "ReviewLogin": {
         "properties": {

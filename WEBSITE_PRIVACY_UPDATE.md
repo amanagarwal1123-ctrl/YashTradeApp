@@ -73,15 +73,21 @@ Why this update is needed (all confirmed against the app source on 14 Sep 2026):
 > (3) the anonymised enquiry statistics described above. None of these contain your name or phone number in readable form.
 >
 > **This website.** The app sends this website an erasure event for your account. We remove the enrolment record, drafts, cached
-> profile data and sessions held here and acknowledge the event **within 30 days of your request**; the deletion is then recorded as
-> complete. The 30-day period applies to our own systems only.
+> profile data and sessions held here and acknowledge the event **within 30 days of your request**. At that point the deletion is
+> recorded as **"app and website cleanup completed"**. The 30-day period applies to our own systems (app and website) only; it says
+> nothing about the service providers below, whose copies are tracked as a separate outcome.
 >
-> **Service providers — not erased by your request.** Our SMS provider (**MSG91**) keeps its own delivery records of the one-time codes
-> sent to your number, and, if you used the AI assistant, the AI provider and its gateway (§1) keep whatever they retain under their own
-> terms. We have no per-user deletion request that we can send to these providers and therefore do not claim that their copies are
-> erased or state a retention period for them. Operational server logs contain only the last four digits of a phone number and are kept
-> for **[OWNER: confirm the log-retention period of the hosting platform]**; database backups age out after
-> **[OWNER: confirm the backup-retention period of the hosting platform]** and are not edited individually.
+> **Service providers — a separate outcome, not covered by the 30 days.** Our SMS provider (**MSG91**) keeps its own delivery records
+> of the one-time codes sent to your number, and, if you used the AI assistant, the AI provider and its gateway (§1) keep whatever they
+> retain under their own terms. None of them offers an automatic per-user deletion request. For each provider that holds data about
+> you we therefore keep a **provider-erasure record** under your deletion reference showing one of: *not yet requested*, *requested*
+> (date and ticket reference), *confirmed by the provider* (their written answer and date), *refused* (with the retention exception the
+> provider relies on, its basis and a review date), or *no request procedure exists* (with the provider's statement). Where a provider
+> accepts a manual request we submit it and record the answer. We count a provider copy as erased **only** when the provider has confirmed
+> it in writing; "not yet requested" or "requested" means the copy still exists. You may ask us for the current state of this record by
+> quoting your deletion reference. We do not state the providers' own retention periods. Operational server logs contain only the last
+> four digits of a phone number and are kept for **[OWNER: confirm the log-retention period of the hosting platform]**; database backups
+> age out after **[OWNER: confirm the backup-retention period of the hosting platform]** and are not edited individually.
 >
 > **Retention while your account is active.** Profile, enquiries, cart, wishlist, rewards and AI history: for as long as your account
 > exists (AI history: until you withdraw consent). One-time codes and sign-in grants: 10 minutes. SMS-delivery diagnostics for your
@@ -89,6 +95,9 @@ Why this update is needed (all confirmed against the app source on 14 Sep 2026):
 
 Remove wherever it still appears: *"Deletion is completed within 30 days"* as a global statement, and any sentence saying that
 provider copies are deleted, that data is "erased from all systems", or that names/phone numbers are "never sent" to the AI provider.
+Do not write that deletion is "complete" once the website has acknowledged — that acknowledgement completes the app-and-website
+cleanup only. Do not describe the app's removal of the former "pending" status as compliance: provider erasure is achieved only through
+the recorded manual requests and confirmations described above.
 
 ## 5. Add to the "Staff" or "Who uses this app" section:
 
@@ -109,7 +118,11 @@ collections in the same MongoDB database (`DB_NAME`), application-enforced by th
 nothing. There is **no** `REVIEW_DB_NAME` setting to add, no reviewer-login endpoint to proxy, and no reviewer-auth API to build. Your
 existing obligations are unchanged: enrolment (`POST /api/integrations/enrollments`), deletion by grant, and consuming the deletion outbox
 (`GET /api/integrations/deletions` → `POST …/{event_id}/ack`). One contract detail changed on 14 Sep: `required_acknowledgements` on
-`account_erased` events is now `["website"]` only — your acknowledgement completes the deletion (`all_acknowledged: true`).
+`account_erased` events is now `["website"]` only — your acknowledgement completes the **app + website cleanup** outcome
+(`all_acknowledged: true`, app-side `deletion_requests.status = cleanup_completed`). It does **not** mark provider copies erased: the app
+keeps a separate provider-erasure ledger (`providers.{sms_provider,ai_provider,object_storage}` with states not_requested / requested /
+confirmed / refused / no_procedure / not_applicable) that only the business's administrators update after manual provider requests.
+Your privacy page must reflect that separation (see §4).
 
 ## 7. Service-provider list (append or reconcile with your existing list)
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
 
 from . import core as c
+from . import provider_erasure as pe
 from .auth import check_challenge, issue, start_challenge
 
 router = APIRouter(prefix="/api", tags=["People and integration"])
@@ -260,18 +261,24 @@ async def erase(user, source):
         c.fail(409, "OWNER_ADMIN_PROTECTED", "The default owner administrator cannot be deleted; change OWNER_ADMIN_PHONE first")
     uid, number = user["id"], c.phone(user["phone"])
     ref = "DEL-" + uid
+    # Which providers hold this account's data is recorded BEFORE the cleanup deletes the evidence. Their entries start
+    # as not_requested (outstanding) - the ledger, not the website acknowledgement, tracks provider erasure.
+    providers = await pe.snapshot(user, uid, number)
     # Tombstone and revocation happen BEFORE cleanup. Retried enrollment cannot resurrect it.
     await c.db.deleted_identities.update_one({"phone_hash": c.keyed(number)},
         {"$setOnInsert": {"user_id": uid, "deleted_at": c.stamp()}}, upsert=True)
     await c.db.users.update_one({"id": uid}, {"$set": {"account_status": "deleted", "status": "deleted"}, "$inc": {"session_version": 1}})
     await c.db.session_families.update_many({"user_id": uid}, {"$set": {"revoked": True}})
     await c.db.deletion_requests.update_one({"reference": ref}, {"$setOnInsert": {
-        "id": ref, "reference": ref, "user_id": uid, "source": source, "requested_at": c.stamp()},
+        "id": ref, "reference": ref, "user_id": uid, "source": source, "requested_at": c.stamp(), "providers": providers},
         "$set": {"status": "local_cleanup_pending"}}, upsert=True)
     await cleanup_deletion(uid, number, ref)
+    deletion = await c.db.deletion_requests.find_one({"reference": ref}, {"_id": 0})
     return {"deleted": True, "reference": ref, "status": "external_erasure_pending",
+            "cleanup": pe.cleanup_of(deletion), "provider_erasure": pe.summary(deletion.get("providers")),
             "detail": "Data held by the app deleted or anonymized now; the enrolment website's erasure acknowledgement is pending. "
-                      "SMS-provider and AI-provider copies are not erased by this request (no per-user deletion request exists).",
+                      "Provider-held copies (SMS delivery logs, AI provider/gateway) are tracked separately in the provider-erasure "
+                      "ledger and are NOT erased by this request; a manual request to each provider is recorded there.",
             "erasure": await erasure_report(uid)}
 
 
@@ -279,20 +286,27 @@ async def erase(user, source):
 REQUIRED_ACKNOWLEDGEMENTS = ["website"]
 
 
+async def mark_cleanup_completed(ref):
+    """App + website cleanup done. Touches ONLY the cleanup outcome - provider ledger entries keep their own states."""
+    ts = c.stamp()
+    return (await c.db.deletion_requests.update_one({"reference": ref, "status": "external_erasure_pending"},
+        {"$set": {"status": "cleanup_completed", "cleanup.website_acknowledged_at": ts, "cleanup.completed_at": ts}})).modified_count
+
+
 async def reconcile_outbox_acknowledgements():
     """One-shot, idempotent correction for erasure events written by builds before 14 Sep 2026, which required
     acknowledgements from the SMS and AI providers that can never arrive. Requirements are set to the website only;
-    events the website has already acknowledged are completed, and their deletion requests marked completed."""
+    events the website has already acknowledged complete the CLEANUP outcome. Historical deletion requests are then
+    migrated to the two-outcome model (provider_erasure.reconcile) with every provider state preserved as outstanding."""
     fixed = (await c.db.integration_outbox.update_many(
         {"type": "account_erased", "required_acknowledgements": {"$ne": REQUIRED_ACKNOWLEDGEMENTS}},
         {"$set": {"required_acknowledgements": REQUIRED_ACKNOWLEDGEMENTS}})).modified_count
     completed = 0
     async for event in c.db.integration_outbox.find({"type": "account_erased", "status": "pending", "acknowledged": "website"}, {"_id": 0, "id": 1}):
         await c.db.integration_outbox.update_one({"id": event["id"], "status": "pending"}, {"$set": {"status": "acknowledged", "completed_at": c.stamp()}})
-        await c.db.deletion_requests.update_one({"reference": event["id"], "status": "external_erasure_pending"},
-                                                {"$set": {"status": "completed", "completed_at": c.stamp()}})
+        await mark_cleanup_completed(event["id"])
         completed += 1
-    return {"requirements_corrected": fixed, "completed": completed}
+    return {"requirements_corrected": fixed, "cleanup_completed": completed, **await pe.reconcile()}
 
 
 # Personal-data locations covered by local cleanup. `analytics` is the legacy event collection the app wrote
@@ -302,34 +316,46 @@ PERSONAL_COLLECTIONS = (("cart", "user_id"), ("wishlists", "user_id"), ("telecal
                         ("refresh_tokens", "user_id"), ("ai_reports", "user_id"))
 
 
+EXTERNAL_DETAIL = {
+    "object_storage": "Customers cannot upload photos or files; catalogue media is uploaded by staff and belongs to the business. "
+                      "Any object owned by a deleted account is detached and access-revoked; byte erasure is not provided by this storage adapter.",
+    "ai_provider": "Only message text typed by the user, earlier turns of the same conversation and a fixed system instruction "
+                   "were transmitted (no phone, name or account identifier is attached; user-typed text is sent as written). "
+                   "No per-user provider deletion API exists. Provider retention follows the provider's own policy and is not proven erased.",
+    "sms_provider": "Delivery logs for the one-time codes sent to the number are held by the provider under its own terms and are not erased by this request.",
+}
+
+
 async def erasure_report(uid):
-    """Truthful post-deletion inventory: what is proven gone locally, what is anonymized, what external parties
-    still hold. Only the enrolment website can acknowledge the erasure event; SMS and AI providers offer no
-    per-user deletion request, so their copies are reported as retained under their own terms - never as pending
-    acknowledgements that could complete. The managed object store has no delete API (managed_delete=0)."""
+    """Truthful post-deletion inventory: what is proven gone locally, what is anonymized, and - per provider - the
+    ledger state of the manual erasure request (not_requested / requested / confirmed / refused / no_procedure /
+    not_applicable). Only `confirmed` is an erased copy; the website acknowledgement is a separate outcome."""
     remaining = {coll: await c.db[coll].count_documents({field: uid}) for coll, field in PERSONAL_COLLECTIONS}
     remaining["ai_chat_history"] = await c.db.ai_chat_history.count_documents({"$or": [{"user_id": uid}, {"session_id": f"jeweller-{uid}"}]})
     media = await c.db.media_assets.count_documents({"owner_id": uid})
+    deletion = await c.db.deletion_requests.find_one({"reference": "DEL-" + uid}, {"_id": 0, "providers": 1, "status": 1}) or {}
+    ledger = deletion.get("providers") or {}
+    external = {}
+    for key, meta in pe.PROVIDER_META.items():
+        state = (ledger.get(key) or {}).get("state", "not_requested")
+        external[key] = {"provider": meta["provider"], "delete_api": False, "erasure": state, "erasure_completed": state == "confirmed",
+                         "requested_at": (ledger.get(key) or {}).get("requested_at"), "outcome": (ledger.get(key) or {}).get("outcome"),
+                         "retention_exception": (ledger.get(key) or {}).get("retention_exception"),
+                         "procedure": meta["procedure"], "detail": EXTERNAL_DETAIL[key]}
+    external["object_storage"]["personal_uploads_supported_by_app"] = False
+    external["website"] = {"acknowledgement": "acknowledged" if deletion.get("status") == "cleanup_completed" else
+                           "pending until the enrollment website acknowledges the erasure event",
+                           "implies_provider_erasure": False}
     return {"local_personal_records_remaining": sum(remaining.values()), "by_collection": remaining,
             "requests_anonymized": await c.db.requests.count_documents({"user_id": uid, "anonymized": True}),
             "personal_media_objects": media,
+            "provider_erasure": pe.summary(ledger),
             "retained_by_app": {
                 "deleted_identities": "keyed hash of the phone number + canonical ID + deletion time (blocks silent re-enrolment)",
-                "deletion_requests": "reference, canonical ID, source, timestamps, status (no name/phone)",
+                "deletion_requests": "reference, canonical ID, source, timestamps, cleanup status and the provider-erasure ledger (no name/phone)",
                 "requests": "anonymized enquiry rows: type, status, dates, assignee (name/phone/shop/notes blanked)",
                 "integration_outbox": "account_erased event for the website, kept until acknowledged"},
-            "external": {
-                "object_storage": {"provider": "emergent-managed-object-storage", "delete_api": False,
-                                   "personal_uploads_supported_by_app": False,
-                                   "detail": "Customers cannot upload photos or files; catalogue media is uploaded by staff and belongs to the business. "
-                                             "Any object owned by a deleted account is detached and access-revoked; byte erasure is not provided by this storage adapter."},
-                "ai_provider": {"provider": "Anthropic (Claude) via Emergent LLM gateway", "delete_api": False, "erasure": "not_requested",
-                                "detail": "Only message text typed by the user, earlier turns of the same conversation and a fixed system instruction "
-                                          "were transmitted (no phone, name or account identifier is attached; user-typed text is sent as written). "
-                                          "No per-user provider deletion API exists. Provider retention follows the provider's own policy and is not proven erased."},
-                "sms_provider": {"provider": "MSG91", "delete_api": False, "erasure": "not_requested",
-                                 "detail": "Delivery logs for the one-time codes sent to the number are held by the provider under its own terms and are not erased by this request."},
-                "website": {"acknowledgement": "pending until the enrollment website acknowledges the erasure event"}}}
+            "external": external}
 
 
 async def cleanup_deletion(uid, number, ref):
@@ -451,9 +477,9 @@ async def deletion_ack(event_id: str, consumer: str = Depends(outbox_consumer)):
     complete = required and required <= set(doc.get("acknowledged", []))
     if complete and doc.get("status") == "pending":
         await c.db.integration_outbox.update_one({"id": event_id}, {"$set": {"status": "acknowledged", "completed_at": c.stamp()}})
-        # The deletion itself is now complete end to end (app + website); provider copies are disclosed, not awaited.
-        await c.db.deletion_requests.update_one({"reference": event_id, "status": "external_erasure_pending"},
-                                                {"$set": {"status": "completed", "completed_at": c.stamp()}})
+        # App + website CLEANUP is complete. Provider-held copies are a separate outcome (provider-erasure ledger) and
+        # are never marked erased by this acknowledgement.
+        await mark_cleanup_completed(event_id)
     return {"acknowledged": consumer, "event_id": event_id, "acknowledged_by": sorted(set(doc.get("acknowledged", []))),
             "required_acknowledgements": sorted(required), "all_acknowledged": bool(complete)}
 

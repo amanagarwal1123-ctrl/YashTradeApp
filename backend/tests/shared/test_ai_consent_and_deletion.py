@@ -153,10 +153,24 @@ async def test_account_deletion_removes_analytics_ai_history_consent_and_reports
     assert event["required_acknowledgements"] == ["website"]
     assert report["external"]["sms_provider"]["erasure"] == "not_requested" and report["external"]["ai_provider"]["erasure"] == "not_requested"
     assert "pseudonymous" not in report["external"]["ai_provider"]["detail"]
+    # The ledger recorded which providers hold data BEFORE cleanup: real SMS + AI used -> outstanding; no uploads -> n/a.
+    assert body["cleanup"] == {"app": "completed", "website": "pending", "website_acknowledged_at": None, "completed_at": None}
+    assert body["provider_erasure"] == "outstanding" and report["provider_erasure"] == "outstanding"
+    assert report["external"]["ai_provider"]["erasure_completed"] is False and report["external"]["website"]["implies_provider_erasure"] is False
     ack = await api_client.post(f"/api/integrations/deletions/{event['id']}/ack", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
     assert ack.status_code == 200 and ack.json()["all_acknowledged"] is True
     deletion = await db.deletion_requests.find_one({"reference": body["reference"]}, {"_id": 0})
-    assert deletion["status"] == "completed" and deletion["completed_at"] and "phone" not in deletion and "name" not in deletion
+    # Website acknowledgement completes the CLEANUP outcome only; every provider entry keeps its own outstanding state.
+    assert deletion["status"] == "cleanup_completed" and deletion["cleanup"]["completed_at"] and "phone" not in deletion and "name" not in deletion
+    assert deletion["providers"]["sms_provider"]["state"] == "not_requested" and deletion["providers"]["ai_provider"]["state"] == "not_requested"
+    # The test inserted an object owned by the account: access is revoked but the bytes remain -> outstanding, not erased.
+    assert deletion["providers"]["object_storage"]["state"] == "not_requested" and deletion["providers"]["object_storage"]["data_present"] is True
+    assert (await erasure_report_for(uid))["provider_erasure"] == "outstanding"
+
+
+async def erasure_report_for(uid):
+    from shared.people import erasure_report
+    return await erasure_report(uid)
 
 
 async def test_reconcile_converges_erasure_events_written_by_older_builds(api_client, isolated_db):
@@ -167,25 +181,40 @@ async def test_reconcile_converges_erasure_events_written_by_older_builds(api_cl
     db = isolated_db["db"]
     old = ["website", "sms_provider", "ai_provider"]
     await db.integration_outbox.insert_many([
-        {"id": "DEL-old-pending", "type": "account_erased", "user_id": "old-1", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old},
-        {"id": "DEL-old-acked", "type": "account_erased", "user_id": "old-2", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old,
+        {"id": "DEL-old-pending", "type": "account_erased", "user_id": "old-pending", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old},
+        {"id": "DEL-old-acked", "type": "account_erased", "user_id": "old-acked", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old,
          "acknowledged": ["website"], "acknowledged_at": {"website": c.stamp()}},
         {"id": "other-1", "type": "something_else", "created_at": c.stamp(), "status": "pending", "required_acknowledgements": old},
     ])
     await db.deletion_requests.insert_many([
-        {"id": "DEL-old-pending", "reference": "DEL-old-pending", "user_id": "old-1", "status": "external_erasure_pending", "requested_at": c.stamp()},
-        {"id": "DEL-old-acked", "reference": "DEL-old-acked", "user_id": "old-2", "status": "external_erasure_pending", "requested_at": c.stamp()},
+        {"id": "DEL-old-pending", "reference": "DEL-old-pending", "user_id": "old-pending", "status": "external_erasure_pending", "requested_at": c.stamp()},
+        {"id": "DEL-old-acked", "reference": "DEL-old-acked", "user_id": "old-acked", "status": "external_erasure_pending", "requested_at": c.stamp()},
     ])
+    # A row the 14 Sep morning build had already marked "completed" (website ack) - must become cleanup_completed only.
+    await db.deletion_requests.insert_one({"id": "DEL-old-done", "reference": "DEL-old-done", "user_id": "old-done", "status": "completed",
+                                           "requested_at": c.stamp(), "completed_at": "2026-09-14T10:00:00+00:00"})
+    await db.media_assets.insert_one({"path": "yash-trade/test/old3.jpg", "owner_id": "deleted:old-done", "purpose": "test", "size_bytes": 1, "created_at": c.stamp()})
     first = await reconcile_outbox_acknowledgements()
-    assert first == {"requirements_corrected": 2, "completed": 1}
+    assert first == {"requirements_corrected": 2, "cleanup_completed": 1, "status_renamed": 1, "providers_backfilled": 3,
+                     "legacy_handled": 0, "legacy_duplicates_merged": 0}
     pending = await db.integration_outbox.find_one({"id": "DEL-old-pending"}, {"_id": 0})
     assert pending["required_acknowledgements"] == ["website"] and pending["status"] == "pending"
     acked = await db.integration_outbox.find_one({"id": "DEL-old-acked"}, {"_id": 0})
     assert acked["required_acknowledgements"] == ["website"] and acked["status"] == "acknowledged" and acked["completed_at"]
-    assert (await db.deletion_requests.find_one({"reference": "DEL-old-acked"}, {"_id": 0}))["status"] == "completed"
+    done_acked = await db.deletion_requests.find_one({"reference": "DEL-old-acked"}, {"_id": 0})
+    assert done_acked["status"] == "cleanup_completed" and done_acked["cleanup"]["completed_at"]
     assert (await db.deletion_requests.find_one({"reference": "DEL-old-pending"}, {"_id": 0}))["status"] == "external_erasure_pending"
+    renamed = await db.deletion_requests.find_one({"reference": "DEL-old-done"}, {"_id": 0})
+    assert renamed["status"] == "cleanup_completed" and renamed["cleanup"]["completed_at"] == "2026-09-14T10:00:00+00:00" and "completed_at" not in renamed
+    # Historical rows get a provider ledger whose unknown entries are OUTSTANDING, never erased; known object presence is used.
+    for ref in ("DEL-old-pending", "DEL-old-acked", "DEL-old-done"):
+        ledger = (await db.deletion_requests.find_one({"reference": ref}, {"_id": 0}))["providers"]
+        assert ledger["sms_provider"]["state"] == "not_requested" and ledger["ai_provider"]["state"] == "not_requested" and ledger["ai_provider"]["data_present"] == "unknown"
+    assert renamed["providers"]["object_storage"]["state"] == "not_requested" and renamed["providers"]["object_storage"]["data_present"] is True
+    assert (await db.deletion_requests.find_one({"reference": "DEL-old-acked"}, {"_id": 0}))["providers"]["object_storage"]["state"] == "not_applicable"
     assert (await db.integration_outbox.find_one({"id": "other-1"}, {"_id": 0}))["required_acknowledgements"] == old
     # Idempotent, and the website's outbox now lists only the still-pending event.
-    assert await reconcile_outbox_acknowledgements() == {"requirements_corrected": 0, "completed": 0}
+    assert await reconcile_outbox_acknowledgements() == {"requirements_corrected": 0, "cleanup_completed": 0, "status_renamed": 0, "providers_backfilled": 0,
+                                                         "legacy_handled": 0, "legacy_duplicates_merged": 0}
     outbox = await api_client.get("/api/integrations/deletions", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
     assert [e["id"] for e in outbox.json()["events"]] == ["DEL-old-pending"]

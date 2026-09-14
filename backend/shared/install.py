@@ -16,6 +16,7 @@ from .readiness import router as readiness
 from .review import router as review
 from .review_admin import router as review_admin
 from .ai_consent import router as ai_consent
+from .provider_erasure import router as provider_erasure
 from .fonts import router as fonts
 
 
@@ -38,7 +39,7 @@ class DataScopeMiddleware:
 def install_shared(app, legacy, db, sender, put, get, review_enabled=False, review_blobs=None):
     c.configure(db, sender, put, get, review_enabled=review_enabled, review_blobs=review_blobs)
     app.add_middleware(DataScopeMiddleware)
-    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
+    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, provider_erasure, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
     replacement_names = {
         "health", "send_otp", "verify_otp", "get_me", "update_profile", "phone_change_request", "phone_change_verify",
         "delete_account_request", "delete_account_confirm", "integration_upsert_enrollment", "integration_get_customer",
@@ -47,7 +48,7 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
         "list_requests", "update_request", "get_request_history", "update_product", "serve_file", "get_latest_rates",
         "update_rates", "create_rate_slab", "update_rate_slab", "delete_rate_slab", "seed_data", "seed_expand",
         "pdf_upload_init", "pdf_upload_chunk", "pdf_upload_complete", "pdf_upload_status", "import_pdf_to_batch",
-        "list_products", "create_product", "get_rate_list", "search_customers",
+        "list_products", "create_product", "get_rate_list", "search_customers", "list_deletion_requests",
     }
     legacy.routes[:] = [r for r in legacy.routes if r.name not in replacement_names]
     for router in routers:

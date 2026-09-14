@@ -9,9 +9,10 @@ import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUpload
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
+import DeletionRequests from '../src/components/staff/DeletionRequests';
 import { downloadSample } from '../src/pdfClient';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'rewards' | 'content' | 'executives' | 'sms' | 'review';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'deletions' | 'rewards' | 'content' | 'executives' | 'sms' | 'review';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
 type Role = 'admin' | 'telecaller' | 'billing_executive' | null;
@@ -43,7 +44,6 @@ export default function PanelScreen() {
   const [products, setProducts] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
-  const [deletionRequests, setDeletionRequests] = useState<any[]>([]);
 
   // Executives management
   const [executives, setExecutives] = useState<any[]>([]);
@@ -218,7 +218,6 @@ export default function PanelScreen() {
           const r = await api.get('/customers?limit=100');
           setCustomers(r.customers || []);
           try { const e = await api.get('/executives'); setExecutives(e.executives || []); } catch {}
-          try { const d = await api.get('/admin/deletion-requests'); setDeletionRequests(d.requests || []); } catch {}
           break;
         }
         case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
@@ -440,6 +439,8 @@ export default function PanelScreen() {
     { key: 'products', label: 'Products', icon: 'grid' },
     { key: 'content', label: 'Content', icon: 'document-text' },
     { key: 'customers', label: 'Customers', icon: 'people' },
+    // Account-deletion ledger: app/website cleanup vs provider erasure (Play / App Store compliance log).
+    { key: 'deletions', label: 'Deletions', icon: 'shield-checkmark' },
     { key: 'executives', label: 'Executives', icon: 'people-circle' },
     { key: 'sms', label: 'SMS', icon: 'chatbox-ellipses' },
     // Owner-only console (server-side authorisation); hidden inside store-review sessions where it can never apply.
@@ -1257,24 +1258,11 @@ export default function PanelScreen() {
                   </View>
                 );
               })}
-
-              {/* Account deletion requests (Play / App Store compliance log) */}
-              <Text style={s.sectionTitle}>ACCOUNT DELETION REQUESTS ({deletionRequests.length})</Text>
-              {deletionRequests.length === 0 && <Text style={[s.listMeta, { textAlign: 'center', marginBottom: Spacing.lg }]}>No deletion requests yet.</Text>}
-              {deletionRequests.map(d => (
-                <View key={d.id} style={s.listItem} testID={`deletion-row-${d.id}`}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.listTitle}>{d.name || d.phone}</Text>
-                    <Text style={s.listMeta}>{d.shop_name ? `${d.shop_name} • ` : ''}{d.phone} • via {d.source} • {new Date(d.requested_at).toLocaleString()}</Text>
-                    <Text style={s.listMeta}>Ref {d.reference} • kept: name, shop, place, number</Text>
-                  </View>
-                  <View style={[s.custBadge, { backgroundColor: Colors.success + '18' }]}>
-                    <Text style={[s.custBadgeText, { color: Colors.success }]}>{String(d.status || '').toUpperCase()}</Text>
-                  </View>
-                </View>
-              ))}
             </>
           )}
+
+          {/* ===== ACCOUNT DELETION LEDGER (Admin only): app/website cleanup vs provider erasure ===== */}
+          {tab === 'deletions' && role === 'admin' && <DeletionRequests />}
 
           {/* ===== EXECUTIVES MANAGEMENT (Admin only) ===== */}
           {tab === 'executives' && (
