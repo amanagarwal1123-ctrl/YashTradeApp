@@ -124,6 +124,17 @@ keeps a separate provider-erasure ledger (`providers.{sms_provider,ai_provider,o
 confirmed / refused / no_procedure / not_applicable) that only the business's administrators update after manual provider requests.
 Your privacy page must reflect that separation (see §4).
 
+## 6a. Replace the "Creating an account" / "Registration" paragraph with (15 Sep 2026 — app sign-up):
+
+> **Creating your account.** You can create your Yash Trade account either on this website (registration form) or directly in the
+> app by entering your mobile number and the one-time code we send by SMS. In the app, tapping **GET OTP** and verifying the code
+> means you accept these Terms and this Privacy Policy; we record that acceptance (policy version, date and time, and a hashed
+> network address) once, when the account is created. An account created in the app starts with only your verified mobile number;
+> you add your name, shop name and place in the app (*Complete your profile*). The same mobile number always means the same account:
+> registering on the website later updates the account you created in the app — it never creates a second one — and, where the
+> website values differ from what you typed in the app, the app asks you which value to keep. If you deleted your account, a new
+> registration with the same number (after a fresh one-time code) creates a new account; your erased history is not restored.
+
 ## 7. Service-provider list (append or reconcile with your existing list)
 
 | Provider | Data | Purpose | Location |

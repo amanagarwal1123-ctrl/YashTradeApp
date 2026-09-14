@@ -359,13 +359,14 @@ async def test_phone_change_success_revokes_sessions_and_delete_blocks_reenroll(
     )
     assert deleted.status_code == 200
 
-    # Re-enroll of deleted identity must be blocked by tombstone.
-    send = await api_client.post(
-        "/api/auth/send-otp",
-        headers={"X-Integration-Key": "integration-key-1234567890-abcdef"},
-        json={"phone": "9000000017", "purpose": "enrollment", "channel": "mobile"},
-    )
-    assert send.status_code == 409
+    # Re-enroll of the deleted identity with a grant issued BEFORE the deletion (queued retry) is blocked by the tombstone;
+    # a fresh verification afterwards may start a new account (see test_app_signup_and_profile).
+    await isolated_db["db"].auth_grants.insert_one({"hash": c.digest("stale-17"), "phone": "9000000017", "purpose": "enrollment", "subject": "",
+        "used": False, "issued_at": c.now() - c.timedelta(minutes=4), "expires_at": c.now() + c.timedelta(minutes=1)})
+    retry = await api_client.post("/api/integrations/enrollments", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"},
+        json={"phone": "9000000017", "name": "Ghost", "shop_name": "Ghost", "location": "Ghost", "verification_grant": "stale-17",
+              "idempotency_key": "idem-stale-17", "consent_version": "v1", "consent_terms": True, "consent_privacy": True})
+    assert retry.status_code == 409 and retry.json()["code"] == "DELETED_IDENTITY"
 
 
 @pytest.mark.asyncio

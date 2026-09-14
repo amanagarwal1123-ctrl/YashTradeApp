@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 31: Verified deployment-blocker fixes on live preview (https://yash-review-deploy.preview.emergentagent.com). Backend: 9/9 pytest passed (auth review login, ledger listing with DEL-review-int-0001 interrupted + DEL-review-customer-0001 external_erasure_pending, guards 409 CLEANUP_NOT_PENDING / 404 DELETION_NOT_FOUND / 401 no-token, /api/health flows.deletion.ready=true, OpenAPI lists /api/admin/deletion-requests/{reference}/cleanup, provider action requested->reopen 409 PROVIDER_STATE, resume success + second call 409). MongoDB post-resume state: cleanup.resumed=[{at, actor_id='review-admin-0001'}], user review-int-0001 phone tombstoned to 'deleted:review-int-0001', account_status=deleted, session_version=3, review__wishlists count=0, review__integration_outbox DEL-review-int-0001 required_acknowledgements=['website']. Frontend (390x844): reviewer admin sign-in via Login -> login-help-link -> help-review-access-link -> /review-access -> credentials -> review-login-btn -> lands on /panel. Panel dashboard renders (8 customers/12 products/2 batches etc.). Deletions tab: deletion-ledger shows 'ACCOUNT DELETION REQUESTS (2)', both rows present. DEL-review-int-0001 badge = 'APP DONE · WEBSITE ACK PENDING' + 'PROVIDER ERASURE OUTSTANDING'; expanded row shows 'App records: completed · Website copy: pending' and PROVIDER ERASURE LEDGER with 3 cards (MSG91 NOT REQUESTED, Anthropic NOT APPLICABLE, Emergent Managed Object Storage NOT APPLICABLE). Resume button correctly absent post-resume. Customers tab navigates to /customer-directory. Zero console errors regarding backendUrl / origin / undefined (app.config.js env-only backend resolution works in dev preview). NOTE: The UI 'click RESUME APP CLEANUP button' path was NOT exercised because the backend guard-test flow (which needs to run against a still-pending row) consumed the interrupted state before I could reach the UI. Instead the resume happened via POST /api/admin/deletion-requests/DEL-review-int-0001/cleanup and the UI was verified post-resume (badge switched, resume button gone, App records: completed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/deletion-requests/{reference}/cleanup", "issue": "Response body's cleanup.resumed is [] instead of the just-appended {at, actor_id}. GET /api/admin/deletion-requests hides raw resumed[] entirely (only exposes cleanup.app/website/website_acknowledged_at/completed_at). The DB row correctly has cleanup.resumed=[{at, actor_id}]. Consider surfacing the resumed[] audit entry (or at least the last entry) in the POST response for immediate client-side confirmation."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration31_live_preview.py",
+    "/app/test_reports/pytest/iteration31_results.xml",
+    "/app/test_reports/iteration31_after_login.jpeg",
+    "/app/test_reports/iteration31_deletions_expanded.jpeg"
+  ],
+  "action_items": [
+    "(Optional) Include cleanup.resumed[] (or the newly appended entry) in the POST /admin/deletion-requests/{ref}/cleanup response and/or GET listing so the frontend/audit consumer can confirm the actor without a DB read.",
+    "The UI 'RESUME APP CLEANUP' button click path was not directly exercised because the API-side resume ran first. Main agent can either self-verify that button by resetting DEL-review-int-0001 back to local_cleanup_pending in Mongo and clicking resume-cleanup-DEL-review-int-0001 in the panel, or ship as-is since the post-resume UI state is verified."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_iteration31_live_preview.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100%"},
+  "seed_data_creation": "None. Ledger row DEL-review-int-0001 transitioned from local_cleanup_pending -> external_erasure_pending (via the API resume path); DEL-review-customer-0001 remains external_erasure_pending with providers.ai_provider.state='requested' request_reference='E2E-31' (2 history entries) as required.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reviewer admin key (rotated 14 Sep 2026, valid at time of writing) at /tmp/yash-private/preview-store-review-admin-e2e31.txt (never print/log/screenshot). Sign-in path: Login -> Help (login-help-link) -> App review access (help-review-access-link) -> /review-access -> reviewer-id-input + reviewer-key-input + review-login-btn. Deletion ledger has 2 rows. DEL-review-int-0001 already resumed: status=external_erasure_pending, cleanup={app:completed,website:pending}, mongo cleanup.resumed[0]={at,actor_id:'review-admin-0001'}, review__users.review-int-0001.phone='deleted:review-int-0001', wishlists=0, integration_outbox required_acknowledgements=['website']. To exercise the UI 'RESUME APP CLEANUP' button, reset the row in Mongo: `db.review__deletion_requests.updateOne({reference:'DEL-review-int-0001'}, {$set:{status:'local_cleanup_pending', cleanup:{app:'pending', note:'interrupted by earlier restart'}}})` and restore the user row + wishlist copy, or use a fresh fixture. DEL-review-customer-0001 has ai_provider.state='requested' with reference 'E2E-31'.",
+  "rca_of_issue": "N/A - no bug found; all deployment-blocker fixes verified. Minor UX gap only: the POST cleanup response does not echo the newly appended resumed[] entry."
+}

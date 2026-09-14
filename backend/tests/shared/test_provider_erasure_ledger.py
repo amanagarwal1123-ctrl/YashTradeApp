@@ -185,3 +185,41 @@ async def test_legacy_pre_shared_deletion_rows_are_stripped_merged_and_never_mar
     assert listed["DEL-20260909-BBBBBB"]["provider_erasure"] == "superseded"
     blocked = await api_client.post("/api/admin/deletion-requests/DEL-20260909-BBBBBB/providers/sms_provider", json={"action": "requested"}, headers=bearer(admin))
     assert blocked.status_code == 409 and blocked.json()["code"] == "DELETION_SUPERSEDED"
+
+
+async def test_interrupted_app_cleanup_is_resumed_only_by_an_explicit_admin_action(api_client, isolated_db, seeded_users, login_helper, fake_provider):
+    """No background worker deletes records on its own (deployment policy: nothing destructive runs at startup).
+    A deletion the customer confirmed but whose cleanup was interrupted stays visible as interrupted until an
+    administrator explicitly resumes it; the resume is recorded, completes the tombstone and emits the website event."""
+    from server import app
+    db = isolated_db["db"]
+    assert not hasattr(app.state, "deletion_worker")  # the startup hook registers no deletion worker any more
+    admin = await login_helper("9999813334")
+    ts = c.stamp()
+    await db.users.insert_one({"id": "cust-int", "phone": "9100009903", "name": "Interrupted", "role": "customer", "account_status": "deleted",
+                               "status": "deleted", "session_version": 2})
+    await db.wishlists.insert_one({"user_id": "cust-int", "product_id": "p9"})
+    await db.deletion_requests.insert_one({"id": "DEL-cust-int", "reference": "DEL-cust-int", "user_id": "cust-int", "source": "app",
+                                           "requested_at": ts, "status": "local_cleanup_pending", "providers": {
+                                               "sms_provider": pe.entry("sms_provider", True), "ai_provider": pe.entry("ai_provider", False),
+                                               "object_storage": pe.entry("object_storage", False)}})
+    listed = (await api_client.get("/api/admin/deletion-requests", headers=bearer(admin))).json()["requests"][0]
+    assert listed["status"] == "local_cleanup_pending" and listed["cleanup"]["app"] == "pending" and "interrupted" in listed["cleanup"]["note"]
+    assert await db.wishlists.count_documents({"user_id": "cust-int"}) == 1  # nothing was deleted by listing or by startup
+    resumed = await api_client.post("/api/admin/deletion-requests/DEL-cust-int/cleanup", headers=bearer(admin))
+    assert resumed.status_code == 200, resumed.text
+    body = resumed.json()
+    assert body["status"] == "external_erasure_pending" and body["cleanup"]["app"] == "completed" and body["provider_erasure"] == "outstanding"
+    assert body["cleanup"]["resumed"][0]["actor_id"] == admin["user"]["id"]  # the audit entry is surfaced, not only persisted
+    assert await db.wishlists.count_documents({"user_id": "cust-int"}) == 0
+    tomb = await db.users.find_one({"id": "cust-int"}, {"_id": 0})
+    assert tomb["phone"] == "deleted:cust-int" and tomb["session_version"] == 3
+    row = await db.deletion_requests.find_one({"reference": "DEL-cust-int"}, {"_id": 0})
+    assert row["cleanup"]["resumed"][0]["actor_id"] == admin["user"]["id"]
+    assert (await db.integration_outbox.find_one({"id": "DEL-cust-int"}, {"_id": 0}))["required_acknowledgements"] == ["website"]
+    # Guards: already completed -> 409; unknown -> 404; customers -> 403.
+    again = await api_client.post("/api/admin/deletion-requests/DEL-cust-int/cleanup", headers=bearer(admin))
+    assert again.status_code == 409 and again.json()["code"] == "CLEANUP_NOT_PENDING"
+    assert (await api_client.post("/api/admin/deletion-requests/DEL-nope/cleanup", headers=bearer(admin))).status_code == 404
+    customer = await login_helper("9000000004")
+    assert (await api_client.post("/api/admin/deletion-requests/DEL-cust-int/cleanup", headers=bearer(customer))).status_code == 403

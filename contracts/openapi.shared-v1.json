@@ -1654,6 +1654,144 @@
         }
       }
     },
+    "/api/auth/profile/conflicts/resolve": {
+      "post": {
+        "tags": [
+          "Canonical identity"
+        ],
+        "summary": "Resolve Conflicts",
+        "description": "After a website registration overwrote values the customer had entered in the app, the app asks which value to\nkeep, field by field. The rejected value is dropped; nothing else about the account changes.",
+        "operationId": "resolve_conflicts_api_auth_profile_conflicts_resolve_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConflictChoices"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/integrations/enrollments": {
       "post": {
         "tags": [
@@ -5641,6 +5779,144 @@
                 }
               ],
               "title": "X-Integration-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Canonical JSON error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/deletion-requests/{reference}/cleanup": {
+      "post": {
+        "tags": [
+          "People and integration",
+          "Account deletion ledger"
+        ],
+        "summary": "Deletion Resume",
+        "description": "Explicit, reviewed completion of an INTERRUPTED app cleanup (a deletion the customer already confirmed with an\nOTP, or a legacy request converged at startup). No background worker deletes anything on its own: cleanup runs\ninline with the explicit deletion request and, if that was interrupted, only through this administrator action\nor the customer's next explicit deletion request. Provider erasure remains a separate ledger.",
+        "operationId": "deletion_resume_api_admin_deletion_requests__reference__cleanup_post",
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Reference"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -21873,6 +22149,34 @@
         ],
         "title": "Commit"
       },
+      "ConflictChoices": {
+        "properties": {
+          "choices": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "kept",
+                "previous"
+              ]
+            },
+            "propertyNames": {
+              "enum": [
+                "name",
+                "shop_name",
+                "location"
+              ]
+            },
+            "type": "object",
+            "title": "Choices"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "choices"
+        ],
+        "title": "ConflictChoices"
+      },
       "ConsentDecision": {
         "properties": {
           "granted": {
@@ -23094,6 +23398,11 @@
               }
             ],
             "title": "Challenge Id"
+          },
+          "accept_terms": {
+            "type": "boolean",
+            "title": "Accept Terms",
+            "default": false
           }
         },
         "type": "object",

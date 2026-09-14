@@ -5,6 +5,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, getImageUrl } from '../src/api';
+import { useProfileGate } from '../src/hooks/useProfileGate';
+import { showAlert } from '../src/utils/alert';
 
 const REQUEST_TYPES = [
   { key: 'call', label: 'Request Call', icon: 'call', color: Colors.success },
@@ -20,6 +22,7 @@ const CATEGORY_SHORTCUTS = ['Silver Payal', 'Silver Chain', 'Silver Bichiya', 'S
 export default function RequestCallScreen() {
   const params = useLocalSearchParams<{ type?: string; productId?: string }>();
   const router = useRouter();
+  const { gate } = useProfileGate();
   const [requestType, setRequestType] = useState(params.type || 'call');
   const [timeSlot, setTimeSlot] = useState('');
   const [notes, setNotes] = useState('');
@@ -85,6 +88,8 @@ export default function RequestCallScreen() {
       router.replace({ pathname: '/request-success', params: { type: requestType, time: timeSlot || 'soon' } });
     } catch (e: any) {
       setLoading(false);
+      // Profile incomplete: open the profile form; the same request is re-sent automatically once it is saved.
+      if (!gate(e, handleSubmit)) showAlert('Could not send request', e?.message || 'Please try again.');
     }
   };
 

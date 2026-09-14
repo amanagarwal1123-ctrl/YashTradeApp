@@ -321,7 +321,7 @@ USER_FIELDS = set("id phone name shop_name location city role code customer_code
                   "phone_verified verified_at onboarding_status account_status registration_source "
                   "registered_at created_at updated_at first_mobile_login_at last_mobile_login_at "
                   "last_portal_login_at last_login has_logged_in reward_points is_new "
-                  "assigned_salesperson lead_status follow_up_at profile_version review_environment".split())
+                  "assigned_salesperson lead_status follow_up_at profile_version review_environment profile_conflicts".split())
 
 
 def public_user(user):
@@ -332,7 +332,19 @@ def public_user(user):
     out["has_logged_in"] = bool(user.get("first_mobile_login_at"))
     out["step1_complete"] = bool(user.get("phone_verified") and
         user.get("onboarding_status") == "completed" and all(out.get(k) for k in ("name", "phone", "shop_name", "location")))
+    # Customer-facing completeness (name, shop name, place): drives the Home "complete your profile" card and the
+    # request gate (call / video call / cart selection) - independent of how the account was created.
+    out["profile_complete"] = all(out.get(k) for k in ("name", "shop_name", "location"))
+    out["profile_conflicts"] = user.get("profile_conflicts") or {}
     return out
+
+
+def require_complete_profile(user):
+    """Customers must have name, shop name and place before a request reaches the team (the app opens the profile
+    form and re-sends the request afterwards). Staff are never gated."""
+    if role(user.get("role")) == "customer" and not all(user.get(k) or (k == "location" and user.get("city"))
+                                                       for k in ("name", "shop_name", "location")):
+        fail(428, "PROFILE_INCOMPLETE", "Complete your profile (name, shop name and place) to send this request")
 
 
 async def by_phone(number):

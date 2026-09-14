@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
@@ -11,6 +11,9 @@ import { showAlert } from '../src/utils/alert';
 export default function EditProfileScreen() {
   const { user, refreshUser, logout } = useAuth();
   const router = useRouter();
+  // complete=1: opened from the Home "complete your profile" card or a gated request (resume=1 re-sends it on return).
+  const { complete, resume } = useLocalSearchParams<{ complete?: string; resume?: string }>();
+  const completing = complete === '1';
 
   const [name, setName] = useState(user?.name || '');
   const [shopName, setShopName] = useState(user?.shop_name || '');
@@ -26,12 +29,12 @@ export default function EditProfileScreen() {
   const [phoneError, setPhoneError] = useState('');
 
   const saveProfile = async () => {
-    if (!name.trim()) { showAlert('Error', 'Name is required'); return; }
+    if (!name.trim() || !shopName.trim() || !location.trim()) { showAlert('Details required', 'Please fill your name, shop name and place.'); return; }
     setSaving(true);
     try {
       await api.put('/auth/profile', { name: name.trim(), shop_name: shopName.trim(), location: location.trim() });
       await refreshUser();
-      showAlert('Saved', 'Your profile has been updated');
+      showAlert('Saved', resume === '1' ? 'Profile completed — sending your request now.' : 'Your profile has been updated');
       router.back();
     } catch (e: any) {
       showAlert('Error', e?.message || 'Could not save profile. Please try again.');
@@ -70,12 +73,18 @@ export default function EditProfileScreen() {
         <TouchableOpacity testID="edit-profile-back" onPress={() => router.back()} style={st.backBtn}>
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
-        <Text style={st.headerTitle}>Edit Profile</Text>
+        <Text style={st.headerTitle}>{completing ? 'Complete Your Profile' : 'Edit Profile'}</Text>
         <View style={{ width: 44 }} />
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+          {completing && (
+            <View style={st.completeBox} testID="complete-profile-intro">
+              <Ionicons name="information-circle-outline" size={18} color={Colors.gold} />
+              <Text style={st.completeText}>Tell us who you are — your name, shop name and place — so our team can serve you and send your requests.</Text>
+            </View>
+          )}
           <Text style={st.label}>CUSTOMER NAME</Text>
           <TextInput testID="edit-name" style={st.input} value={name} onChangeText={setName} placeholder="Your full name" placeholderTextColor={Colors.textMuted} />
 
@@ -83,13 +92,14 @@ export default function EditProfileScreen() {
           <TextInput testID="edit-shop" style={st.input} value={shopName} onChangeText={setShopName} placeholder="Your shop / firm name" placeholderTextColor={Colors.textMuted} />
 
           <Text style={st.label}>LOCATION</Text>
-          <TextInput testID="edit-location" style={st.input} value={location} onChangeText={setLocation} placeholder="City / area" placeholderTextColor={Colors.textMuted} />
+          <TextInput testID="edit-location" style={st.input} value={location} onChangeText={setLocation} placeholder="City / area (place)" placeholderTextColor={Colors.textMuted} />
 
           <TouchableOpacity testID="edit-save" style={[st.saveBtn, saving && { opacity: 0.5 }]} onPress={saveProfile} disabled={saving}>
-            {saving ? <ActivityIndicator color="#000" /> : <Text style={st.saveBtnText}>SAVE CHANGES</Text>}
+            {saving ? <ActivityIndicator color="#000" /> : <Text style={st.saveBtnText}>{completing ? 'SAVE & CONTINUE' : 'SAVE CHANGES'}</Text>}
           </TouchableOpacity>
 
-          {/* Phone number — protected change flow */}
+          {/* Phone number — protected change flow (hidden while completing a fresh profile) */}
+          {!completing && (<>
           <Text style={st.label}>PHONE NUMBER</Text>
           <View style={st.phoneRow}>
             <Text style={st.phoneValue}>+91 {user?.phone}</Text>
@@ -149,6 +159,7 @@ export default function EditProfileScreen() {
               </View>
             </View>
           )}
+          </>)}
           <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -162,6 +173,8 @@ const st = StyleSheet.create({
   backBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
   content: { paddingHorizontal: Spacing.lg },
+  completeBox: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: Colors.card, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderGold, padding: Spacing.md, marginTop: Spacing.md },
+  completeText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 19 },
   label: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 1.5, fontWeight: '600', marginTop: Spacing.lg, marginBottom: 6 },
   input: { backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, color: Colors.text, paddingHorizontal: 14, paddingVertical: 12, fontSize: FontSize.md },
   saveBtn: { backgroundColor: Colors.gold, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: Spacing.lg },

@@ -9,6 +9,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { showAlert } from '../../src/utils/alert';
 import BannerCarousel from '../../src/components/BannerCarousel';
+import { CompleteProfileCard, ProfileConflictCard } from '../../src/components/customer/ProfileCards';
 
 interface Story { id: string; title: string; image_url: string; category: string; link_type: string; link_id: string; }
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
@@ -26,7 +27,7 @@ const QuickAction = ({ icon, label, color, onPress, testID }: any) => (
 );
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { language } = useLang();
   const router = useRouter();
   const [stories, setStories] = useState<Story[]>([]);
@@ -60,6 +61,7 @@ export default function HomeScreen() {
       setSilverProducts(silverRes.products || []);
       setGoldProducts(goldRes.products || []);
       setCartCount(cartRes.count || 0);
+      refreshUser(); // profile completeness / website-conflict cards reflect the latest account state
     } catch (e) { console.error(e); setLoadError(true); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -151,6 +153,9 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      {/* Account cards: complete name / shop / place; choose between app and website values after a website registration */}
+      <ProfileConflictCard />
+      <CompleteProfileCard />
       {/* Admin-managed banner carousel (replaces the old live-rate card) */}
       <BannerCarousel />
       <View style={styles.quickActions}>

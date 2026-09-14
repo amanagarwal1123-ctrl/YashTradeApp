@@ -109,10 +109,15 @@ def cleanup_of(deletion):
     if status == SUPERSEDED:
         return {"app": "superseded", "website": "superseded", "website_acknowledged_at": None, "completed_at": None,
                 "note": "legacy deletion request; the account is active again, so no cleanup is owed"}
-    return {"app": "pending" if status == "local_cleanup_pending" else "completed",
+    if status == "local_cleanup_pending":
+        return {"app": "pending", "website": "pending", "website_acknowledged_at": None, "completed_at": None,
+                "note": "app cleanup interrupted before it finished; an administrator resumes it explicitly "
+                        "(POST /api/admin/deletion-requests/{reference}/cleanup) or the customer's next deletion request completes it"}
+    return {"app": "completed",
             "website": "acknowledged" if status == "cleanup_completed" else "pending",
             "website_acknowledged_at": stored.get("website_acknowledged_at"),
-            "completed_at": stored.get("completed_at")}
+            "completed_at": stored.get("completed_at"),
+            "resumed": stored.get("resumed") or []}
 
 
 def describe(deletion):
@@ -130,9 +135,10 @@ def is_legacy(deletion):
 
 async def reconcile_legacy():
     """Legacy deletion requests: strip the personal fields they retained, merge duplicate rows, and finish what the
-    user asked for. If the account is still deleted (or gone) the row re-enters local_cleanup_pending so the ordinary
-    retry loop completes the tombstone/anonymization and emits the website erasure event. If the account is active
-    again (re-enrolled), the request is marked superseded - no cleanup is owed and nothing is deleted."""
+    user asked for. If the account is still deleted (or gone) the row re-enters local_cleanup_pending and is listed in
+    the admin ledger as interrupted; an administrator's explicit resume action (people.deletion_resume) completes the
+    tombstone/anonymization and emits the website erasure event - nothing is deleted at startup. If the account is
+    active again (re-enrolled), the request is marked superseded - no cleanup is owed and nothing is deleted."""
     rows = [r async for r in c.db.deletion_requests.find({"$expr": {"$ne": ["$reference", {"$concat": ["DEL-", {"$ifNull": ["$user_id", ""]}]}]},
                                                              "legacy": {"$exists": False}}, {"_id": 0})]
     handled = merged = 0

@@ -72,32 +72,26 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
     @app.on_event("startup")
     async def start_worker():
         import asyncio
-        from .people import deletion_retry_loop
         # Optional review storage: prove it or disable it for this process. A review database the deployment's
         # Mongo user may not touch (authorisation failure) must never crash startup or reach production data;
         # workers only iterate scopes that are actually usable. Primary-database failures are NOT absorbed here
         # (they surface from the primary ensure_indexes() at startup as before).
         await c.initialize_review()
         # Contract correction (14 Sep 2026): erasure events only await the website; converge rows from older builds
-        # in every usable scope before the workers start.
+        # in every usable scope before the workers start. Nothing here deletes records: account cleanup runs only
+        # inline with an explicit deletion request or an administrator's explicit resume action (people.deletion_resume).
         from .people import reconcile_outbox_acknowledgements
         for data_scope in c.scopes():
             with c.scoped(data_scope):
                 await reconcile_outbox_acknowledgements()
         app.state.pdf_worker = asyncio.create_task(worker_loop())
-        app.state.deletion_worker = asyncio.create_task(deletion_retry_loop())
 
     @app.on_event("shutdown")
     async def stop_worker():
         import asyncio
         app.state.pdf_worker.cancel()
-        app.state.deletion_worker.cancel()
         try:
             await app.state.pdf_worker
-        except asyncio.CancelledError:
-            pass
-        try:
-            await app.state.deletion_worker
         except asyncio.CancelledError:
             pass
 

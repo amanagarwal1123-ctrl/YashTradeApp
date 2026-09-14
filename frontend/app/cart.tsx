@@ -6,9 +6,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api, getImageUrl } from '../src/api';
 import { showAlert, confirmAlert } from '../src/utils/alert';
+import { useProfileGate } from '../src/hooks/useProfileGate';
 
 export default function CartScreen() {
   const router = useRouter();
+  const { gate } = useProfileGate();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -31,16 +33,20 @@ export default function CartScreen() {
     } catch (e: any) { showAlert('Error', e?.message || 'Could not remove the item. Please try again.'); }
   };
 
+  const sendSelection = async () => {
+    setSubmitting(true);
+    try {
+      await api.post('/cart/submit', { notes: '' });
+      setSubmitted(true);
+    } catch (e: any) {
+      // Profile incomplete: open the profile form; the selection is re-sent automatically once it is saved.
+      if (!gate(e, sendSelection)) showAlert('Error', e.message);
+    } finally { setSubmitting(false); }
+  };
+
   const submitCart = () => {
     if (items.length === 0) return;
-    confirmAlert('Submit Selection', `Send ${items.length} item(s) to our team? We will prepare a bill and contact you.`, async () => {
-      setSubmitting(true);
-      try {
-        await api.post('/cart/submit', { notes: '' });
-        setSubmitted(true);
-      } catch (e: any) { showAlert('Error', e.message); }
-      finally { setSubmitting(false); }
-    }, 'Submit');
+    confirmAlert('Submit Selection', `Send ${items.length} item(s) to our team? We will prepare a bill and contact you.`, sendSelection, 'Submit');
   };
 
   return (

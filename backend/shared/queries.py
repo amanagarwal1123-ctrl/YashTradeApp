@@ -150,6 +150,7 @@ class NewRequest(BaseModel):
 
 @router.post("/requests")
 async def create(req: NewRequest, user=Depends(c.allow("customer")), idempotency_key: str | None = Header(None)):
+    c.require_complete_profile(user)  # 428 PROFILE_INCOMPLETE: the app opens the profile form, then re-sends this request
     typ = TYPE_ALIASES.get(req.request_type, req.request_type)
     if typ not in TYPES:
         c.fail(422, "INVALID_REQUEST_TYPE", "Select a type from /api/requests/catalog")

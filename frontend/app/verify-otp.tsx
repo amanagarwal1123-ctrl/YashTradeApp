@@ -8,7 +8,7 @@ import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 
 export default function VerifyOTPScreen() {
-  const { phone, challengeId } = useLocalSearchParams<{ phone: string; challengeId: string }>();
+  const { phone, challengeId, newAccount } = useLocalSearchParams<{ phone: string; challengeId: string; newAccount?: string }>();
   const [otp, setOtp] = useState(['', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -40,7 +40,8 @@ export default function VerifyOTPScreen() {
     if (loading) return;
     setLoading(true); setError('');
     try {
-      const res = await api.post('/auth/verify-otp', { phone, otp: code, challenge_id: activeChallenge, channel: 'mobile' });
+      // accept_terms: the sign-in screen states that continuing accepts the Terms & Privacy Policy; recorded only if an account is created.
+      const res = await api.post('/auth/verify-otp', { phone, otp: code, challenge_id: activeChallenge, channel: 'mobile', accept_terms: true });
       const currentUser = await login(res.token, res.user, res.refresh_token);
       // Role-based routing — the backend-verified role decides the experience
       const role = currentUser.role;
@@ -66,6 +67,7 @@ export default function VerifyOTPScreen() {
           <Ionicons name="shield-checkmark" size={48} color={Colors.gold} />
           <Text style={styles.title}>Verify OTP</Text>
           <Text style={styles.subtitle}>Enter the code sent to +91 {phone}</Text>
+          {newAccount === '1' && <Text style={styles.newAccount} testID="verify-new-account">New number — your account will be created once the code is verified.</Text>}
         </View>
 
         <View style={styles.otpRow}>
@@ -108,6 +110,7 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginTop: 40, marginBottom: 48 },
   title: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.text, marginTop: Spacing.md },
   subtitle: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: Spacing.sm },
+  newAccount: { fontSize: FontSize.xs, color: Colors.gold, marginTop: Spacing.sm, textAlign: 'center', paddingHorizontal: Spacing.lg, lineHeight: 18 },
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 16 },
   otpBox: { width: 60, height: 64, borderRadius: 12, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, fontSize: FontSize.xxl, color: Colors.text, textAlign: 'center', fontWeight: '700' },
   otpBoxFilled: { borderColor: Colors.gold },

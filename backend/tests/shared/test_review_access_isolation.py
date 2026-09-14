@@ -212,10 +212,10 @@ async def test_forged_scope_claims_and_review_phones_cannot_cross_environments(a
     stripped = jwt.encode({k: v for k, v in jwt.decode(review["token"], options={"verify_signature": False}).items() if k != "scope"},
                           c.secret("JWT_SECRET"), algorithm="HS256")
     assert (await api_client.get("/api/auth/me", headers={"Authorization": f"Bearer {stripped}"})).status_code == 401
-    # Review phones are not OTP identities in production and never trigger SMS.
-    before = dict(review_env["sent_otps"])
-    denied = await api_client.post("/api/auth/send-otp", json={"phone": "9100000101", "channel": "mobile"})
-    assert denied.status_code == 404 and denied.json()["code"] == "USER_NOT_FOUND" and dict(review_env["sent_otps"]) == before
+    # Review phones are not identities in production: the website lookup is 404 and a production OTP for that number
+    # is an ordinary (unknown-number) sign-up challenge, never a reviewer login.
+    started = await api_client.post("/api/auth/send-otp", json={"phone": "9100000101", "channel": "mobile"})
+    assert started.status_code == 200 and started.json()["account_exists"] is False
     lookup = await api_client.get("/api/integrations/customers/9100000101", headers=WEBSITE_KEY)
     assert lookup.status_code == 404
     # Genuine OTP login is unchanged.
@@ -240,7 +240,8 @@ async def test_simulated_review_otp_is_disclosed_only_to_its_own_authenticated_r
     # an unauthenticated request, a production customer's own deletion challenge, and a signed-out review session.
     other = await api_client.post("/api/auth/send-otp", json={"phone": "9100000102", "channel": "mobile"}, headers=bearer(customer))
     assert other.status_code == 200 and "simulated_otp" not in other.json()
-    assert (await api_client.post("/api/auth/send-otp", json={"phone": "9100000101", "channel": "mobile"})).status_code == 404  # production scope
+    unauth = await api_client.post("/api/auth/send-otp", json={"phone": "9100000101", "channel": "mobile"})  # production scope: plain sign-up challenge
+    assert unauth.status_code == 200 and "simulated_otp" not in unauth.json() and unauth.json()["account_exists"] is False
     real = await login_helper("9000000005")
     await prod.otp_challenges.delete_many({"phone": "9000000005"})  # 60 s cooldown row from the login challenge (test only)
     real_delete = await api_client.post("/api/auth/delete-account/request", headers=bearer(real))
@@ -310,8 +311,9 @@ async def test_reviewer_deletion_then_repeat_login_starts_a_fresh_sample_profile
     started = (await api_client.post("/api/auth/delete-account/request", headers=bearer(real))).json()
     otp = review_env["sent_otps"][("9000000005", "account_deletion")]
     assert (await api_client.post("/api/auth/delete-account/confirm", json={"otp": otp, "challenge_id": started["challenge_id"]}, headers=bearer(real))).status_code == 200
-    blocked = await api_client.post("/api/auth/send-otp", json={"phone": "9000000005", "channel": "mobile"})
-    assert blocked.status_code == 404 and blocked.json()["code"] == "USER_NOT_FOUND"  # the erased identity is not a registered number any more
+    await prod.otp_challenges.delete_many({"phone": "9000000005"})
+    afresh = await api_client.post("/api/auth/send-otp", json={"phone": "9000000005", "channel": "mobile"})
+    assert afresh.status_code == 200 and afresh.json()["account_exists"] is False  # the erased identity is not a registered number any more; a fresh sign-up may start
     assert (await prod.users.find_one({"id": "u_cust2"}))["account_status"] == "deleted"
     # Reset keeps the credentials but rebuilds the synthetic dataset (also clears the tombstone above).
     with c.scoped(c.REVIEW):

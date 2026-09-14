@@ -215,6 +215,16 @@ async def test_d4_deleted_customer_is_not_resurrected_by_enrollment_after_ack(ap
     assert ref in {e["id"] for e in outbox.json()["events"]}
     assert (await api_client.post(f"/api/integrations/deletions/{ref}/ack", headers=KEY)).status_code == 200
     assert ref not in {e["id"] for e in (await api_client.get("/api/integrations/deletions", headers=KEY)).json()["events"]}
-    blocked = await api_client.post("/api/auth/send-otp", json={"phone": "9000000005", "purpose": "enrollment", "channel": "portal"}, headers=KEY)
+    # A queued website retry that holds a grant issued BEFORE the deletion cannot resurrect the account ...
+    from shared import core as c
+    await isolated_db["db"].auth_grants.insert_one({"hash": c.digest("pre-deletion-grant"), "phone": "9000000005", "purpose": "enrollment", "subject": "u_cust2",
+        "used": False, "issued_at": c.now() - c.timedelta(minutes=4), "expires_at": c.now() + c.timedelta(minutes=1)})
+    blocked = await api_client.post("/api/integrations/enrollments", headers=KEY, json={"phone": "9000000005", "name": "Ghost", "shop_name": "Ghost",
+        "location": "Ghost", "verification_grant": "pre-deletion-grant", "idempotency_key": "idem-ghost-01", "consent_version": "v1",
+        "consent_terms": True, "consent_privacy": True})
     assert blocked.status_code == 409 and blocked.json()["code"] == "DELETED_IDENTITY"
     assert (await isolated_db["db"].users.find_one({"id": "u_cust2"}))["account_status"] == "deleted"
+    # ... while a FRESH verification after the deletion may start a new registration (new identity, history erased).
+    await isolated_db["db"].otp_challenges.delete_many({"phone": "9000000005"})
+    fresh = await api_client.post("/api/auth/send-otp", json={"phone": "9000000005", "purpose": "enrollment", "channel": "portal"}, headers=KEY)
+    assert fresh.status_code == 200 and fresh.json()["account_exists"] is False

@@ -143,9 +143,11 @@ async def test_account_deletion_removes_analytics_ai_history_consent_and_reports
     assert "ai_consent" not in person and person["phone"] == f"deleted:{uid}" and person["name"] == "Deleted customer"
     request = await db.requests.find_one({"id": created.json()["id"]}, {"_id": 0})
     assert request["anonymized"] is True and request["notes"] == "" and request["user_phone"] == "" and request["user_name"] == "Deleted customer"
-    # Access is gone; the number cannot log in or re-enrol silently.
+    # Access is gone; the number is no longer a registered identity (a later OTP would start a brand-new account).
     assert (await api_client.get("/api/auth/me", headers=bearer(customer))).status_code in (401, 403)
-    assert (await api_client.post("/api/auth/send-otp", json={"phone": phone, "channel": "mobile"})).status_code in (403, 404)
+    await db.otp_challenges.delete_many({"phone": phone})
+    afresh = await api_client.post("/api/auth/send-otp", json={"phone": phone, "channel": "mobile"})
+    assert afresh.status_code == 200 and afresh.json()["account_exists"] is False
     outbox = await api_client.get("/api/integrations/deletions", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
     assert outbox.status_code == 200 and outbox.json()["events"][0]["user_id"] == uid
     event = outbox.json()["events"][0]
@@ -154,7 +156,7 @@ async def test_account_deletion_removes_analytics_ai_history_consent_and_reports
     assert report["external"]["sms_provider"]["erasure"] == "not_requested" and report["external"]["ai_provider"]["erasure"] == "not_requested"
     assert "pseudonymous" not in report["external"]["ai_provider"]["detail"]
     # The ledger recorded which providers hold data BEFORE cleanup: real SMS + AI used -> outstanding; no uploads -> n/a.
-    assert body["cleanup"] == {"app": "completed", "website": "pending", "website_acknowledged_at": None, "completed_at": None}
+    assert body["cleanup"] == {"app": "completed", "website": "pending", "website_acknowledged_at": None, "completed_at": None, "resumed": []}
     assert body["provider_erasure"] == "outstanding" and report["provider_erasure"] == "outstanding"
     assert report["external"]["ai_provider"]["erasure_completed"] is False and report["external"]["website"]["implies_provider_erasure"] is False
     ack = await api_client.post(f"/api/integrations/deletions/{event['id']}/ack", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})

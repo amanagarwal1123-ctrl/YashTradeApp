@@ -14,13 +14,13 @@ interface ProviderEntry {
 }
 interface DeletionRow {
   reference: string; source: string; requested_at: string; status: string;
-  cleanup: { app: string; website: string; website_acknowledged_at?: string | null; completed_at?: string | null; note?: string };
+  cleanup: { app: string; website: string; website_acknowledged_at?: string | null; completed_at?: string | null; note?: string; resumed?: { at: string; actor_id: string }[] };
   provider_erasure: 'not_applicable' | 'outstanding' | 'completed' | 'retained_with_exception' | 'superseded';
   providers: Record<ProviderKey, ProviderEntry>;
 }
 
 const fmt = (v?: string | null) => (v ? new Date(v).toLocaleString() : '—');
-const STATUS_LABEL: Record<string, string> = { local_cleanup_pending: 'APP CLEANUP RUNNING', external_erasure_pending: 'APP DONE · WEBSITE ACK PENDING', cleanup_completed: 'APP + WEBSITE CLEANUP COMPLETED', superseded_reactivated: 'SUPERSEDED · ACCOUNT ACTIVE AGAIN' };
+const STATUS_LABEL: Record<string, string> = { local_cleanup_pending: 'APP CLEANUP INTERRUPTED · RESUME', external_erasure_pending: 'APP DONE · WEBSITE ACK PENDING', cleanup_completed: 'APP + WEBSITE CLEANUP COMPLETED', superseded_reactivated: 'SUPERSEDED · ACCOUNT ACTIVE AGAIN' };
 const STATUS_COLOR: Record<string, string> = { cleanup_completed: Colors.success, superseded_reactivated: Colors.textMuted };
 const ERASURE_LABEL: Record<string, string> = { not_applicable: 'NO PROVIDER DATA', outstanding: 'PROVIDER ERASURE OUTSTANDING', completed: 'PROVIDER ERASURE CONFIRMED', retained_with_exception: 'RETAINED · EXCEPTION RECORDED', superseded: 'NO ERASURE OWED' };
 const ERASURE_COLOR: Record<string, string> = { not_applicable: Colors.textMuted, outstanding: Colors.warning, completed: Colors.success, retained_with_exception: Colors.info, superseded: Colors.textMuted };
@@ -65,6 +65,15 @@ export default function DeletionRequests() {
               <Text style={st.sub}>CLEANUP</Text>
               <Text style={st.line}>App records: {d.cleanup.app} · Website copy: {d.cleanup.website}{d.cleanup.website_acknowledged_at ? ` (${fmt(d.cleanup.website_acknowledged_at)})` : ''}</Text>
               {d.cleanup.note ? <Text style={st.muted}>{d.cleanup.note}</Text> : null}
+              {d.cleanup.resumed?.length ? <Text style={st.muted} testID={`resumed-note-${d.reference}`}>Cleanup resumed by an administrator {fmt(d.cleanup.resumed[d.cleanup.resumed.length - 1].at)} ({d.cleanup.resumed.length}×)</Text> : null}
+              {d.status === 'local_cleanup_pending' && (
+                <View style={st.actions}>
+                  <Small testID={`resume-cleanup-${d.reference}`} label="RESUME APP CLEANUP" onPress={async () => {
+                    try { await api.post(`/admin/deletion-requests/${d.reference}/cleanup`, {}); load(); }
+                    catch (e: any) { showAlert('Not resumed', e?.message || 'Please try again.'); }
+                  }} />
+                </View>
+              )}
               <Text style={st.sub}>PROVIDER ERASURE LEDGER</Text>
               {d.provider_erasure === 'superseded' ? (
                 <Text style={st.muted} testID={`superseded-note-${d.reference}`}>The account was re-activated after this legacy request, so no provider erasure is owed for it. A new deletion request will start its own ledger.</Text>

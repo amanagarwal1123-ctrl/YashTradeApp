@@ -265,8 +265,10 @@ async def erase(user, source):
     # as not_requested (outstanding) - the ledger, not the website acknowledgement, tracks provider erasure.
     providers = await pe.snapshot(user, uid, number)
     # Tombstone and revocation happen BEFORE cleanup. Retried enrollment cannot resurrect it.
+    # Latest deletion wins: a grant issued before this moment can never resurrect the account (auth.stale_after_deletion);
+    # a fresh OTP after it is the person's explicit new sign-up and starts a new account.
     await c.db.deleted_identities.update_one({"phone_hash": c.keyed(number)},
-        {"$setOnInsert": {"user_id": uid, "deleted_at": c.stamp()}}, upsert=True)
+        {"$set": {"user_id": uid, "deleted_at": c.stamp()}}, upsert=True)
     await c.db.users.update_one({"id": uid}, {"$set": {"account_status": "deleted", "status": "deleted"}, "$inc": {"session_version": 1}})
     await c.db.session_families.update_many({"user_id": uid}, {"$set": {"revoked": True}})
     await c.db.deletion_requests.update_one({"reference": ref}, {"$setOnInsert": {
@@ -484,23 +486,24 @@ async def deletion_ack(event_id: str, consumer: str = Depends(outbox_consumer)):
             "required_acknowledgements": sorted(required), "all_acknowledged": bool(complete)}
 
 
-async def deletion_retry_loop():
-    """Durable local cleanup retries; provider acknowledgement remains a separate operation."""
-    import asyncio
-    import logging
-    while True:
-        for data_scope in c.scopes():
-            try:
-                with c.scoped(data_scope):
-                    async for deletion in c.db.deletion_requests.find({"status": "local_cleanup_pending"}, {"_id": 0}).limit(10):
-                        async with c.lock("deletion:" + deletion["user_id"], seconds=120):
-                            person = await c.db.users.find_one({"id": deletion["user_id"]}, {"_id": 0}) or {}
-                            number = person.get("phone", "")
-                            if number.startswith("deleted:"):
-                                number = ""
-                            await cleanup_deletion(deletion["user_id"], number, deletion["reference"])
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logging.getLogger("shared").warning("Deletion retry deferred: %s", type(exc).__name__)
-        await asyncio.sleep(60)
+@router.post("/admin/deletion-requests/{reference}/cleanup", tags=["Account deletion ledger"])
+async def deletion_resume(reference: str, user=Depends(c.admin)):
+    """Explicit, reviewed completion of an INTERRUPTED app cleanup (a deletion the customer already confirmed with an
+    OTP, or a legacy request converged at startup). No background worker deletes anything on its own: cleanup runs
+    inline with the explicit deletion request and, if that was interrupted, only through this administrator action
+    or the customer's next explicit deletion request. Provider erasure remains a separate ledger."""
+    deletion = await c.db.deletion_requests.find_one({"reference": reference}, {"_id": 0})
+    if not deletion:
+        c.fail(404, "DELETION_NOT_FOUND", "Unknown deletion reference")
+    if deletion.get("status") != "local_cleanup_pending":
+        c.fail(409, "CLEANUP_NOT_PENDING", "App cleanup for this request is not interrupted; nothing to resume")
+    async with c.lock("deletion:" + deletion["user_id"], seconds=120):
+        person = await c.db.users.find_one({"id": deletion["user_id"]}, {"_id": 0}) or {}
+        number = person.get("phone", "")
+        if number.startswith("deleted:"):
+            number = ""
+        await c.db.deletion_requests.update_one({"reference": reference},
+            {"$push": {"cleanup.resumed": {"at": c.stamp(), "actor_id": user["id"]}}})
+        await cleanup_deletion(deletion["user_id"], number, reference)
+    fresh = await c.db.deletion_requests.find_one({"reference": reference}, {"_id": 0})
+    return pe.describe(fresh)

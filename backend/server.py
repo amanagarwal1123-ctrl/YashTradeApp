@@ -2375,6 +2375,7 @@ async def cart_remove(item_id: str, user=Depends(get_current_user)):
 
 @api_router.post("/cart/submit")
 async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
+    _core.require_complete_profile(user)
     items = await db.cart.find({"user_id": user["id"], "status": "active"}, {"_id": 0}).to_list(100)
     if not items:
         raise HTTPException(status_code=400, detail="Cart is empty")

@@ -21,18 +21,25 @@ describe('app.config.js backend origin resolution', () => {
     expect(loadConfig({ NODE_ENV: 'development', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PREVIEW);
   });
 
-  it('release build never ships a preview-container origin: it resolves to the canonical production backend', () => {
-    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PRODUCTION);
-    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: 'https://yash-review-deploy.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
-    expect(loadConfig({ NODE_ENV: 'production' }).backendUrl).toBe(PRODUCTION);
+  it('release build never ships a preview-container origin: it resolves to the production backend supplied by env', () => {
+    const release = { NODE_ENV: 'production', EXPO_PUBLIC_PRODUCTION_BACKEND_URL: PRODUCTION };
+    expect(loadConfig({ ...release, EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PRODUCTION);
+    expect(loadConfig({ ...release, EXPO_PUBLIC_BACKEND_URL: 'https://yash-review-deploy.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
+    expect(loadConfig(release).backendUrl).toBe(PRODUCTION);
   });
 
-  it('release build honours an explicit non-preview EXPO_PUBLIC_BACKEND_URL (deployment Secrets) and strips trailing slashes', () => {
+  it('no backend host is hardcoded in source: without any EXPO_PUBLIC_* value a release resolves to empty (runtime env fallback)', () => {
+    expect(loadConfig({ NODE_ENV: 'production' }).backendUrl).toBe('');
+    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe('');
+    expect(require('fs').readFileSync(require.resolve('../../app.config.js'), 'utf8')).not.toMatch(/https?:\/\/[a-z0-9-]+\.emergent\.host/i);
+  });
+
+  it('release build honours an explicit non-preview EXPO_PUBLIC_BACKEND_URL (deployment pipeline rewrite) and strips trailing slashes', () => {
     expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: `${PRODUCTION}/` }).backendUrl).toBe(PRODUCTION);
-    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: 'https://api.example.com' }).backendUrl).toBe('https://api.example.com');
+    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: 'https://api.example.com', EXPO_PUBLIC_PRODUCTION_BACKEND_URL: PRODUCTION }).backendUrl).toBe('https://api.example.com');
   });
 
-  it('EXPO_PUBLIC_PRODUCTION_BACKEND_URL overrides the built-in production origin only for release builds', () => {
+  it('EXPO_PUBLIC_PRODUCTION_BACKEND_URL is the release-only fallback', () => {
     expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW, EXPO_PUBLIC_PRODUCTION_BACKEND_URL: 'https://next.example.com/' }).backendUrl).toBe('https://next.example.com');
     expect(loadConfig({ NODE_ENV: 'development', EXPO_PUBLIC_BACKEND_URL: PREVIEW, EXPO_PUBLIC_PRODUCTION_BACKEND_URL: 'https://next.example.com' }).backendUrl).toBe(PREVIEW);
   });

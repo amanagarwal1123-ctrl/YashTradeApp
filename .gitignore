@@ -28,10 +28,8 @@ next-env.d.ts
 /build
 dist/
 
-# Environment files
-*.env
-*.env.*
-!frontend/.env.example
+# Environment files (.env) are deployment inputs for the Emergent pipeline and are intentionally NOT ignored.
+# Never put real secrets in a *.example file; backend/.env values are provisioned per deployment.
 *token.json*
 *credentials.json*
 
@@ -76,44 +74,6 @@ chainlit.md
 
 # Metro bundler cache
 frontend/.metro-cache/
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
-.env
-.env.*
 credentials.json
 *.key
 .credentials
