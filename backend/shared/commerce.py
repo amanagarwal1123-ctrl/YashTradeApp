@@ -158,17 +158,18 @@ async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
 
 @router.get("/files/{path:path}")
 async def media(path: str, authorization: str | None = Header(None)):
-    # Source chunks and import previews are only accessible through owner-bound job routes.
-    if path.startswith("yash-trade/imports/"):
-        c.fail(404, "MEDIA_NOT_FOUND", "Use the private owner-authorized import endpoint")
     if ".." in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
         c.fail(404, "MEDIA_NOT_FOUND", "Image not found")
     # Private uploads and previews never inherit public catalog access.
-    product = await c.db.products.find_one({"visibility": {"$ne": "hidden"}, "is_deleted": {"$ne": True},
-        "$or": [{"storage_path": path}, {"thumbnail_path": path}, {"original_source_storage_path": path},
-        {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1})
-    banner = None if product else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
-    public = bool(product or banner)
+    product = await c.db.products.find_one({"is_deleted": {"$ne": True}, "$or": [{"storage_path": path}, {"thumbnail_path": path},
+        {"original_source_storage_path": path}, {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1, "visibility": 1})
+    # Source chunks and import previews stay behind the owner-bound job routes until a committed product adopts one as
+    # its permanent photo; from then on the ordinary product visibility rules apply.
+    if not product and path.startswith("yash-trade/imports/"):
+        c.fail(404, "MEDIA_NOT_FOUND", "Use the private owner-authorized import endpoint")
+    public = bool(product) and product.get("visibility") != "hidden"
+    banner = None if public else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
+    public = public or bool(banner)
     if not public:
         user = await c.current_user(authorization)
         if user["role"] != "admin":

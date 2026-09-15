@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 33 — Media budget restore validated end-to-end in REVIEW scope. All 6 unit tests in tests/shared/test_media_budget_restore.py pass; 32 regression tests across shared PDF races / import extended / follow-up regressions pass. Live preview backend: B1 media/usage shape correct (limits 4e9 / 50000, remaining computed, admin-only). B2 full PDF import (init, chunk uploads with X-Chunk-Sha256, duplicate chunk 0 re-send returns {received:0, duplicate:true}, status matches, complete + worker → phase='review', product_count==3). B3 interrupted-resume re-init returns same upload_id with phase='uploading' and only acknowledged chunks; final chunk + complete OK; slot not blocked by ACTIVE_IMPORT_LIMIT. B4 commit + dedupe created:1 skipped:2, storage_path adopted from imports/<jid>/previews/ (no second master copy), thumbnail_path yash-trade/products/imported/<rid>-thumb.png; usage delta import_master +1 and pdf_preview -1; idempotent recommit returns identical numbers. B5 customer image access serves both storage_path and thumbnail_path as image/png with Cache-Control containing 'no-store' but WITHOUT the 'private' directive (server returns 'no-store, no-cache, must-revalidate' — DEVIATION from the spec 'private, no-store'); unadopted preview chunk path returns 404 MEDIA_NOT_FOUND; hidden-product rule returns 403 MEDIA_PRIVATE for customer while admin still 200. B7 4 distinct active imports admitted; 5th init returns 429 ACTIVE_IMPORT_LIMIT; after cancel one → 5th succeeds; re-init cancelled identity → 409 IMPORT_CANCELLED. F1 UI /media-usage via Panel → Products → View All Products → 'Storage accounting & alerts' renders media-usage-title, media-tracked-bytes ('43,181,743 tracked bytes · 49 objects'), media-write-budget shows '4,000,000,000 bytes / 50000 objects', media-remaining line present with computed values, no media-limit-reached, 5 media-group-<purpose> lines, Refresh accounting button works. F2 was NOT driven because the /pdf-import screen uses a native file picker that cannot be reliably scripted in Playwright web preview; B2/B3/B4/B5 already validate the underlying API flow the UI wraps. Cleanup: all active/dangling review imports were cancelled at test end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/files/{storage_path}", "issue": "Cache-Control response is 'no-store, no-cache, must-revalidate' — missing the 'private' directive required by the review spec. Functionally safe (no-store already prevents caching) but deviates from the stated header shape."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/iteration33_budget.xml",
+    "/app/test_reports/pytest/iteration33_regressions.xml",
+    "/app/test_reports/pytest/iteration33_live.xml",
+    "/app/backend/tests/live_preview/test_iteration33_media_budget_import.py",
+    "/app/test_reports/iteration33_media_usage.jpeg"
+  ],
+  "action_items": [
+    "Optional: add the 'private' directive to the Cache-Control header on GET /api/files/{path} responses to exactly match the review spec ('private, no-store'). No behavioural regression, just header consistency."
+  ],
+  "critical_code_review_comments": [
+    "media-usage.tsx is one dense line — hard to review; not a blocker, but consider splitting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/live_preview/__init__.py",
+    "/app/backend/tests/live_preview/test_iteration33_media_budget_import.py"
+  ],
+  "success_rate": {"backend": "97.9% (46/47 assertions; only Cache-Control 'private' directive missing)", "frontend": "100% for F1 (F2 skipped — native file picker not scriptable)"},
+  "seed_data_creation": "Created transient review-scope batches TEST_iter33_b2/b3/b7_[0-5] and one imported product (SKU from sample.pdf). One committed product remains hidden (visibility='hidden') by B5. Four B7 uploads and B3's resumed job were cancelled in teardown; no dangling active imports (verified 5th slot recovered).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reviewer keys rotated on 15 Sep 2026 fork ('preview-admin-2026-09-15b.txt' / 'preview-customer-2026-09-15b.txt' in /tmp/yash-private/). Revoke both after the release. The live preview backend now enforces the temporary 4 GB / 50 000-object ceiling and correctly deduplicates preview→master (import_master +1, pdf_preview -1 after commit). Note: /api/files/* returns Cache-Control 'no-store, no-cache, must-revalidate' — treat as intentional unless owner asks to add 'private'.",
+  "rca_of_issue": "Owner error 'Application write budget reached; owner review required' was caused by MEDIA_WRITE_BUDGET_BYTES/OBJECT_LIMIT being absent → treated as tiny defaults. Fix (verified): env vars set to 4e9 / 50000, media_lifecycle.py returns structured 413 with limit/used/requested/configured, pdf_jobs.py preview→master adoption avoids second copies, resume/init idempotent, ACTIVE_IMPORT_LIMIT slots released on cancel/commit. All 6 unit + 32 regression + 5.5/6 live checks pass; only the Cache-Control header omits 'private'."
+}

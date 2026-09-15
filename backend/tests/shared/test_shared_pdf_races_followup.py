@@ -199,12 +199,14 @@ async def test_thumbnail_write_failure_then_retry_recovers_exactly_one_product(a
     assert first.json()["failed"] == 1
     assert await isolated_db["db"].products.count_documents({"source_upload_id": jid}) == 0
 
-    master = f"yash-trade/products/imported/{keeper}.png"
+    keeper_row = await isolated_db["db"].import_rows.find_one({"id": keeper}, {"_id": 0, "preview_path": 1})
+    master = keeper_row["preview_path"]  # the confirmed preview is adopted as the permanent master (no second copy)
     thumb = f"yash-trade/products/imported/{keeper}-thumb.png"
-    master_asset = await isolated_db["db"].media_assets.find_one({"path": master}, {"_id": 0, "write_state": 1})
+    master_asset = await isolated_db["db"].media_assets.find_one({"path": master}, {"_id": 0, "write_state": 1, "purpose": 1})
     thumb_asset = await isolated_db["db"].media_assets.find_one({"path": thumb}, {"_id": 0, "write_state": 1})
-    assert master_asset and master_asset["write_state"] == "stored"
+    assert master_asset and master_asset["write_state"] == "stored" and master_asset["purpose"] == "import_master"
     assert thumb_asset and thumb_asset["write_state"] == "unknown"
+    assert await isolated_db["db"].media_assets.count_documents({"path": f"yash-trade/products/imported/{keeper}.png"}) == 0
 
     monkeypatch.setattr(c, "put_object", original_put, raising=False)
     v2 = (await api_client.get(f"/api/pdf-upload/{jid}/status", headers=_auth(token))).json()["version"]

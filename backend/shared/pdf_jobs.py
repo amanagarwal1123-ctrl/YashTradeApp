@@ -22,7 +22,7 @@ from . import core as c
 from .commerce import validate_product
 from .pdf_parser import thumbnail
 from .pdf_schema import contract
-from .media_lifecycle import tracked_put, audit_candidates
+from .media_lifecycle import tracked_put, adopt_stored, audit_candidates
 
 router = APIRouter(prefix="/api", tags=["Reviewed PDF import v1"])
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/catalog-v1"
@@ -313,8 +313,14 @@ async def commit_row(job, row, publish, user):
             return {"status": "failed", "reason": "Update Existing requires confirmation of the displayed product version"}
         data, _ = await asyncio.to_thread(c.fetch_object, row["preview_path"])
         prefix = f"yash-trade/products/imported/{row['id']}"
-        master, thumb = prefix + ".png", prefix + "-thumb.png"
-        await tracked_put(master, data, "image/png", "import_master", user["id"], job["id"])
+        thumb = prefix + "-thumb.png"
+        # The reviewed preview IS the product photo: when the ledger confirms the stored object equals the bytes just read
+        # back it becomes the permanent master (no second copy of identical bytes); an uncertain preview is copied instead.
+        if await adopt_stored(row["preview_path"], data, "import_master"):
+            master = row["preview_path"]
+        else:
+            master = prefix + ".png"
+            await tracked_put(master, data, "image/png", "import_master", user["id"], job["id"])
         await tracked_put(thumb, thumbnail(data), "image/png", "thumbnail", user["id"], job["id"])
         action = "updated" if old else "created"
         fields.update(storage_path=master, thumbnail_path=thumb, visibility="all" if publish else "hidden",
