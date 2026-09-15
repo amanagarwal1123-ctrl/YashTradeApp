@@ -3195,6 +3195,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static, read-only delivery of the Google Play listing assets (marketing files only, no app data). Served under
+# /api so the platform ingress routes it to the backend; direct links let the owner download each asset.
+_STORE_ASSETS_DIR = ROOT_DIR.parent / "store_assets"
+if _STORE_ASSETS_DIR.is_dir():
+    from starlette.staticfiles import StaticFiles
+    app.mount("/api/store-assets", StaticFiles(directory=str(_STORE_ASSETS_DIR)), name="store-assets")
+
 @app.on_event("startup")
 async def startup():
     # No implicit data migrations, sample catalog seeds or staff identities at startup - with ONE declared
