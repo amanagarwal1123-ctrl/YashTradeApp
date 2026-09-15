@@ -198,7 +198,7 @@ async def test_reconcile_converges_erasure_events_written_by_older_builds(api_cl
     await db.media_assets.insert_one({"path": "yash-trade/test/old3.jpg", "owner_id": "deleted:old-done", "purpose": "test", "size_bytes": 1, "created_at": c.stamp()})
     first = await reconcile_outbox_acknowledgements()
     assert first == {"requirements_corrected": 2, "cleanup_completed": 1, "status_renamed": 1, "providers_backfilled": 3,
-                     "legacy_handled": 0, "legacy_duplicates_merged": 0}
+                     "legacy_handled": 0, "legacy_duplicates_merged": 0, "legacy_skipped": 0}
     pending = await db.integration_outbox.find_one({"id": "DEL-old-pending"}, {"_id": 0})
     assert pending["required_acknowledgements"] == ["website"] and pending["status"] == "pending"
     acked = await db.integration_outbox.find_one({"id": "DEL-old-acked"}, {"_id": 0})
@@ -217,6 +217,6 @@ async def test_reconcile_converges_erasure_events_written_by_older_builds(api_cl
     assert (await db.integration_outbox.find_one({"id": "other-1"}, {"_id": 0}))["required_acknowledgements"] == old
     # Idempotent, and the website's outbox now lists only the still-pending event.
     assert await reconcile_outbox_acknowledgements() == {"requirements_corrected": 0, "cleanup_completed": 0, "status_renamed": 0, "providers_backfilled": 0,
-                                                         "legacy_handled": 0, "legacy_duplicates_merged": 0}
+                                                         "legacy_handled": 0, "legacy_duplicates_merged": 0, "legacy_skipped": 0}
     outbox = await api_client.get("/api/integrations/deletions", headers={"X-Integration-Key": "integration-key-1234567890-abcdef"})
     assert [e["id"] for e in outbox.json()["events"]] == ["DEL-old-pending"]

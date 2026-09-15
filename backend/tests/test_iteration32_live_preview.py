@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # Load backend .env for MONGO_URL/DB_NAME
 load_dotenv('/app/backend/.env')
 
-BASE_URL = os.environ.get('EXPO_BACKEND_URL') or os.environ.get('EXPO_PUBLIC_BACKEND_URL') or 'https://yash-review-deploy.preview.emergentagent.com'
+BASE_URL = os.environ.get('EXPO_BACKEND_URL') or os.environ.get('EXPO_PUBLIC_BACKEND_URL') or 'https://app-first-signin.preview.emergentagent.com'
 BASE_URL = BASE_URL.rstrip('/')
 
 MONGO_URL = os.environ['MONGO_URL']

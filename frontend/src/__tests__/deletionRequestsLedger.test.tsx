@@ -32,6 +32,8 @@ const ROW = {
 };
 
 beforeEach(() => { mockGet.mockReset(); mockPost.mockReset(); mockAlert.mockReset(); });
+// The ledger also asks GET /admin/maintenance (MaintenanceCard); count only ledger loads.
+const ledgerLoads = () => mockGet.mock.calls.filter(([path]) => path === '/admin/deletion-requests').length;
 
 describe('DeletionRequests ledger', () => {
   it('shows cleanup and provider erasure as separate outcomes: website ack completed while providers stay outstanding', async () => {
@@ -63,7 +65,7 @@ describe('DeletionRequests ledger', () => {
     await fireEvent.press(screen.getByTestId('submit-DEL-abc-sms_provider'));
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/admin/deletion-requests/DEL-abc/providers/sms_provider',
       { action: 'requested', request_reference: 'MSG91-77', channel: 'support ticket' }));
-    await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2)); // ledger reloaded after the change
+    await waitFor(() => expect(ledgerLoads()).toBe(2)); // ledger reloaded after the change
     await fireEvent.press(screen.getByTestId('act-refused-DEL-abc-ai_provider'));
     await fireEvent.changeText(screen.getByTestId('in-outcome-DEL-abc-ai_provider'), 'Emergent declined');
     await fireEvent.changeText(screen.getByTestId('in-reason-DEL-abc-ai_provider'), 'Logs retained for abuse monitoring');
@@ -84,7 +86,7 @@ describe('DeletionRequests ledger', () => {
     await fireEvent.changeText(screen.getByTestId('in-outcome-DEL-abc-ai_provider'), 'confirmed by email');
     await fireEvent.press(screen.getByTestId('submit-DEL-abc-ai_provider'));
     await waitFor(() => expect(mockAlert).toHaveBeenCalledWith('Not recorded', expect.stringContaining('Record the request')));
-    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(ledgerLoads()).toBe(1);
   });
 
   it('tells non-administrators the ledger is administrator only', async () => {

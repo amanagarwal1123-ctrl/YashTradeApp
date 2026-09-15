@@ -86,7 +86,7 @@ Iteration20 testing found/reproduced a partial-recovery replay edge case; code n
 |---|---|
 | Verified pre-follow-up public main | 30796997d3484594c6c5f53965e1c71dd5ed1c86; public main checked before editing. Prior baseline-sync uncertainty is superseded. |
 | New implementation | Workspace branch main. No configured git remote or agent-controlled Save to GitHub operation. New implementation SHA/commit URL/remote sync UNAVAILABLE until that user-controlled action. Never identify the baseline as this implementation. |
-| Preview | https://yash-review-deploy.preview.emergentagent.com ; health build shared-v1-followup-2026-09-11, commit unrecorded. Source loaded in preview, exact recorded commit unknown. |
+| Preview | https://app-first-signin.preview.emergentagent.com ; health build shared-v1-followup-2026-09-11, commit unrecorded. Source loaded in preview, exact recorded commit unknown. |
 | App production | https://yash-tryon-test.emergent.host ; owner's independent11September check:2026.09.09-integration-v7; exact commit unknown. No production change performed here. |
 | Website production | https://register.yashsilver.com and https://yash-register.emergent.host ; independent check2026.09.10-login-v10; commits unknown. No website access/config/code change or rollout performed. |
 

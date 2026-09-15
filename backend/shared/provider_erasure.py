@@ -134,16 +134,20 @@ def is_legacy(deletion):
 
 
 async def reconcile_legacy():
-    """Legacy deletion requests: strip the personal fields they retained, merge duplicate rows, and finish what the
-    user asked for. If the account is still deleted (or gone) the row re-enters local_cleanup_pending and is listed in
-    the admin ledger as interrupted; an administrator's explicit resume action (people.deletion_resume) completes the
-    tombstone/anonymization and emits the website erasure event - nothing is deleted at startup. If the account is
-    active again (re-enrolled), the request is marked superseded - no cleanup is owed and nothing is deleted."""
+    """Legacy deletion requests (run only from the explicit admin maintenance action, never at startup): strip the
+    personal fields they retained, merge duplicate rows, and finish what the user asked for. If the account is still
+    deleted (or gone) the row re-enters local_cleanup_pending and is listed in the admin ledger as interrupted; the
+    administrator's explicit resume action (people.deletion_resume) completes the tombstone/anonymization and emits
+    the website erasure event. If the account is active again (re-enrolled), the request is marked superseded - no
+    cleanup is owed and nothing is deleted."""
     rows = [r async for r in c.db.deletion_requests.find({"$expr": {"$ne": ["$reference", {"$concat": ["DEL-", {"$ifNull": ["$user_id", ""]}]}]},
                                                              "legacy": {"$exists": False}}, {"_id": 0})]
-    handled = merged = 0
+    handled = merged = skipped = 0
     by_ref = {}
-    for row in sorted(rows, key=lambda r: r.get("requested_at", "")):
+    for row in sorted(rows, key=lambda r: str(r.get("requested_at") or "")):
+        if not row.get("reference") or not row.get("user_id"):
+            skipped += 1  # unattributable row: left untouched for manual review, never guessed at
+            continue
         by_ref.setdefault(row["reference"], []).append(row)
     for reference, group in by_ref.items():
         keep, dupes = group[0], group[1:]
@@ -157,7 +161,7 @@ async def reconcile_legacy():
                   "$unset": {"phone": "", "name": "", "shop_name": "", "completed_at": "", "cleanup": ""}}
         await c.db.deletion_requests.update_one({"reference": reference}, update)
         handled += 1
-    return {"legacy_handled": handled, "legacy_duplicates_merged": merged}
+    return {"legacy_handled": handled, "legacy_duplicates_merged": merged, "legacy_skipped": skipped}
 
 
 async def reconcile():
@@ -169,6 +173,8 @@ async def reconcile():
                    "cleanup.completed_at": {"$ifNull": ["$cleanup.completed_at", "$completed_at"]}}}, {"$unset": "completed_at"}])).modified_count
     backfilled = 0
     async for deletion in c.db.deletion_requests.find({"providers": {"$exists": False}}, {"_id": 0, "reference": 1, "user_id": 1}):
+        if not deletion.get("user_id") or not deletion.get("reference"):
+            continue  # unattributable row: reported by the maintenance status, never guessed at
         providers = await historical_snapshot(deletion["user_id"])
         res = await c.db.deletion_requests.update_one({"reference": deletion["reference"], "providers": {"$exists": False}},
                                                       {"$set": {"providers": providers}})

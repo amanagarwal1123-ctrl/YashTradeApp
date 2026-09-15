@@ -4,16 +4,17 @@ const config = require('./app.json').expo;
 const previewOrigin = process.env.NODE_ENV === 'development' ? process.env.EXPO_DEVTOOLS_ORIGIN : undefined;
 
 // Backend origin for RELEASE builds (Emergent Publish web export and iOS/Android store builds evaluate this file with
-// NODE_ENV=production). Resolved ONLY from EXPO_PUBLIC_* environment supplied at build time: the deployment pipeline
-// rewrites EXPO_PUBLIC_BACKEND_URL to the production host; EXPO_PUBLIC_PRODUCTION_BACKEND_URL (frontend/.env) is the
-// release fallback so a preview-container origin (*.preview.emergentagent.com) is never shipped in a release.
-// Development (Metro preview) keeps EXPO_PUBLIC_BACKEND_URL untouched. No backend host is hardcoded in source.
+// NODE_ENV=production). Order: EXPO_PUBLIC_BACKEND_URL when it is not a preview-container origin (the Android pipeline
+// rewrites it to the production host) -> EXPO_PUBLIC_PRODUCTION_BACKEND_URL (frontend/.env) -> app.json
+// extra.productionBackendUrl (config; the EAS upload excludes .env* via .easignore, so this is what a store build sees).
+// A *.preview.emergentagent.com origin is never shipped in a release. Development keeps EXPO_PUBLIC_BACKEND_URL as is.
 const isPreviewOrigin = (url) => /^https?:\/\/[^/]+\.preview\.emergentagent\.com\/?$/i.test(url || '');
+const clean = (url) => (url || '').trim().replace(/\/+$/, '');
 
-function resolveBackendUrl(env) {
-  const configured = (env.EXPO_PUBLIC_BACKEND_URL || '').trim().replace(/\/+$/, '');
+function resolveBackendUrl(env, fallback = config.extra?.productionBackendUrl) {
+  const configured = clean(env.EXPO_PUBLIC_BACKEND_URL);
   if (env.NODE_ENV !== 'production') return configured;
-  const production = (env.EXPO_PUBLIC_PRODUCTION_BACKEND_URL || '').trim().replace(/\/+$/, '');
+  const production = clean(env.EXPO_PUBLIC_PRODUCTION_BACKEND_URL) || clean(fallback);
   return !configured || isPreviewOrigin(configured) ? production : configured;
 }
 

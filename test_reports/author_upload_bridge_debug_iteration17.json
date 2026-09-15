@@ -1,6 +1,6 @@
 {
   "status": 200,
-  "url": "https://yash-review-deploy.preview.emergentagent.com/api/products/upload-image",
+  "url": "https://app-first-signin.preview.emergentagent.com/api/products/upload-image",
   "body": "{\"url\":\"/api/files/yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266.jpg\",\"storage_path\":\"yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266.jpg\",\"thumbnail_path\":\"yash-trade/products/manual/0b935c1802c603eda3c27bf6d805d266-thumb.jpg\",\"content_type\":\"image/jpeg\",\"permanent\":true}",
   "bridge_events": [
     {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-API_URL="https://yash-review-deploy.preview.emergentagent.com"
+API_URL="https://app-first-signin.preview.emergentagent.com"
 
 # Login
 TOKEN=$(curl -s -X POST "$API_URL/api/auth/verify-otp" \

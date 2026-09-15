@@ -18,6 +18,7 @@ from .review_admin import router as review_admin
 from .ai_consent import router as ai_consent
 from .provider_erasure import router as provider_erasure
 from .fonts import router as fonts
+from .maintenance import router as maintenance
 
 
 class DataScopeMiddleware:
@@ -39,7 +40,7 @@ class DataScopeMiddleware:
 def install_shared(app, legacy, db, sender, put, get, review_enabled=False, review_blobs=None):
     c.configure(db, sender, put, get, review_enabled=review_enabled, review_blobs=review_blobs)
     app.add_middleware(DataScopeMiddleware)
-    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, provider_erasure, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
+    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, provider_erasure, maintenance, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
     replacement_names = {
         "health", "send_otp", "verify_otp", "get_me", "update_profile", "phone_change_request", "phone_change_verify",
         "delete_account_request", "delete_account_confirm", "integration_upsert_enrollment", "integration_get_customer",
@@ -62,10 +63,11 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
         return app.openapi()
 
     @app.get("/", include_in_schema=False)
+    @app.get("/health", include_in_schema=False)
     @app.get("/api", include_in_schema=False)
     @app.get("/api/", include_in_schema=False)
     async def root_liveness():
-        # Process liveness for platform probes that hit the service root; readiness lives at /api/health/ready.
+        # Process liveness for platform probes that hit the service root or /health; readiness lives at /api/health/ready.
         return JSONResponse({"status": "alive", "build": c.BUILD, "report": "/api/health", "strict_readiness": "/api/health/ready"},
                             headers={"Cache-Control": "no-store"})
 
@@ -77,13 +79,9 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
         # workers only iterate scopes that are actually usable. Primary-database failures are NOT absorbed here
         # (they surface from the primary ensure_indexes() at startup as before).
         await c.initialize_review()
-        # Contract correction (14 Sep 2026): erasure events only await the website; converge rows from older builds
-        # in every usable scope before the workers start. Nothing here deletes records: account cleanup runs only
-        # inline with an explicit deletion request or an administrator's explicit resume action (people.deletion_resume).
-        from .people import reconcile_outbox_acknowledgements
-        for data_scope in c.scopes():
-            with c.scoped(data_scope):
-                await reconcile_outbox_acknowledgements()
+        # Startup never mutates or deletes records (deployment policy). One-off migrations of older data - deletion
+        # ledger convergence, SMS-log retention - are explicit admin actions in shared/maintenance.py; account cleanup
+        # runs only inline with an explicit deletion request or an administrator's explicit resume action.
         app.state.pdf_worker = asyncio.create_task(worker_loop())
 
     @app.on_event("shutdown")

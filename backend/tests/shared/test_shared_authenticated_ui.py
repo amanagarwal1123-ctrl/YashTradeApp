@@ -24,7 +24,7 @@ except Exception:  # pragma: no cover - handled with skip in tests
     async_playwright = None
 
 
-FRONTEND_URL = "https://yash-review-deploy.preview.emergentagent.com"
+FRONTEND_URL = "https://app-first-signin.preview.emergentagent.com"
 SAMPLE_PDF = Path("/app/backend/fixtures/catalog-v1/sample.pdf")
 
 # 1x1 PNG for synthetic object-store image paths used by UI previews.

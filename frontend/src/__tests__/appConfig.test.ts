@@ -3,7 +3,7 @@
  * NODE_ENV=production and must resolve the canonical production backend, never the preview container.
  * The Metro development preview keeps EXPO_PUBLIC_BACKEND_URL untouched.
  */
-const PREVIEW = 'https://yash-review-deploy.preview.emergentagent.com';
+const PREVIEW = 'https://app-first-signin.preview.emergentagent.com';
 const PRODUCTION = 'https://yash-tryon-test.emergent.host';
 
 function loadConfig(env: Record<string, string | undefined>) {
@@ -24,14 +24,20 @@ describe('app.config.js backend origin resolution', () => {
   it('release build never ships a preview-container origin: it resolves to the production backend supplied by env', () => {
     const release = { NODE_ENV: 'production', EXPO_PUBLIC_PRODUCTION_BACKEND_URL: PRODUCTION };
     expect(loadConfig({ ...release, EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PRODUCTION);
-    expect(loadConfig({ ...release, EXPO_PUBLIC_BACKEND_URL: 'https://yash-review-deploy.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
+    expect(loadConfig({ ...release, EXPO_PUBLIC_BACKEND_URL: 'https://app-first-signin.preview.emergentagent.com/' }).backendUrl).toBe(PRODUCTION);
     expect(loadConfig(release).backendUrl).toBe(PRODUCTION);
   });
 
-  it('no backend host is hardcoded in source: without any EXPO_PUBLIC_* value a release resolves to empty (runtime env fallback)', () => {
-    expect(loadConfig({ NODE_ENV: 'production' }).backendUrl).toBe('');
-    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe('');
+  it('store builds see no .env (.easignore excludes .env*): a release still resolves the production origin from app.json config', () => {
+    // No backend host is hardcoded in app.config.js; the last-resort value is configuration in app.json extra.productionBackendUrl.
     expect(require('fs').readFileSync(require.resolve('../../app.config.js'), 'utf8')).not.toMatch(/https?:\/\/[a-z0-9-]+\.emergent\.host/i);
+    expect(require('../../app.json').expo.extra.productionBackendUrl).toBe(PRODUCTION);
+    expect(loadConfig({ NODE_ENV: 'production' }).backendUrl).toBe(PRODUCTION);
+    expect(loadConfig({ NODE_ENV: 'production', EXPO_PUBLIC_BACKEND_URL: PREVIEW }).backendUrl).toBe(PRODUCTION);
+    // The EAS upload must include the reviewer sign-in screen and exclude only private notes.
+    const easignore = require('fs').readFileSync(require.resolve('../../.easignore'), 'utf8');
+    expect(easignore).not.toMatch(/^\*\*\/\*review-access\*$/m);
+    expect(require('fs').existsSync(require.resolve('../../app/review-access.tsx'))).toBe(true);
   });
 
   it('release build honours an explicit non-preview EXPO_PUBLIC_BACKEND_URL (deployment pipeline rewrite) and strips trailing slashes', () => {

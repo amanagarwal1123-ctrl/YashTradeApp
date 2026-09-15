@@ -9,7 +9,7 @@ import pytest
 import requests
 from pymongo import MongoClient
 
-BASE = "https://yash-review-deploy.preview.emergentagent.com".rstrip("/")
+BASE = "https://app-first-signin.preview.emergentagent.com".rstrip("/")
 KEY_FILE = "/tmp/yash-private/preview-review-access-2026-09-14.txt"
 MONGO_URL = "mongodb://localhost:27017"
 DB_NAME = "jewellers_app"

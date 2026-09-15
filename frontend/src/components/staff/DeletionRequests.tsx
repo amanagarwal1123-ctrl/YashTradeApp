@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../theme';
+import MaintenanceCard from './MaintenanceCard';
 import { api } from '../../api';
 import { showAlert } from '../../utils/alert';
 
@@ -20,7 +21,7 @@ interface DeletionRow {
 }
 
 const fmt = (v?: string | null) => (v ? new Date(v).toLocaleString() : '—');
-const STATUS_LABEL: Record<string, string> = { local_cleanup_pending: 'APP CLEANUP INTERRUPTED · RESUME', external_erasure_pending: 'APP DONE · WEBSITE ACK PENDING', cleanup_completed: 'APP + WEBSITE CLEANUP COMPLETED', superseded_reactivated: 'SUPERSEDED · ACCOUNT ACTIVE AGAIN' };
+const STATUS_LABEL: Record<string, string> = { local_cleanup_pending: 'APP CLEANUP INTERRUPTED · RESUME', external_erasure_pending: 'APP DONE · WEBSITE ACK PENDING', cleanup_completed: 'APP + WEBSITE CLEANUP COMPLETED', superseded_reactivated: 'SUPERSEDED · ACCOUNT ACTIVE AGAIN', completed: 'OLDER ROW · RECONCILE FIRST' };
 const STATUS_COLOR: Record<string, string> = { cleanup_completed: Colors.success, superseded_reactivated: Colors.textMuted };
 const ERASURE_LABEL: Record<string, string> = { not_applicable: 'NO PROVIDER DATA', outstanding: 'PROVIDER ERASURE OUTSTANDING', completed: 'PROVIDER ERASURE CONFIRMED', retained_with_exception: 'RETAINED · EXCEPTION RECORDED', superseded: 'NO ERASURE OWED' };
 const ERASURE_COLOR: Record<string, string> = { not_applicable: Colors.textMuted, outstanding: Colors.warning, completed: Colors.success, retained_with_exception: Colors.info, superseded: Colors.textMuted };
@@ -44,6 +45,7 @@ export default function DeletionRequests() {
   if (!rows) return <ActivityIndicator color={Colors.gold} style={{ marginVertical: Spacing.md }} />;
   return (
     <View testID="deletion-ledger">
+      <MaintenanceCard onApplied={load} />
       <Text style={st.sectionTitle}>ACCOUNT DELETION REQUESTS ({rows.length})</Text>
       <Text style={st.legend}>Two outcomes per request, never merged: app + website cleanup, and erasure by each service provider (manual request, recorded here). A website acknowledgement does not erase provider copies.</Text>
       {rows.length === 0 && <Text style={[st.muted, { textAlign: 'center', marginBottom: Spacing.lg }]}>No deletion requests yet.</Text>}

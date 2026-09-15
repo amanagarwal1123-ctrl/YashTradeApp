@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://yash-review-deploy.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://app-first-signin.preview.emergentagent.com").rstrip("/")
 
 REVIEW_ADMIN_KEY_FILE = "/tmp/yash-private/preview-store-review-admin-e2e.txt"
 REVIEW_CUSTOMER_KEY_FILE = "/tmp/yash-private/preview-store-review-customer-2026-09-15.txt"
