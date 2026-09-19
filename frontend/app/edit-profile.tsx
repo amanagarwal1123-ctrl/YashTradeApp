@@ -4,6 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
+import PhoneField from '../src/components/PhoneField';
+import { canonicalPhone, DEFAULT_COUNTRY } from '../src/phone';
+import type { CountryCode } from 'libphonenumber-js';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert } from '../src/utils/alert';
@@ -23,6 +26,8 @@ export default function EditProfileScreen() {
   // Phone change flow
   const [showPhoneChange, setShowPhoneChange] = useState(false);
   const [newPhone, setNewPhone] = useState('');
+  const [newCountry, setNewCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
+  const newCanonical = canonicalPhone(newPhone, newCountry);
   const [phoneOtp, setPhoneOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [phoneBusy, setPhoneBusy] = useState(false);
@@ -43,10 +48,10 @@ export default function EditProfileScreen() {
 
   const requestPhoneOtp = async () => {
     setPhoneError('');
-    if (newPhone.length !== 10) { setPhoneError('Enter a valid 10-digit mobile number'); return; }
+    if (!newCanonical) { setPhoneError(newCountry === 'IN' ? 'Enter a valid 10-digit mobile number' : 'Enter a valid number for the selected country'); return; }
     setPhoneBusy(true);
     try {
-      await api.post('/auth/phone-change/request', { new_phone: newPhone });
+      await api.post('/auth/phone-change/request', { new_phone: newCanonical });
       setOtpSent(true);
     } catch (e: any) {
       setPhoneError(e?.message || 'Could not send OTP');
@@ -58,7 +63,7 @@ export default function EditProfileScreen() {
     if (phoneOtp.length !== 4) { setPhoneError('Enter the 4-digit OTP'); return; }
     setPhoneBusy(true);
     try {
-      await api.post('/auth/phone-change/verify', { new_phone: newPhone, otp: phoneOtp });
+      await api.post('/auth/phone-change/verify', { new_phone: newCanonical, otp: phoneOtp });
       await logout();
       showAlert('Phone Updated', 'Your identity and history are preserved. Sign in with the new number and a fresh OTP.');
       router.replace('/login');
@@ -117,19 +122,10 @@ export default function EditProfileScreen() {
             <View style={st.phoneChangeCard}>
               <Text style={st.phoneChangeTitle}>Change Registered Number</Text>
               <Text style={st.phoneChangeHint}>An OTP will be sent to the new number to verify it belongs to you.</Text>
-              <View style={st.inputRow}>
-                <Text style={st.prefix}>+91</Text>
-                <TextInput
-                  testID="new-phone-input"
-                  style={st.inputFlex}
-                  placeholder="New 10-digit number"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  value={newPhone}
-                  editable={!otpSent}
-                  onChangeText={v => { setNewPhone(v.replace(/[^0-9]/g, '')); setPhoneError(''); }}
-                />
+              <View style={{ marginBottom: Spacing.sm }}>
+                <PhoneField testID="new-phone-input" country={newCountry} national={newPhone} editable={!otpSent}
+                  placeholder={newCountry === 'IN' ? 'New 10-digit number' : undefined}
+                  onChange={(c, v) => { setNewCountry(c); setNewPhone(v); setPhoneError(''); }} />
               </View>
               {otpSent && (
                 <TextInput

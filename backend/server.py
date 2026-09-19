@@ -125,12 +125,14 @@ def _sms_available() -> bool:
     return bool(MSG91_AUTHKEY and MSG91_TEMPLATE_ID)
 
 def _msg91_mobile(phone: str) -> str:
-    """Normalize to MSG91 format: 91 + 10-digit number (no plus sign)."""
-    digits = ''.join(c for c in phone if c.isdigit())
+    """MSG91 `mobiles` format: country code + national digits, no plus. Canonical Indian numbers are 10 digits
+    (prefixed 91); international canonical numbers arrive as E.164 (+1..., +61...) and keep their own code."""
+    text = str(phone).strip()
+    if text.startswith('+'):
+        return ''.join(c for c in text if c.isdigit())
+    digits = ''.join(c for c in text if c.isdigit())
     if len(digits) == 10:
         return f"91{digits}"
-    if digits.startswith('91') and len(digits) == 12:
-        return digits
     return digits
 
 def _msg91_headers() -> Dict[str, str]:
@@ -252,9 +254,9 @@ async def _dispatch_sms_otp(phone: str, otp: str, purpose: str) -> Dict[str, Any
     """Send `otp` to a real number via the MSG91 Flow API with pre-flight validation and
     delivery tracking. Every attempt is written to `sms_log`. Raises HTTPException (400/503)
     on any failure — never reports a false success."""
-    digits = ''.join(c for c in phone if c.isdigit())[-10:]
-    if len(digits) != 10 or digits[0] not in '6789':
-        raise HTTPException(status_code=400, detail="Invalid phone number. Please check and try again.")
+    # Canonical numbers only: 10 Indian digits or E.164 for the supported international countries. Never truncated.
+    from shared.core import phone as _canonical_phone
+    digits = _canonical_phone(phone)
     mobile = _msg91_mobile(digits)
     now = datetime.now(timezone.utc)
     entry: Dict[str, Any] = {

@@ -4,6 +4,9 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
+import PhoneField from '../src/components/PhoneField';
+import { canonicalPhone, COUNTRIES, DEFAULT_COUNTRY } from '../src/phone';
+import type { CountryCode } from 'libphonenumber-js';
 import { api } from '../src/api';
 import { useLang } from '../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS } from '../src/i18n';
@@ -14,6 +17,8 @@ const TERMS_URL = Constants.expoConfig?.extra?.termsUrl || PRIVACY_URL;
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');
+  const [country, setCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
+  const canonical = canonicalPhone(phone, country);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -27,12 +32,13 @@ export default function LoginScreen() {
   const t = T[language] || T.en;
 
   const handleSendOTP = async () => {
-    if (phone.length < 10) { setError(t.invalidPhone); return; }
+    if (!canonical) { setError(country === 'IN' ? t.invalidPhone : `Enter a valid ${COUNTRIES.find(c => c.code === country)?.label} number`); return; }
     setLoading(true); setError('');
     try {
       // Login-or-register: an unknown number gets an OTP too and the account is created once it is verified.
-      const result = await api.post('/auth/send-otp', { phone, channel: 'mobile' });
-      router.push({ pathname: '/verify-otp', params: { phone, challengeId: result.challenge_id, newAccount: result.account_exists === false ? '1' : '0' } });
+      // Indian numbers travel as 10 digits (existing accounts); other supported countries as +E.164.
+      const result = await api.post('/auth/send-otp', { phone: canonical, channel: 'mobile' });
+      router.push({ pathname: '/verify-otp', params: { phone: canonical, challengeId: result.challenge_id, newAccount: result.account_exists === false ? '1' : '0' } });
     } catch (e: any) {
       setError(e.message || 'Failed to send OTP');
     } finally { setLoading(false); }
@@ -68,22 +74,13 @@ export default function LoginScreen() {
 
         <View style={styles.form}>
           <Text style={styles.label}>{t.loginWith}</Text>
-          <View style={styles.inputRow}>
-            <Text style={styles.prefix}>+91</Text>
-            <TextInput
-              testID="phone-input"
-              style={styles.input}
-              placeholder={t.enterMobile}
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="phone-pad"
-              maxLength={10}
-              value={phone}
-              onChangeText={(val) => { setPhone(val.replace(/[^0-9]/g, '')); setError(''); }}
-            />
+          <View style={{ marginBottom: Spacing.md }}>
+            <PhoneField testID="phone-input" country={country} national={phone} placeholder={country === 'IN' ? t.enterMobile : undefined}
+              onChange={(c, v) => { setCountry(c); setPhone(v); setError(''); }} />
           </View>
           {error ? <Text testID="login-error" style={styles.error}>{error}</Text> : null}
 
-          <TouchableOpacity testID="send-otp-btn" style={[styles.btn, phone.length < 10 && styles.btnDisabled]} onPress={handleSendOTP} disabled={loading || phone.length < 10}>
+          <TouchableOpacity testID="send-otp-btn" style={[styles.btn, !canonical && styles.btnDisabled]} onPress={handleSendOTP} disabled={loading || !canonical}>
             {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>{t.getOtp}</Text>}
           </TouchableOpacity>
 

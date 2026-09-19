@@ -125,7 +125,7 @@ async def issue(user, family=None):
     expiry = c.now() + timedelta(minutes=15)
     if not family:
         await c.db.session_families.insert_one({"id": sid, "user_id": user["id"], "revoked": False,
-            "expires_at": (c.now() + timedelta(days=30)).isoformat()})
+            "authenticated_at": c.stamp(), "expires_at": (c.now() + timedelta(days=30)).isoformat()})
     claims = {"sub": user["id"], "user_id": user["id"], "role": c.role(user["role"]),
         "sv": user.get("session_version", 0), "sid": sid, "iss": "yash-canonical", "aud": "yash-clients",
         "iat": c.now(), "exp": expiry}

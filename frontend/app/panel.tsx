@@ -10,6 +10,10 @@ import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
 import DeletionRequests from '../src/components/staff/DeletionRequests';
+import StaffPhoneChange from '../src/components/panel/StaffPhoneChange';
+import PhoneField from '../src/components/PhoneField';
+import { canonicalPhone, displayPhone, DEFAULT_COUNTRY } from '../src/phone';
+import type { CountryCode } from 'libphonenumber-js';
 import { downloadSample } from '../src/pdfClient';
 
 type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'deletions' | 'rewards' | 'content' | 'executives' | 'sms' | 'review';
@@ -26,6 +30,8 @@ export default function PanelScreen() {
   const [role, setRole] = useState<Role>(null);
   const [user, setUser] = useState<any>(null);
   const [phone, setPhone] = useState('');
+  const [panelCountry, setPanelCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
+  const panelCanonical = canonicalPhone(phone, panelCountry);
   const [otp, setOtp] = useState('');
   const [authStep, setAuthStep] = useState<'phone' | 'otp' | 'done'>('phone');
   const [authLoading, setAuthLoading] = useState(false);
@@ -48,6 +54,8 @@ export default function PanelScreen() {
   // Executives management
   const [executives, setExecutives] = useState<any[]>([]);
   const [execForm, setExecForm] = useState({ name: '', phone: '', code: '', role: 'executive' });
+  const [execCountry, setExecCountry] = useState<CountryCode>(DEFAULT_COUNTRY);
+  const [phoneChangeStaff, setPhoneChangeStaff] = useState<any>(null);
   const [editingExecId, setEditingExecId] = useState('');
   const [showExecForm, setShowExecForm] = useState(false);
 
@@ -144,10 +152,10 @@ export default function PanelScreen() {
   }, [appUser, appAuthLoading]);
 
   const sendOtp = async () => {
-    if (phone.length < 10) { setAuthError('Enter valid 10-digit number'); return; }
+    if (!panelCanonical) { setAuthError('Enter a valid phone number for the selected country'); return; }
     setAuthLoading(true); setAuthError('');
     try {
-      await api.post('/auth/send-otp', { phone });
+      await api.post('/auth/send-otp', { phone: panelCanonical });
       setAuthStep('otp');
     } catch (e: any) { setAuthError(e.message); }
     finally { setAuthLoading(false); }
@@ -156,7 +164,7 @@ export default function PanelScreen() {
   const verifyOtp = async () => {
     setAuthLoading(true); setAuthError('');
     try {
-      const res = await api.post('/auth/verify-otp', { phone, otp });
+      const res = await api.post('/auth/verify-otp', { phone: panelCanonical, otp });
       const u = res.user;
       if (u.role !== 'admin' && u.role !== 'telecaller' && u.role !== 'billing_executive') {
         setAuthError('Access denied. This panel is for admin and executive users only.');
@@ -411,7 +419,9 @@ export default function PanelScreen() {
           <Text style={s.loginSub}>Admin & Executive Access Only</Text>
           {authStep === 'phone' ? (
             <>
-              <TextInput testID="panel-phone" style={s.loginInput} placeholder="Phone number" placeholderTextColor={Colors.textMuted} value={phone} onChangeText={t => { setPhone(t.replace(/[^0-9]/g, '')); setAuthError(''); }} keyboardType="phone-pad" maxLength={10} />
+              <View style={{ width: '100%', maxWidth: 320, marginBottom: Spacing.md }}>
+                <PhoneField testID="panel-phone" country={panelCountry} national={phone} onChange={(c, v) => { setPanelCountry(c); setPhone(v); setAuthError(''); }} placeholder="Phone number" />
+              </View>
               <TouchableOpacity testID="panel-send-otp" style={s.loginBtn} onPress={sendOtp} disabled={authLoading}>
                 {authLoading ? <ActivityIndicator color="#000" /> : <Text style={s.loginBtnText}>GET OTP</Text>}
               </TouchableOpacity>
@@ -1280,7 +1290,18 @@ export default function PanelScreen() {
                   <Text style={s.formLabel}>Name *</Text>
                   <TextInput style={s.formInput} value={execForm.name} onChangeText={v => setExecForm(p => ({...p, name: v}))} placeholder="e.g. Riya Sharma" placeholderTextColor={Colors.textMuted} data-testid="exec-name-input" />
                   <Text style={s.formLabel}>Mobile Number *</Text>
-                  <TextInput style={s.formInput} value={execForm.phone} onChangeText={v => setExecForm(p => ({...p, phone: v.replace(/\D/g, '').slice(0, 10)}))} placeholder="e.g. 9876543210" placeholderTextColor={Colors.textMuted} keyboardType="phone-pad" data-testid="exec-phone-input" />
+                  {editingExecId ? (
+                    <View style={[s.formInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                      <Text style={{ color: Colors.text }} testID="exec-current-phone">{displayPhone(execForm.phone)}</Text>
+                      {execForm.role !== 'admin' && (
+                        <TouchableOpacity testID="exec-change-phone-btn" onPress={() => setPhoneChangeStaff(executives.find(e => e.id === editingExecId))} style={{ minHeight: 44, justifyContent: 'center' }}>
+                          <Text style={{ color: Colors.gold, fontWeight: '700' }}>Change login number</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ) : (
+                    <PhoneField testID="exec-phone-input" country={execCountry} national={execForm.phone} onChange={(c, v) => { setExecCountry(c); setExecForm(p => ({ ...p, phone: v })); }} />
+                  )}
                   <Text style={s.formLabel}>Executive Code *</Text>
                   <TextInput style={s.formInput} value={execForm.code} onChangeText={v => setExecForm(p => ({...p, code: v.toUpperCase()}))} placeholder="e.g. EXEC02" placeholderTextColor={Colors.textMuted} data-testid="exec-code-input" />
                   <Text style={s.formLabel}>Role</Text>
@@ -1292,14 +1313,16 @@ export default function PanelScreen() {
                     ))}
                   </View>
                   <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} data-testid="exec-save-btn" onPress={async () => {
-                    if (!execForm.name.trim() || !execForm.phone.trim() || !execForm.code.trim()) { showAlert('Error', 'Name, Phone and Code are required'); return; }
+                    const canonical = editingExecId ? execForm.phone : canonicalPhone(execForm.phone, execCountry);
+                    if (!execForm.name.trim() || !canonical || !execForm.code.trim()) { showAlert('Error', 'Name, a valid phone number and Code are required'); return; }
                     try {
                       if (editingExecId) {
-                        await api.put(`/executives/${editingExecId}`, { name: execForm.name, phone: execForm.phone, customer_code: execForm.code, role: execForm.role });
+                        // The login number is changed only through the audited "Change login number" operation.
+                        await api.put(`/executives/${editingExecId}`, { name: execForm.name, customer_code: execForm.code, role: execForm.role });
                         showAlert('Success', 'Executive updated');
                       } else {
-                        await api.post('/executives', { name: execForm.name, phone: execForm.phone, code: execForm.code, role: execForm.role });
-                        showAlert('Success', `Executive "${execForm.name}" created. They can now login with phone ${execForm.phone} and OTP.`);
+                        await api.post('/executives', { name: execForm.name, phone: canonical, code: execForm.code, role: execForm.role });
+                        showAlert('Success', `Executive "${execForm.name}" created. They can now login with ${displayPhone(canonical)} and OTP.`);
                       }
                       setShowExecForm(false); setEditingExecId('');
                       setExecForm({ name: '', phone: '', code: '', role: 'executive' });
@@ -1321,7 +1344,7 @@ export default function PanelScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={s.reqType}>{ex.name}</Text>
-                      <Text style={s.reqTime}>{ex.phone} • {ex.customer_code} • {ex.role?.replace(/_/g, ' ')}</Text>
+                      <Text style={s.reqTime}>{displayPhone(ex.phone)} • {ex.customer_code} • {ex.role?.replace(/_/g, ' ')}</Text>
                     </View>
                     <View style={[s.badge, { backgroundColor: ex.status === 'active' ? Colors.success + '20' : Colors.error + '20' }]}>
                       <Text style={[s.badgeText, { color: ex.status === 'active' ? Colors.success : Colors.error }]}>{ex.status}</Text>
@@ -1345,6 +1368,10 @@ export default function PanelScreen() {
                   </View>
                 </View>
               ))}
+              {phoneChangeStaff && (
+                <StaffPhoneChange staff={phoneChangeStaff} onClose={() => setPhoneChangeStaff(null)}
+                  onChanged={() => { setShowExecForm(false); setEditingExecId(''); loadTab('executives'); }} />
+              )}
             </>
           )}
 

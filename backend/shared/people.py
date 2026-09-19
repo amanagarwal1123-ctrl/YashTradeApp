@@ -5,6 +5,7 @@ import secrets
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from . import core as c
 from . import provider_erasure as pe
@@ -101,7 +102,8 @@ async def staff_update(ref: str, updates: dict, user=Depends(c.admin)):
         if c.role(old["role"]) not in c.STAFF:
             c.fail(409, "EXPLICIT_CONVERSION_REQUIRED", "Use the explicit customer conversion operation")
         if "phone" in updates and c.phone(updates["phone"]) != c.phone(old["phone"]):
-            c.fail(409, "PHONE_VERIFICATION_REQUIRED", "Phone changes require the authenticated verification flow")
+            c.fail(409, "PHONE_CHANGE_OPERATION_REQUIRED", "Login numbers change through the audited administrator operation "
+                   "(POST /integrations/staff/{ref}/phone/preview then /phone) or the staff member's own verified self-service flow")
         new_role = c.role(updates.get("role", old["role"]))
         new_status = status_value(updates.get("account_status", updates.get("status", c.account_status(old))))
         await last_admin_guard(old, new_role, new_status)
@@ -153,6 +155,133 @@ async def exchange(ref: str, user=Depends(c.staff)):
     if other["id"] != user["id"]:
         c.fail(403, "SAME_SUBJECT_REQUIRED", "A service key cannot impersonate another staff member")
     return await issue(user, user["_session_id"])
+
+
+# ---- Administrator-controlled login-number change for ORDINARY staff (telecaller / billing) -------------------------
+# The staff member keeps the same canonical ID, role, code, assignments and history: only the login number changes.
+# Nothing here merges people. A number that belongs to a customer is offered as an explicit PROMOTION of that customer
+# (their own account, via the existing conversion operation); a number owned by another staff account is refused.
+
+class StaffPhonePreview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_phone: str
+
+
+class StaffPhoneChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_phone: str
+    reason: str = Field(min_length=10, max_length=500)
+    confirm_user_id: str
+    expected_phone: str
+    idempotency_key: str = Field(min_length=8, max_length=120)
+
+
+def phone_change_target(old):
+    """Only ordinary staff accounts are renumbered by an administrator."""
+    from .owner_admin import is_owner
+    role = c.role(old["role"])
+    if role == "customer":
+        c.fail(409, "EXPLICIT_CONVERSION_REQUIRED", "This is a customer account; use the explicit promotion operation")
+    if is_owner(old):
+        c.fail(409, "OWNER_ADMIN_PROTECTED", "The owner administrator's login number is never changed by another administrator")
+    if role == "admin":
+        c.fail(409, "ADMIN_SELF_SERVICE_REQUIRED", "Administrators change their own number through the verified self-service flow")
+    return role
+
+
+def person(user, number=None):
+    return {"id": user["id"], "name": user.get("name") or "", "role": c.role(user["role"]), "account_status": c.account_status(user),
+            "masked_phone": c.phone_masked(number or user.get("phone") or ""), "code": user.get("code", user.get("customer_code", ""))}
+
+
+async def classify_number(number, target):
+    """Who owns the requested number relative to the staff member being edited."""
+    found = await c.by_phone(number)
+    if not found:
+        return {"status": "available"}
+    if found["id"] == target["id"]:
+        return {"status": "unchanged"}
+    if c.role(found["role"]) == "customer":
+        return {"status": "customer", "customer": person(found, number)}
+    return {"status": "staff", "owner": person(found, number)}
+
+
+@router.post("/integrations/staff/{ref}/phone/preview")
+async def staff_phone_preview(ref: str, req: StaffPhonePreview, user=Depends(c.admin)):
+    old = await identity(ref)
+    phone_change_target(old)
+    number = c.phone(req.new_phone)
+    result = await classify_number(number, old)
+    result.update(staff=person(old), new_phone=number, new_phone_display=c.phone_display(number))
+    if result["status"] == "available":
+        result["outcome"] = (f"{old.get('name') or 'This staff member'} keeps the same account, role, code, assignments and history. "
+            "Only the login number changes. All their current sessions (app and website) are signed out, the old number can no "
+            "longer sign in to this account, and the new number must be verified by OTP at the next sign-in.")
+    elif result["status"] == "customer":
+        result["outcome"] = (f"This number belongs to existing customer {result['customer']['name'] or '(no name)'}. Promoting keeps the "
+            f"customer's own account and history and gives it the chosen staff role. {old.get('name') or 'The staff member being edited'} "
+            "is NOT changed and keeps their current number. If these two records are the same person, stop here: identity "
+            "reconciliation needs an explicit owner decision - nothing is merged automatically.")
+    elif result["status"] == "staff":
+        result["outcome"] = (f"This number already belongs to staff member {result['owner']['name'] or '(no name)'} "
+            f"({result['owner']['role'].replace('_', ' ')}). Disable or renumber that account first; two staff accounts cannot share a login number.")
+    else:
+        result["outcome"] = "This is already the staff member's current login number."
+    return result
+
+
+@router.post("/integrations/staff/{ref}/phone")
+async def staff_phone_change(ref: str, req: StaffPhoneChange, user=Depends(c.recent_admin)):
+    number = c.phone(req.new_phone)
+    key = c.digest(f"{user['id']}:{req.idempotency_key}")
+    payload_hash = c.digest(req.model_dump_json())
+    prior = await c.db.identity_operations.find_one({"key": key}, {"_id": 0})
+    if prior:
+        if prior["payload_hash"] != payload_hash:
+            c.fail(409, "IDEMPOTENCY_MISMATCH", "This idempotency key was already used for a different request")
+        return {**prior["result"], "replayed": True}
+    async with c.lock("staff-directory", wait_seconds=5):
+        async with c.lock("identity:" + number, wait_seconds=5):
+            old = await identity(ref)
+            role = phone_change_target(old)
+            if req.confirm_user_id != old["id"]:
+                c.fail(409, "CONFIRMATION_REQUIRED", "Confirm the staff member's canonical ID")
+            current = c.phone(old["phone"])
+            if c.phone(req.expected_phone) != current:
+                c.fail(409, "VERSION_CONFLICT", "The staff member's number changed since you opened the form; review and retry")
+            if number == current:
+                c.fail(409, "PHONE_UNCHANGED", "This is already the current login number")
+            owner = await classify_number(number, old)
+            if owner["status"] == "customer":
+                c.fail(409, "CUSTOMER_PROMOTION_REQUIRED", "This number belongs to an existing customer. Promote that customer "
+                       "to staff explicitly (their own account) or choose another number; the staff member being edited is unchanged")
+            if owner["status"] == "staff":
+                c.fail(409, "PHONE_OWNED_BY_STAFF", f"This number already belongs to staff member {owner['owner']['name'] or '(no name)'}; "
+                       "disable or renumber that account first")
+            ts = c.stamp()
+            event = {"type": "staff_phone_changed", "actor_id": user["id"], "old_phone": old["phone"], "new_phone": number,
+                     "reason": req.reason, "at": ts}
+            try:
+                result = await c.db.users.update_one(
+                    {"id": old["id"], "phone": old["phone"], "session_version": old.get("session_version", 0)},
+                    {"$set": {"phone": number, "phone_normalized": number, "phone_verified": False, "updated_at": ts},
+                     "$unset": {"verified_at": ""}, "$inc": {"session_version": 1, "profile_version": 1},
+                     "$push": {"identity_events": event}})
+            except DuplicateKeyError:
+                c.fail(409, "PHONE_CONFLICT", "This number was claimed by another account a moment ago; refresh and retry")
+            if not result.modified_count:
+                c.fail(409, "VERSION_CONFLICT", "The staff record changed concurrently; review and retry")
+            # Every existing session of the affected account ends: app, website portal and refresh tokens.
+            await c.db.session_families.update_many({"user_id": old["id"]}, {"$set": {"revoked": True}})
+            await c.db.refresh_tokens.update_many({"user_id": old["id"], "used": False}, {"$set": {"used": True}})
+            await c.db.identity_audit.insert_one({**event, "target_id": old["id"], "target_role": role, "actor_role": user["role"],
+                                                  "operation_key": key, "surface": "admin_staff_phone_change"})
+            fresh = await identity(old["id"])
+            body = {"user": c.public_user(fresh), "old_phone_masked": c.phone_masked(old["phone"]), "new_phone": number,
+                    "new_phone_display": c.phone_display(number), "verification_required": True, "sessions_revoked": True}
+            await c.db.identity_operations.insert_one({"key": key, "payload_hash": payload_hash, "result": body, "actor_id": user["id"],
+                                                       "at": ts, "expires_at": c.now() + c.timedelta(days=7)})
+            return body
 
 
 @router.get("/executives")

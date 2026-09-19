@@ -285,17 +285,63 @@ def role(value):
     return value
 
 
+SUPPORTED_REGIONS = {"IN": "+91", "US": "+1", "CA": "+1", "AU": "+61"}
+
+
 def phone(value, national_only=False):
-    text = str(value).strip()
-    if not national_only:
-        text = re.sub(r"[ ()-]", "", text)
-        if text.startswith("+91"):
-            text = text[3:]
-        elif len(text) == 12 and text.startswith("91"):
-            text = text[2:]
-    if not re.fullmatch(r"[6-9][0-9]{9}", text):
-        fail(422, "INVALID_PHONE", "Enter exactly 10 Indian mobile digits (6–9 first)")
-    return text
+    """Canonical login number. India (the default country) keeps the historical 10-digit national form so every
+    existing Indian account and index stays valid; USA / Canada (+1) and Australia (+61) are stored in E.164
+    (`+14155552671`, `+61412345678`) - never truncated to their last ten digits. Any other country is refused.
+    `national_only` (website enrollment) keeps accepting bare 10-digit Indian numbers; E.164 is always unambiguous."""
+    import phonenumbers
+    text = re.sub(r"[ ()\-\u00a0]", "", str(value).strip())
+    if text.startswith("00"):
+        text = "+" + text[2:]
+    if not text.startswith("+"):
+        digits = text
+        if not national_only and len(digits) == 12 and digits.startswith("91"):
+            digits = digits[2:]
+        if not re.fullmatch(r"[6-9][0-9]{9}", digits):
+            fail(422, "INVALID_PHONE", "Enter exactly 10 Indian mobile digits (6–9 first), or an international number with its country code (+1 USA/Canada, +61 Australia)")
+        return digits
+    try:
+        parsed = phonenumbers.parse(text, None)
+    except phonenumbers.NumberParseException:
+        fail(422, "INVALID_PHONE", "Enter a valid phone number with its country code")
+    if parsed.country_code not in {1, 61, 91}:
+        fail(422, "UNSUPPORTED_COUNTRY", "Supported countries: India (+91), USA and Canada (+1), Australia (+61)")
+    if not phonenumbers.is_valid_number(parsed):
+        fail(422, "INVALID_PHONE", "This is not a valid phone number for its country")
+    region = phonenumbers.region_code_for_number(parsed)
+    if region not in SUPPORTED_REGIONS:
+        fail(422, "UNSUPPORTED_COUNTRY", "Supported countries: India (+91), USA and Canada (+1), Australia (+61)")
+    if region == "IN":
+        national = str(parsed.national_number)
+        if not re.fullmatch(r"[6-9][0-9]{9}", national):
+            fail(422, "INVALID_PHONE", "Enter exactly 10 Indian mobile digits (6–9 first)")
+        return national
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+
+
+def phone_display(number):
+    """Human form of a canonical number (+91 98765 43210 / +1 415 555 2671)."""
+    import phonenumbers
+    try:
+        parsed = phonenumbers.parse(number if str(number).startswith("+") else "+91" + str(number), None)
+        return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+    except phonenumbers.NumberParseException:
+        return str(number)
+
+
+def phone_masked(number):
+    text = str(number)
+    return ("*" * max(0, len(text) - 4)) + text[-4:] if len(text) > 4 else "****"
+
+
+def sms_destination(number):
+    """MSG91 `mobiles` value: country code + national digits, no plus. Indian canonical numbers carry no code."""
+    text = str(number)
+    return text[1:] if text.startswith("+") else "91" + text
 
 
 def account_status(user):
@@ -349,9 +395,13 @@ def require_complete_profile(user):
 
 async def by_phone(number):
     # Read old formats without mutating existing records or guessing duplicate identity.
-    pattern = r"^(?:\+?91[ ()-]*)?" + r"[ ()-]*".join(number) + r"$"
-    docs = await db.users.find({"$or": [{"phone_normalized": number},
-        {"phone": {"$regex": pattern}}]}, {"_id": 0}).limit(3).to_list(3)
+    if str(number).startswith("+"):
+        # International canonical numbers are stored verbatim in E.164; a digits-only legacy copy is matched too.
+        query = {"$or": [{"phone_normalized": number}, {"phone": number}, {"phone": number[1:]}]}
+    else:
+        pattern = r"^(?:\+?91[ ()-]*)?" + r"[ ()-]*".join(number) + r"$"
+        query = {"$or": [{"phone_normalized": number}, {"phone": {"$regex": pattern}}]}
+    docs = await db.users.find(query, {"_id": 0}).limit(3).to_list(3)
     if len(docs) > 1:
         fail(409, "IDENTITY_CONFLICT", "Multiple records require approved identity reconciliation")
     return docs[0] if docs else None
@@ -446,6 +496,18 @@ admin = allow("admin")
 staff = allow(*STAFF)
 billing = allow("admin", "billing_executive")
 
+RECENT_AUTH_MINUTES = 30
+
+
+async def recent_admin(user=Depends(admin)):
+    """Step-up for sensitive administrator actions: the session family must come from an OTP sign-in within the last
+    RECENT_AUTH_MINUTES (families issued by older builds carry no sign-in time and therefore never qualify)."""
+    family = await db.session_families.find_one({"id": user["_session_id"]}, {"_id": 0, "authenticated_at": 1})
+    at = (family or {}).get("authenticated_at")
+    if not at or at < (now() - timedelta(minutes=RECENT_AUTH_MINUTES)).isoformat():
+        fail(403, "RECENT_AUTH_REQUIRED", f"Sign in again with OTP to confirm this change (verification must be within the last {RECENT_AUTH_MINUTES} minutes)")
+    return user
+
 
 async def integration_key(x_integration_key: str | None = Header(None)):
     if not hmac.compare_digest(x_integration_key or "", secret("ENROLLMENT_INTEGRATION_KEY")):
@@ -468,6 +530,9 @@ async def indexes():
     # Never normalize/merge existing identities during application startup.
     await db.users.create_index("phone_normalized", unique=True, sparse=True)
     await db.otp_challenges.create_index("expires_at", expireAfterSeconds=0)
+    await db.identity_operations.create_index("key", unique=True)
+    await db.identity_operations.create_index("expires_at", expireAfterSeconds=0)
+    await db.identity_audit.create_index([("target_id", 1), ("at", -1)])
     await db.otp_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.auth_grants.create_index("expires_at", expireAfterSeconds=0)
     await db.refresh_tokens.create_index("hash", unique=True)

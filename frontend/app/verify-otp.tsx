@@ -4,6 +4,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
+import { displayPhone } from '../src/phone';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 
@@ -66,7 +67,7 @@ export default function VerifyOTPScreen() {
         <View style={styles.header}>
           <Ionicons name="shield-checkmark" size={48} color={Colors.gold} />
           <Text style={styles.title}>Verify OTP</Text>
-          <Text style={styles.subtitle}>Enter the code sent to +91 {phone}</Text>
+          <Text style={styles.subtitle}>Enter the code sent to {displayPhone(phone || '')}</Text>
           {newAccount === '1' && <Text style={styles.newAccount} testID="verify-new-account">New number — your account will be created once the code is verified.</Text>}
         </View>
 
