@@ -6,7 +6,9 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { Colors } from '../../src/theme';
 import { useLang } from '../../src/context/LanguageContext';
 import { useAuth } from '../../src/context/AuthContext';
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
+import { useNavigation } from '@react-navigation/native';
+import { homeRouteFor, useRootBackHandler } from '../../src/navigation';
 
 const TAB_LABELS: Record<string, Record<string, string>> = {
   home: { en: 'Home', hi: 'होम', pa: 'ਹੋਮ' },
@@ -36,12 +38,18 @@ export default function TabLayout() {
   const tabBarHeight = TAB_CONTENT_HEIGHT + bottomInset;
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) router.replace('/login');
-      else if (user.role === 'telecaller') router.replace('/telecaller');
-      else if (user.role === 'admin' || user.role === 'billing_executive') router.replace('/panel');
-    }
+    if (!loading && (!user || user.role !== 'customer')) router.replace(homeRouteFor(user?.role) as any);
   }, [loading, user]);
+
+  // Android system back at the customer root: a non-Home tab returns to Home; on Home the app stays (no exit, no login).
+  const navigation = useNavigation<any>();
+  const onRootBack = useCallback(() => {
+    const state = navigation.getState?.();
+    const tabState = state?.routes?.[state.index]?.state;
+    if (tabState && tabState.index > 0) { router.navigate('/(tabs)' as any); return true; }
+    return true;
+  }, [navigation, router]);
+  useRootBackHandler(onRootBack);
 
   // Match Android navigation bar buttons to the dark theme (edge-to-edge safe)
   useEffect(() => {

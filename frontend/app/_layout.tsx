@@ -4,10 +4,15 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { LanguageProvider } from '../src/context/LanguageContext';
 import { IconFontGate } from '../src/fonts/IconFontGate';
 import { Colors, FontSize } from '../src/theme';
+import { authorizedDestination } from '../src/navigation';
+import { configureForeground, notificationsModule } from '../src/push';
 
 // Hold the native splash until the icon font is registered (or has definitively failed). A hard
 // deadline guarantees the splash can never stay up forever, even if font promises hang.
@@ -25,6 +30,26 @@ function ReviewEnvironmentBanner() {
   );
 }
 
+/** Routes notification taps (foreground, background and cold start) to a role-authorised in-app destination. */
+function NotificationTapRouter() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  useEffect(() => { configureForeground(); }, []);
+  useEffect(() => {
+    const Notifications = notificationsModule();
+    if (!Notifications || loading) return;
+    const open = (response: any) => {
+      const data = response?.notification?.request?.content?.data || {};
+      if (!user) return; // signed out: the login screen is shown; nothing from the alert is trusted
+      router.push(authorizedDestination(data.destination, user.role) as any);
+    };
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    Notifications.getLastNotificationResponseAsync().then((last: any) => { if (last) open(last); }).catch(() => {});
+    return () => sub.remove();
+  }, [user?.id, user?.role, loading]);
+  return null;
+}
+
 export default function RootLayout() {
   useEffect(() => {
     const deadline = setTimeout(() => { SplashScreen.hideAsync().catch(() => {}); }, SPLASH_DEADLINE_MS);
@@ -33,10 +58,13 @@ export default function RootLayout() {
   const onFontsSettled = useCallback(() => { SplashScreen.hideAsync().catch(() => {}); }, []);
 
   return (
+    <GestureHandlerRootView style={styles.root}>
+    <KeyboardProvider>
     <AuthProvider>
       <LanguageProvider>
         <StatusBar style="light" />
         <IconFontGate onSettled={onFontsSettled}>
+          <NotificationTapRouter />
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#050505' }, animation: 'slide_from_right' }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="login" />
@@ -64,15 +92,21 @@ export default function RootLayout() {
             <Stack.Screen name="brands" options={{ presentation: 'modal' }} />
             <Stack.Screen name="showroom" options={{ presentation: 'modal' }} />
             <Stack.Screen name="exhibition" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="notifications" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="admin-notifications" />
+            <Stack.Screen name="staff-reports" />
           </Stack>
           <ReviewEnvironmentBanner />
         </IconFontGate>
       </LanguageProvider>
     </AuthProvider>
+    </KeyboardProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   reviewBanner: { backgroundColor: Colors.gold, paddingVertical: 4, paddingHorizontal: 8, alignItems: 'center' },
   reviewBannerText: { color: '#000', fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.5 },
 });

@@ -20,8 +20,8 @@ async def products(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=1
     query = {"is_deleted": {"$ne": True}}
     if include_hidden:
         user = await c.current_user(authorization)
-        if user["role"] != "admin":
-            c.fail(403, "PERMISSION_DENIED", "Admin access required for hidden products")
+        if user["role"] not in {"admin", "upload_executive"}:
+            c.fail(403, "PERMISSION_DENIED", "Content access required for hidden products")
     else:
         query["visibility"] = {"$ne": "hidden"}
     for key, value in {"category": category, "metal_type": metal_type, "post_type": post_type, "batch_id": batch_id, "product_code": product_code}.items():
@@ -53,7 +53,7 @@ async def products(page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=1
 
 
 @router.post("/products")
-async def create(fields: dict, user=Depends(c.admin)):
+async def create(fields: dict, user=Depends(c.content)):
     if set(fields) - PRODUCT_FIELDS:
         c.fail(422, "READ_ONLY_FIELD", "Unsupported product field")
     values, errors = validate_product(fields)

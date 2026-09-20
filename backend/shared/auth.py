@@ -1,5 +1,5 @@
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 import jwt
@@ -46,7 +46,24 @@ async def rate_limit(key, limit, window):
         {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": c.now() + timedelta(seconds=window * 2)}},
         upsert=True, return_document=ReturnDocument.AFTER)
     if doc["count"] > limit:
-        c.fail(429, "OTP_RATE_LIMIT", "Too many attempts; please wait before trying again")
+        # The ACTUAL retry moment (end of this window) - never a promise that the 15-second cooldown alone applies.
+        retry_after = max(1, (bucket + 1) * window - int(c.now().timestamp()))
+        raise c.HTTPException(429, {"code": "OTP_RATE_LIMIT", "detail": f"Too many attempts; try again in {retry_after} seconds",
+                                    "retry_after": retry_after, "resend_at": (c.now() + timedelta(seconds=retry_after)).isoformat(),
+                                    "server_time": c.stamp()}, headers={"Retry-After": str(retry_after)})
+
+
+# Normal resend cooldown between two OTP dispatches to the same number (every purpose, every client). OTP validity
+# (10 minutes), the 5-attempt limit and the per-number / per-IP budgets above are separate and unchanged: a shorter
+# cooldown never authorises unlimited SMS.
+RESEND_COOLDOWN_SECONDS = 15
+OTP_TTL_SECONDS = 600
+
+
+def resend_timing(reference):
+    """Server-derived resend timing: clients count down from `resend_at` relative to `server_time` (clock skew safe)."""
+    at = reference + timedelta(seconds=RESEND_COOLDOWN_SECONDS)
+    return {"resend_after": RESEND_COOLDOWN_SECONDS, "resend_at": at.isoformat(), "server_time": c.stamp()}
 
 
 async def start_challenge(number, purpose, subject, request, disclose_to=None):
@@ -60,21 +77,26 @@ async def start_challenge(number, purpose, subject, request, disclose_to=None):
     # Ignore client-supplied forwarded headers. Proxies need a configured trusted ingress.
     await rate_limit("send-ip:" + ip, 30, 600)
     await rate_limit("send-phone:" + number, 5, 600)
-    async with c.lock("otp-send:" + c.keyed(number)):
+    # The lock makes issuance atomic: parallel taps serialise here and the second one sees the first challenge.
+    async with c.lock("otp-send:" + c.keyed(number), wait_seconds=3):
         recent = await c.db.otp_challenges.find_one({"phone": number,
-            "created_at": {"$gt": c.now() - timedelta(seconds=60)}})
+            "created_at": {"$gt": c.now() - timedelta(seconds=RESEND_COOLDOWN_SECONDS)}}, sort=[("created_at", -1)])
         if recent:
-            c.fail(429, "OTP_COOLDOWN", "Wait 60 seconds before requesting another OTP")
+            timing = resend_timing(recent["created_at"].replace(tzinfo=c.timezone.utc))
+            wait = max(1, int((datetime.fromisoformat(timing["resend_at"]) - c.now()).total_seconds() + 0.999))
+            raise c.HTTPException(429, {"code": "OTP_COOLDOWN", "detail": f"Wait {wait} seconds before requesting another OTP",
+                                        "retry_after": wait, **timing}, headers={"Retry-After": str(wait)})
         cid, otp = secrets.token_urlsafe(24), f"{secrets.randbelow(10000):04d}"
         # No usable challenge is persisted until the provider accepts dispatch.
         await c.send_sms(number, otp, purpose)
         await c.db.otp_challenges.update_many({"phone": number, "purpose": purpose, "subject": subject},
                                               {"$set": {"used": True}})
+        issued = c.now()
         await c.db.otp_challenges.insert_one({"id": cid, "phone": number, "purpose": purpose,
             "subject": subject, "hash": c.keyed(f"{cid}:{purpose}:{otp}"), "attempts": 0,
-            "used": False, "created_at": c.now(), "expires_at": c.now() + timedelta(minutes=10)})
+            "used": False, "created_at": issued, "expires_at": issued + timedelta(seconds=OTP_TTL_SECONDS)})
     body = {"message": "OTP accepted by SMS provider", "challenge_id": cid,
-            "otp_length": 4, "expires_in": 600, "resend_after": 60}
+            "otp_length": 4, "expires_in": OTP_TTL_SECONDS, **resend_timing(issued)}
     if c.in_review() and disclose_to and disclose_to == subject:
         # Synthetic reviewer accounts have no reachable phone. The code is shown once to the same authenticated review
         # session it belongs to (never logged: the review sms_log row carries no digits) so reviewers can finish OTP-gated
@@ -122,10 +144,15 @@ async def issue(user, family=None):
     if bool(user.get("review_environment")) != c.in_review():
         c.fail(409, "SESSION_SCOPE_MISMATCH", "Account does not belong to this data environment")
     sid = family or secrets.token_urlsafe(24)
-    expiry = c.now() + timedelta(minutes=15)
+    expiry = c.now() + timedelta(minutes=ACCESS_MINUTES)
+    family_expiry = (c.now() + timedelta(days=SESSION_IDLE_DAYS)).isoformat()
     if not family:
         await c.db.session_families.insert_one({"id": sid, "user_id": user["id"], "revoked": False,
-            "authenticated_at": c.stamp(), "expires_at": (c.now() + timedelta(days=30)).isoformat()})
+            "authenticated_at": c.stamp(), "last_refreshed_at": c.stamp(), "expires_at": family_expiry})
+    else:
+        # Sliding idle expiry: every successful rotation keeps an ACTIVE device signed in. Only SESSION_IDLE_DAYS without
+        # any refresh, an explicit logout or a security revocation end the family (no fixed 30-day logout during use).
+        await c.db.session_families.update_one({"id": sid}, {"$set": {"expires_at": family_expiry, "last_refreshed_at": c.stamp()}})
     claims = {"sub": user["id"], "user_id": user["id"], "role": c.role(user["role"]),
         "sv": user.get("session_version", 0), "sid": sid, "iss": "yash-canonical", "aud": "yash-clients",
         "iat": c.now(), "exp": expiry}
@@ -136,13 +163,21 @@ async def issue(user, family=None):
     # database; the prefix grants nothing by itself because the stored digest must still match.
     refresh = (REVIEW_REFRESH_PREFIX if c.in_review() else "") + secrets.token_urlsafe(48)
     await c.db.refresh_tokens.insert_one({"hash": c.digest(refresh), "user_id": user["id"], "sid": sid,
-        "sv": user.get("session_version", 0), "used": False,
-        "expires_at": (c.now() + timedelta(days=30)).isoformat()})
+        "sv": user.get("session_version", 0), "used": False, "issued_at": c.stamp(),
+        "expires_at": family_expiry})
     return {"token": token, "expires_at": expiry.isoformat(), "refresh_token": refresh,
+            "session": {"idle_expiry_days": SESSION_IDLE_DAYS, "access_minutes": ACCESS_MINUTES, "family_expires_at": family_expiry},
             "user": c.public_user(user)}
 
 
 REVIEW_REFRESH_PREFIX = "review."
+ACCESS_MINUTES = 15
+# Idle expiry of a device session (sliding, extended on every refresh). Documented security expiry: a device that has
+# not refreshed for this long must sign in again; there is no fixed absolute lifetime for an active device.
+SESSION_IDLE_DAYS = 30
+# A refresh token presented again within this window after its rotation is a client RACE (duplicate concurrent call
+# from the same device), not theft: answered 409 without revoking the family. Later reuse is treated as theft.
+REFRESH_RACE_SECONDS = 30
 
 
 async def validate_channel(req, enrollment_key, staff_key):
@@ -231,9 +266,13 @@ async def refresh(req: Refresh):
 async def rotate_refresh(refresh_token):
     old = await c.db.refresh_tokens.find_one_and_update(
         {"hash": c.digest(refresh_token), "used": False, "expires_at": {"$gt": c.stamp()}},
-        {"$set": {"used": True}}, return_document=ReturnDocument.AFTER)
+        {"$set": {"used": True, "rotated_at": c.stamp()}}, return_document=ReturnDocument.AFTER)
     if not old:
         hit = await c.db.refresh_tokens.find_one({"hash": c.digest(refresh_token)}, {"_id": 0})
+        if hit and hit.get("used") and hit.get("rotated_at") and hit["rotated_at"] > (c.now() - timedelta(seconds=REFRESH_RACE_SECONDS)).isoformat():
+            # Concurrent duplicate from the same device: the first call already rotated. Nothing is revoked; the client keeps
+            # the credentials it received from the winning call and retries the original request.
+            c.fail(409, "REFRESH_IN_PROGRESS", "Session was refreshed by a concurrent request; retry with the new token")
         if hit:
             await c.db.session_families.update_one({"id": hit["sid"]}, {"$set": {"revoked": True}})
         c.fail(401, "REFRESH_INVALID", "Refresh token expired or reused; sign in again")
@@ -245,9 +284,18 @@ async def rotate_refresh(refresh_token):
     return await issue(user, old["sid"])
 
 
+class Logout(BaseModel):
+    push_token: str | None = Field(None, max_length=200)
+
+
 @router.post("/auth/logout")
-async def logout(user=Depends(c.current_user)):
+async def logout(req: Logout | None = None, user=Depends(c.current_user)):
     await c.db.session_families.update_one({"id": user["_session_id"]}, {"$set": {"revoked": True}})
+    await c.db.refresh_tokens.update_many({"sid": user["_session_id"], "used": False}, {"$set": {"used": True}})
+    # This device stops receiving the signed-out account's alerts (the next user of the device must never get them).
+    if req and req.push_token:
+        await c.db.push_devices.update_many({"token": req.push_token, "user_id": user["id"]},
+            {"$set": {"enabled": False, "unlinked_at": c.stamp(), "unlink_reason": "logout"}})
     return {"logged_out": True}
 
 

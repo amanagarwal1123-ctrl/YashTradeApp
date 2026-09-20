@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, Linking } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, ActivityIndicator, Linking } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../src/context/AuthContext';
+import { homeRouteFor } from '../src/navigation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
@@ -23,6 +26,9 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const router = useRouter();
   const { language, setLang } = useLang();
+  const { user, loading: authLoading } = useAuth();
+  // A signed-in user never sees the login screen (reached through back navigation or a stale link): bounce to home.
+  useEffect(() => { if (!authLoading && user) router.replace(homeRouteFor(user.role) as any); }, [authLoading, user]);
 
   const T: Record<string, any> = {
     en: { brand: 'YASH TRADE', tagline: 'Premium Silver \u2022 Gold \u2022 Diamond', loginWith: 'LOGIN WITH MOBILE', enterMobile: 'Enter mobile number', getOtp: 'GET OTP', hint: 'You will receive a one-time password by SMS', footer: 'Private app for verified jewellers only', selectLang: 'Select Language', invalidPhone: 'Enter a valid 10-digit phone number', newHint: 'New here? Your account is created as soon as the OTP is verified. Already registered on the website? Use the same number.', consent: 'By continuing you agree to our', terms: 'Terms', and: 'and', privacy: 'Privacy Policy', help: 'Help' },
@@ -38,7 +44,8 @@ export default function LoginScreen() {
       // Login-or-register: an unknown number gets an OTP too and the account is created once it is verified.
       // Indian numbers travel as 10 digits (existing accounts); other supported countries as +E.164.
       const result = await api.post('/auth/send-otp', { phone: canonical, channel: 'mobile' });
-      router.push({ pathname: '/verify-otp', params: { phone: canonical, challengeId: result.challenge_id, newAccount: result.account_exists === false ? '1' : '0' } });
+      router.push({ pathname: '/verify-otp', params: { phone: canonical, challengeId: result.challenge_id, newAccount: result.account_exists === false ? '1' : '0',
+        resendAt: result.resend_at || '', serverTime: result.server_time || '' } });
     } catch (e: any) {
       setError(e.message || 'Failed to send OTP');
     } finally { setLoading(false); }
@@ -46,7 +53,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.inner}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={16} style={styles.inner}>
         {/* Language Selector at Top */}
         <View style={styles.langSection}>
           <Text style={styles.langLabel}>{t.selectLang}</Text>

@@ -3,6 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/context/AuthContext';
 import { Colors } from '../src/theme';
+import { homeRouteFor } from '../src/navigation';
 
 export default function Index() {
   const { user, loading } = useAuth();
@@ -10,14 +11,7 @@ export default function Index() {
 
   useEffect(() => {
     if (!loading) {
-      if (user) {
-        if (user.role === 'customer') router.replace('/(tabs)');
-        else if (user.role === 'telecaller') router.replace('/telecaller');
-        else if (['admin', 'billing_executive'].includes(user.role)) router.replace('/panel');
-        else router.replace('/login');
-      } else {
-        router.replace('/login');
-      }
+      router.replace(homeRouteFor(user?.role) as any);
     }
   }, [loading, user]);
 

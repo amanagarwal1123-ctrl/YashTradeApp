@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["PDF visual authoring"])
 
 
 @router.get("/pdf-upload/{jid}/pages/{page}/image")
-async def source_page(jid: str, page: int, metadata: bool = False, user=Depends(c.admin)):
+async def source_page(jid: str, page: int, metadata: bool = False, user=Depends(c.content)):
     async with c.lock("import-preview:" + jid + ":" + str(page), seconds=60, wait_seconds=10):
         job = await job_for(jid, user)
         if job["phase"] not in {"review", "committed"}:
@@ -37,7 +37,7 @@ class Export(BaseModel):
 
 
 @router.post("/pdf-template/export")
-async def export(req: Export, user=Depends(c.admin)):
+async def export(req: Export, user=Depends(c.content)):
     # Shared lock bounds concurrent memory-heavy form exports across backend processes.
     async with c.lock("pdf-authoring", seconds=180):
         with tempfile.TemporaryDirectory(prefix="yash-author-") as directory:

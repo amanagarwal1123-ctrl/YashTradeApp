@@ -20,9 +20,14 @@ dispatch_sms = None
 put_object = None
 get_object = None
 load_dotenv()
-BUILD = "shared-v1-store-submission-2026-09-13"
-ROLES = {"customer", "admin", "telecaller", "billing_executive"}
+BUILD = "shared-v2-operations-2026-09-20"
+# `upload_executive` (displayed "Upload Executive") owns the CONTENT domain only: PDF/photo imports, products, banners
+# and the other Contents pages. It is staff for sign-in/portal purposes but receives no people, query, billing,
+# marketing or reporting access - every guard below is explicit, nothing is granted through the generic STAFF set.
+ROLES = {"customer", "admin", "telecaller", "billing_executive", "upload_executive"}
 STAFF = ROLES - {"customer"}
+ROLE_LABELS = {"customer": "Customer", "admin": "Administrator", "telecaller": "Telecaller",
+               "billing_executive": "Billing Executive", "upload_executive": "Upload Executive"}
 
 # Data scope of the CURRENT request/task. None = genuine production data; "review" = the
 # isolated store-review copy. It is derived ONLY from a signature-verified session or a
@@ -495,6 +500,12 @@ def allow(*roles):
 admin = allow("admin")
 staff = allow(*STAFF)
 billing = allow("admin", "billing_executive")
+# Content domain (catalogue imports, products, banners, Contents pages): administrators and Upload Executives.
+content = allow("admin", "upload_executive")
+# Central query workspace readers: administrators, telecallers and billing (least privilege: billing reads only).
+operations = allow("admin", "telecaller", "billing_executive")
+# Query WORK actions (claim, notes, heads, completion): telecallers and administrators only.
+query_workers = allow("admin", "telecaller")
 
 RECENT_AUTH_MINUTES = 30
 
@@ -524,6 +535,9 @@ async def service_key(x_staff_service_key: str | None = Header(None)):
 async def revoke(uid):
     await db.users.update_one({"id": uid}, {"$inc": {"session_version": 1}})
     await db.session_families.update_many({"user_id": uid}, {"$set": {"revoked": True}})
+    await db.refresh_tokens.update_many({"user_id": uid, "used": False}, {"$set": {"used": True}})
+    # A revoked account must not keep receiving that account's alerts on any device.
+    await db.push_devices.update_many({"user_id": uid}, {"$set": {"enabled": False, "unlinked_at": stamp(), "unlink_reason": "revoked"}})
 
 
 async def indexes():
@@ -538,6 +552,26 @@ async def indexes():
     await db.refresh_tokens.create_index("hash", unique=True)
     await db.requests.create_index([("created_at", -1), ("id", 1)])
     await db.requests.create_index([("events.type", 1), ("events.timestamp", 1)])
+    # Central query workspace: fresh-first queue order, per-assignee pending views and the daily release scan.
+    await db.requests.create_index([("status", 1), ("queue_sort_at", -1), ("created_at", -1), ("id", 1)])
+    await db.requests.create_index([("assignee_id", 1), ("status", 1), ("queue_sort_at", -1)])
+    await db.requests.create_index([("status", 1), ("created_at", 1), ("reset_cycle", 1)])
+    await db.request_completions.create_index([("request_id", 1), ("completed_at", -1)])
+    await db.request_completions.create_index([("actor_id", 1), ("completed_at", -1)])
+    await db.request_completions.create_index("key", unique=True)
+    # Notifications: one row per device token, per-user inbox, durable outbox with idempotent keys.
+    await db.push_devices.create_index("token", unique=True)
+    await db.push_devices.create_index([("user_id", 1), ("enabled", 1)])
+    await db.notifications.create_index([("user_id", 1), ("created_at", -1), ("id", 1)])
+    await db.notifications.create_index("expires_at", expireAfterSeconds=0)
+    await db.notification_outbox.create_index("key", unique=True)
+    await db.notification_outbox.create_index([("status", 1), ("next_attempt_at", 1)])
+    await db.notification_campaigns.create_index([("created_at", -1), ("id", 1)])
+    # Discovery: what each signed-in user has actually seen, and the bounded per-refresh ordering sessions.
+    await db.product_impressions.create_index([("user_id", 1), ("product_id", 1)], unique=True)
+    await db.product_impressions.create_index([("user_id", 1), ("seen_at", -1)])
+    await db.discovery_sessions.create_index("expires_at", expireAfterSeconds=0)
+    await db.discovery_sessions.create_index([("user_id", 1), ("created_at", -1)])
     await db.products.create_index([("batch_id", 1), ("created_at", -1)])
     await db.products.create_index([("created_at", -1), ("id", 1)])
     await db.products.create_index([("metal_type", 1), ("category", 1), ("created_at", -1), ("id", 1)])

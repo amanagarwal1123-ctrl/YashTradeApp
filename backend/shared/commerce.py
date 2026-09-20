@@ -99,7 +99,7 @@ def image_bytes(data):
 
 
 @router.post("/products/upload-image")
-async def upload_image(file: UploadFile = File(...), user=Depends(c.admin)):
+async def upload_image(file: UploadFile = File(...), user=Depends(c.content)):
     from .media_lifecycle import tracked_put
     data = image_bytes(await file.read(8 * 1024 * 1024 + 1))
     path = f"yash-trade/products/manual/{secrets.token_hex(16)}.jpg"
@@ -114,7 +114,7 @@ async def upload_image(file: UploadFile = File(...), user=Depends(c.admin)):
 
 
 @router.put("/products/{pid}")
-async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
+async def update_product(pid: str, updates: dict, user=Depends(c.content)):
     old = await c.db.products.find_one({"id": pid}, {"_id": 0})
     if not old:
         c.fail(404, "PRODUCT_NOT_FOUND", "Product not found")
@@ -183,7 +183,7 @@ async def media(path: str, authorization: str | None = Header(None), w: int | No
     public = public or bool(banner)
     if not public:
         user = await c.current_user(authorization)
-        if user["role"] != "admin":
+        if user["role"] not in {"admin", "upload_executive"}:
             c.fail(403, "MEDIA_PRIVATE", "This media is private")
     try:
         data, content_type = await cached_get(path, bool(public), w)
@@ -196,16 +196,38 @@ async def media(path: str, authorization: str | None = Header(None), w: int | No
     return Response(data, media_type=content_type, headers=headers)
 
 
+# MCX quotes are DISPLAYED and EDITED in market units: silver INR per kg, gold INR per 10 g. The canonical stored basis
+# stays INR per gram (`{metal}_mcx_rate`, what every older client and the calculated physical rate already use), with
+# explicit conversion factors - a value is never reinterpreted, only converted where the unit is stated.
+MCX_DISPLAY_UNITS = {"silver": "INR/kg", "gold": "INR/10g"}
+MCX_FACTORS = {"silver": 1000, "gold": 10}
+
+
+def mcx_display(metal, per_gram):
+    return round(float(per_gram or 0) * MCX_FACTORS[metal], 2)
+
+
+def mcx_canonical(metal, display_value):
+    return round(float(display_value) / MCX_FACTORS[metal], 6)
+
+
 async def latest():
     rate = await c.db.rates_current.find_one({"_id": "canonical"}, {"_id": 0, "events": 0})
     if rate is None:
         rate = await c.db.rates.find_one({}, {"_id": 0}, sort=[("created_at", -1)]) or {}
     rate.setdefault("version", 0)
-    rate["units"] = {"physical": "INR/g", "mcx": "INR/g", "dollar": "USD/troy_oz"}
+    rate["units"] = {"physical": "INR/g", "mcx": "INR/g", "mcx_display": dict(MCX_DISPLAY_UNITS), "mcx_display_factor": dict(MCX_FACTORS),
+                     "physical_premium": "INR/g", "dollar": "USD/troy_oz",
+                     "note": "{metal}_mcx_rate is the canonical INR/g basis; {metal}_mcx_display_rate is the same quote in market units"}
     for metal in ["silver", "gold"]:
         for kind in ["dollar", "mcx", "physical"]:
             rate.setdefault(f"{metal}_{kind}_rate", 0)
         rate[f"{metal}_rate"] = rate[f"{metal}_physical_rate"]
+        rate[f"{metal}_mcx_display_rate"] = mcx_display(metal, rate[f"{metal}_mcx_rate"])
+        rate[f"{metal}_mcx_display_unit"] = MCX_DISPLAY_UNITS[metal]
+    # Stored MCX numbers written by builds before the unit-aware contract were entered against an "INR/g" label; whether
+    # they really are per-gram is confirmed only when a unit-aware client saves them (mcx_basis_confirmed).
+    rate["mcx_units_verified"] = bool(rate.get("mcx_basis_confirmed"))
     return rate
 
 
@@ -228,6 +250,21 @@ async def rates_write(updates: dict, user=Depends(c.billing)):
     expected = updates.pop("version", None)
     if expected is None:
         c.fail(428, "VERSION_REQUIRED", "Send the rates version from the latest read")
+    # Unit-aware MCX input: `{metal}_mcx_display_rate` (silver INR/kg, gold INR/10g) is converted to the canonical INR/g
+    # basis explicitly. Sending both forms for one metal is refused rather than guessed.
+    confirmed = False
+    for metal in ("silver", "gold"):
+        display_key = f"{metal}_mcx_display_rate"
+        if display_key in updates:
+            if f"{metal}_mcx_rate" in updates:
+                c.fail(422, "MCX_UNIT_AMBIGUOUS", f"Send either {metal}_mcx_rate (INR/g) or {display_key} ({MCX_DISPLAY_UNITS[metal]}), not both")
+            value = updates.pop(display_key)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                c.fail(422, "INVALID_RATE", f"{display_key} must be a finite non-negative number in {MCX_DISPLAY_UNITS[metal]}")
+            updates[f"{metal}_mcx_rate"] = mcx_canonical(metal, value)
+            confirmed = True
+    if updates.pop("mcx_basis_confirmed", False) is True:
+        confirmed = True
     numeric = {f"{m}_{k}" for m in ("gold", "silver") for k in ("dollar_rate", "mcx_rate", "physical_rate", "physical_premium")}
     choices = {f"{m}_{k}" for m in ("gold", "silver") for k in ("physical_mode", "physical_base", "movement", "purity")}
     if set(updates) - (numeric | choices | {"market_summary"}):
@@ -250,13 +287,19 @@ async def rates_write(updates: dict, user=Depends(c.billing)):
     old = await latest()
     if old["version"] != expected:
         c.fail(409, "VERSION_CONFLICT", "Rates changed; refresh before saving")
-    merged = {**old, **updates}
+    merged = {k: v for k, v in old.items() if not k.endswith("_display_rate") and not k.endswith("_display_unit") and k not in {"units", "mcx_units_verified"}}
+    merged.update(updates)
     for metal in ("silver", "gold"):
         if merged.get(f"{metal}_physical_mode") == "calculated":
-            merged[f"{metal}_physical_rate"] = merged[f"{metal}_mcx_rate"] + merged.get(f"{metal}_physical_premium", 0)
+            # Both operands are INR/g: the MCX quote is normalised from its market unit before the premium is added.
+            merged[f"{metal}_physical_rate"] = round(float(merged[f"{metal}_mcx_rate"]) + float(merged.get(f"{metal}_physical_premium", 0) or 0), 4)
     merged.pop("version", None)
+    if confirmed:
+        merged["mcx_basis_confirmed"] = True
+        merged["mcx_basis"] = "INR/g canonical; display silver INR/kg, gold INR/10g"
     merged.update(updated_by=user["id"], updated_at=c.stamp(), effective_at=c.stamp())
-    event = {"id": secrets.token_hex(16), "actor_id": user["id"], "actor_role": user["role"], "at": c.stamp(), "changes": updates}
+    event = {"id": secrets.token_hex(16), "actor_id": user["id"], "actor_role": user["role"], "at": c.stamp(), "changes": updates,
+             "units": {"mcx": "INR/g", "mcx_display": dict(MCX_DISPLAY_UNITS)}}
     try:
         result = await c.db.rates_current.update_one({"_id": "canonical", "version": expected if expected else {"$in": [0, None]}},
             {"$set": merged, "$inc": {"version": 1}, "$push": {"events": event}}, upsert=expected == 0)

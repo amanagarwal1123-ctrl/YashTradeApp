@@ -24,29 +24,43 @@ export const setRefreshToken = async (token: string | null) => {
 };
 
 let sessionLost: (() => void) | null = null;
-/** Registered by the auth provider: runs when a refresh fails (expired/revoked session) so caches and state are dropped. */
+/** Registered by the auth provider: runs ONLY when the server confirms the session is gone (401/403 on refresh, no
+ * refresh credential). Network failures and 5xx never end the session. */
 export const onSessionLost = (handler: (() => void) | null) => { sessionLost = handler; };
+export class TransientError extends Error {
+  constructor(message: string) { super(message); this.name = 'TransientError'; }
+}
+const isTransientStatus = (status: number) => status >= 500 || status === 408 || status === 429;
 
 async function refreshSession() {
   const refresh = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
   if (!refresh) { sessionLost?.(); throw new Error('Please sign in again'); }
-  const response = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
+  } catch {
+    throw new TransientError('You are offline; your session is kept and will reconnect');
+  }
+  if (response.status === 409) return; // concurrent refresh already rotated the credentials on this device: keep going
+  if (isTransientStatus(response.status)) throw new TransientError('Server unavailable; your session is kept');
   if (!response.ok) { await setRefreshToken(null); setToken(null); sessionLost?.(); throw new Error('Session expired; please sign in again'); }
   const data = await response.json();
   setToken(data.token); await setRefreshToken(data.refresh_token);
   if (Platform.OS !== 'web') await SecureStore.setItemAsync('auth_token', data.token);
 }
 
+export const REFRESH_EXEMPT = ['/auth/send-otp', '/auth/verify-otp', '/auth/refresh', '/auth/review/login'];
+
 export async function authenticatedFetch(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string> || {}) };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  if (response.status === 401 && authToken && retry && !['/auth/send-otp', '/auth/verify-otp', '/auth/refresh'].includes(path)) {
-    if (!refreshing) refreshing = refreshSession().finally(() => { refreshing = null; });
-    await refreshing;
-    return authenticatedFetch(path, options, false);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new TransientError('Network unavailable');
   }
-  if (response.status === 401 && path === '/auth/me' && retry) {
+  if (response.status === 401 && authToken && retry && !REFRESH_EXEMPT.includes(path)) {
     if (!refreshing) refreshing = refreshSession().finally(() => { refreshing = null; });
     await refreshing;
     return authenticatedFetch(path, options, false);
@@ -58,7 +72,7 @@ export async function responseJson(res: Response) {
   const data = await res.json().catch(() => ({ detail: 'Unable to read server response' }));
   if (!res.ok) {
     const error: any = new Error(typeof data.detail === 'string' ? data.detail : data.detail?.detail || `Request failed (${res.status})`);
-    error.status = res.status; error.code = data.code; throw error;
+    error.status = res.status; error.code = data.code; error.body = data; error.transient = isTransientStatus(res.status); throw error;
   }
   return data;
 }

@@ -765,6 +765,12 @@ async def get_admin_user(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
+async def get_content_user(user=Depends(get_current_user)):
+    """Content domain (Contents pages, banners, batches, stories, knowledge): administrators and Upload Executives."""
+    if user.get("role") not in ("admin", "upload_executive"):
+        raise HTTPException(status_code=403, detail={"code": "PERMISSION_DENIED", "detail": "Content access required"})
+    return user
+
 async def get_executive_or_admin(user=Depends(get_current_user)):
     if user.get("role") not in ("admin", "telecaller"):
         raise HTTPException(status_code=403, detail="Executive or admin access required")
@@ -1192,7 +1198,7 @@ async def create_product(req: ProductCreate, user=Depends(get_admin_user)):
     return {k: v for k, v in product.items() if k != "_id"}
 
 @api_router.post("/products/bulk")
-async def bulk_upload(req: BulkUploadRequest, user=Depends(get_admin_user)):
+async def bulk_upload(req: BulkUploadRequest, user=Depends(get_content_user)):
     if not req.image_urls:
         raise HTTPException(status_code=400, detail="No image URLs provided")
     now = datetime.now(timezone.utc).isoformat()
@@ -1255,7 +1261,7 @@ async def update_product(product_id: str, updates: Dict[str, Any], user=Depends(
     return await db.products.find_one({"id": product_id}, {"_id": 0})
 
 @api_router.delete("/products/{product_id}")
-async def delete_product(product_id: str, user=Depends(get_admin_user)):
+async def delete_product(product_id: str, user=Depends(get_content_user)):
     await db.products.delete_one({"id": product_id})
     return {"message": "Deleted"}
 
@@ -1268,7 +1274,7 @@ async def get_categories():
 # ===================== BATCH MANAGEMENT =====================
 
 @api_router.post("/batches")
-async def create_batch(req: BatchCreate, user=Depends(get_admin_user)):
+async def create_batch(req: BatchCreate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     batch = {
         "id": str(uuid.uuid4()),
@@ -1289,7 +1295,7 @@ async def create_batch(req: BatchCreate, user=Depends(get_admin_user)):
 async def list_batches(
     status: str = Query(""),
     search: str = Query(""),
-    user=Depends(get_admin_user)
+    user=Depends(get_content_user)
 ):
     query: Dict[str, Any] = {"status": {"$ne": "archived"}}
     if status:
@@ -1300,7 +1306,7 @@ async def list_batches(
     return {"batches": batches}
 
 @api_router.get("/batches/{batch_id}")
-async def get_batch(batch_id: str, user=Depends(get_admin_user)):
+async def get_batch(batch_id: str, user=Depends(get_content_user)):
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -1311,7 +1317,7 @@ async def get_batch_images(
     batch_id: str,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100000),
-    user=Depends(get_admin_user)
+    user=Depends(get_content_user)
 ):
     query = {"batch_id": batch_id, "is_deleted": {"$ne": True}}
     total = await db.products.count_documents(query)
@@ -1320,7 +1326,7 @@ async def get_batch_images(
     return {"images": products, "total": total, "page": page, "pages": (total + limit - 1) // limit}
 
 @api_router.put("/batches/{batch_id}")
-async def update_batch(batch_id: str, req: BatchUpdate, user=Depends(get_admin_user)):
+async def update_batch(batch_id: str, req: BatchUpdate, user=Depends(get_content_user)):
     updates: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
     if req.name:
         updates["name"] = req.name
@@ -1344,13 +1350,13 @@ async def update_batch(batch_id: str, req: BatchUpdate, user=Depends(get_admin_u
     return await db.batches.find_one({"id": batch_id}, {"_id": 0})
 
 @api_router.delete("/batches/{batch_id}")
-async def delete_batch(batch_id: str, user=Depends(get_admin_user)):
+async def delete_batch(batch_id: str, user=Depends(get_content_user)):
     await db.batches.update_one({"id": batch_id}, {"$set": {"status": "archived", "updated_at": datetime.now(timezone.utc).isoformat()}})
     await db.products.update_many({"batch_id": batch_id}, {"$set": {"visibility": "hidden", "is_deleted": True}})
     return {"message": "Batch deleted"}
 
 @api_router.patch("/batches/{batch_id}/visibility")
-async def toggle_batch_visibility(batch_id: str, user=Depends(get_admin_user)):
+async def toggle_batch_visibility(batch_id: str, user=Depends(get_content_user)):
     batch = await db.batches.find_one({"id": batch_id}, {"_id": 0})
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -1366,7 +1372,7 @@ async def toggle_batch_visibility(batch_id: str, user=Depends(get_admin_user)):
 async def upload_to_batch(
     batch_id: str,
     files: List[UploadFile] = File(...),
-    user=Depends(get_admin_user)
+    user=Depends(get_content_user)
 ):
     from shared.media_lifecycle import tracked_put
     if len(files) > 10:
@@ -1877,7 +1883,7 @@ async def import_pdf_to_batch(
     }
 
 @api_router.post("/batches/{batch_id}/images/delete")
-async def delete_batch_images(batch_id: str, req: BatchImageDelete, user=Depends(get_admin_user)):
+async def delete_batch_images(batch_id: str, req: BatchImageDelete, user=Depends(get_content_user)):
     count = 0
     for img_id in req.image_ids:
         result = await db.products.update_one(
@@ -2288,7 +2294,7 @@ async def get_knowledge(article_id: str):
     return article
 
 @api_router.post("/knowledge")
-async def create_knowledge(req: KnowledgeCreate, user=Depends(get_admin_user)):
+async def create_knowledge(req: KnowledgeCreate, user=Depends(get_content_user)):
     article = {
         "id": str(uuid.uuid4()),
         **req.dict(),
@@ -2305,7 +2311,7 @@ async def list_stories():
     return {"stories": stories}
 
 @api_router.post("/stories")
-async def create_story(req: StoryCreate, user=Depends(get_admin_user)):
+async def create_story(req: StoryCreate, user=Depends(get_content_user)):
     story = {
         "id": str(uuid.uuid4()),
         **req.dict(),
@@ -2397,11 +2403,14 @@ async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
         "status": "pending", "assigned_to": "", "admin_notes": "", "notes_history": [],
         "created_at": now
     }
-    from shared.queries import event
-    request_data.update(version=0, pending_since=now, updated_at=now, assignee_id="", product_ids=product_ids,
+    from shared.queries import event, notify_created
+    request_data.update(version=0, pending_since=now, updated_at=now, queue_sort_at=now, head="new", claimed_at=None, follow_up_at=None,
+        assignee_id="", product_ids=product_ids, shop_name=user.get("shop_name", ""),
         events=[event("creation", user, request_data["id"], new="pending", request_status="pending")])
     await db.requests.insert_one(request_data)
     await db.cart.update_many({"user_id": user["id"], "status": "active"}, {"$set": {"status": "submitted"}})
+    request_data.pop("_id", None)
+    await notify_created(request_data)  # same durable telecaller notification event as every other creation path
     return {"message": "Cart submitted", "request_id": request_data["id"], "items_count": len(cart_details)}
 
 @api_router.get("/cart/count")
@@ -2886,7 +2895,7 @@ async def get_about_content(lang: str = Query("en")):
     return {"sections": result, "raw": sections}
 
 @api_router.post("/about")
-async def upsert_about_content(req: AboutContentUpdate, user=Depends(get_admin_user)):
+async def upsert_about_content(req: AboutContentUpdate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     existing = await db.about_content.find_one({"section": req.section})
     data = req.dict()
@@ -2902,7 +2911,7 @@ async def upsert_about_content(req: AboutContentUpdate, user=Depends(get_admin_u
     return result
 
 @api_router.delete("/about/{section}")
-async def delete_about_section(section: str, user=Depends(get_admin_user)):
+async def delete_about_section(section: str, user=Depends(get_content_user)):
     await db.about_content.delete_one({"section": section})
     return {"message": "Deleted"}
 
@@ -2947,14 +2956,14 @@ async def get_schemes(active_only: bool = Query(True)):
     return {"schemes": schemes}
 
 @api_router.post("/schemes")
-async def create_scheme(req: SchemeCreate, user=Depends(get_admin_user)):
+async def create_scheme(req: SchemeCreate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     scheme = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
     await db.schemes.insert_one(scheme)
     return {k: v for k, v in scheme.items() if k != "_id"}
 
 @api_router.put("/schemes/{scheme_id}")
-async def update_scheme(scheme_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+async def update_scheme(scheme_id: str, updates: Dict[str, Any], user=Depends(get_content_user)):
     updates.pop("_id", None)
     updates.pop("id", None)
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2962,7 +2971,7 @@ async def update_scheme(scheme_id: str, updates: Dict[str, Any], user=Depends(ge
     return await db.schemes.find_one({"id": scheme_id}, {"_id": 0})
 
 @api_router.delete("/schemes/{scheme_id}")
-async def delete_scheme(scheme_id: str, user=Depends(get_admin_user)):
+async def delete_scheme(scheme_id: str, user=Depends(get_content_user)):
     await db.schemes.delete_one({"id": scheme_id})
     return {"message": "Deleted"}
 
@@ -2977,14 +2986,14 @@ async def get_brands(active_only: bool = Query(True)):
     return {"brands": brands}
 
 @api_router.post("/brands")
-async def create_brand(req: BrandCreate, user=Depends(get_admin_user)):
+async def create_brand(req: BrandCreate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     brand = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
     await db.brands.insert_one(brand)
     return {k: v for k, v in brand.items() if k != "_id"}
 
 @api_router.put("/brands/{brand_id}")
-async def update_brand(brand_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+async def update_brand(brand_id: str, updates: Dict[str, Any], user=Depends(get_content_user)):
     updates.pop("_id", None)
     updates.pop("id", None)
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -2992,7 +3001,7 @@ async def update_brand(brand_id: str, updates: Dict[str, Any], user=Depends(get_
     return await db.brands.find_one({"id": brand_id}, {"_id": 0})
 
 @api_router.delete("/brands/{brand_id}")
-async def delete_brand(brand_id: str, user=Depends(get_admin_user)):
+async def delete_brand(brand_id: str, user=Depends(get_content_user)):
     await db.brands.delete_one({"id": brand_id})
     return {"message": "Deleted"}
 
@@ -3004,14 +3013,14 @@ async def get_showroom():
     return {"floors": floors}
 
 @api_router.post("/showroom")
-async def create_showroom_floor(req: ShowroomFloorCreate, user=Depends(get_admin_user)):
+async def create_showroom_floor(req: ShowroomFloorCreate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     floor = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
     await db.showroom_floors.insert_one(floor)
     return {k: v for k, v in floor.items() if k != "_id"}
 
 @api_router.put("/showroom/{floor_id}")
-async def update_showroom_floor(floor_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+async def update_showroom_floor(floor_id: str, updates: Dict[str, Any], user=Depends(get_content_user)):
     updates.pop("_id", None)
     updates.pop("id", None)
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -3019,7 +3028,7 @@ async def update_showroom_floor(floor_id: str, updates: Dict[str, Any], user=Dep
     return await db.showroom_floors.find_one({"id": floor_id}, {"_id": 0})
 
 @api_router.delete("/showroom/{floor_id}")
-async def delete_showroom_floor(floor_id: str, user=Depends(get_admin_user)):
+async def delete_showroom_floor(floor_id: str, user=Depends(get_content_user)):
     await db.showroom_floors.delete_one({"id": floor_id})
     return {"message": "Deleted"}
 
@@ -3033,14 +3042,14 @@ async def get_exhibitions():
     return {"upcoming": upcoming, "past": past, "all": exhbs}
 
 @api_router.post("/exhibitions")
-async def create_exhibition(req: ExhibitionCreate, user=Depends(get_admin_user)):
+async def create_exhibition(req: ExhibitionCreate, user=Depends(get_content_user)):
     now = datetime.now(timezone.utc).isoformat()
     exhb = {"id": str(uuid.uuid4()), **req.dict(), "created_at": now, "updated_at": now}
     await db.exhibitions.insert_one(exhb)
     return {k: v for k, v in exhb.items() if k != "_id"}
 
 @api_router.put("/exhibitions/{exhb_id}")
-async def update_exhibition(exhb_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+async def update_exhibition(exhb_id: str, updates: Dict[str, Any], user=Depends(get_content_user)):
     updates.pop("_id", None)
     updates.pop("id", None)
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -3048,7 +3057,7 @@ async def update_exhibition(exhb_id: str, updates: Dict[str, Any], user=Depends(
     return await db.exhibitions.find_one({"id": exhb_id}, {"_id": 0})
 
 @api_router.delete("/exhibitions/{exhb_id}")
-async def delete_exhibition(exhb_id: str, user=Depends(get_admin_user)):
+async def delete_exhibition(exhb_id: str, user=Depends(get_content_user)):
     await db.exhibitions.delete_one({"id": exhb_id})
     return {"message": "Deleted"}
 
@@ -3067,12 +3076,12 @@ async def get_banners():
     return {"banners": visible}
 
 @api_router.get("/banners/all")
-async def get_all_banners(user=Depends(get_admin_user)):
+async def get_all_banners(user=Depends(get_content_user)):
     banners = await db.banners.find({}, {"_id": 0}).sort("order", 1).to_list(100)
     return {"banners": banners}
 
 @api_router.post("/banners")
-async def create_banner(req: BannerCreate, user=Depends(get_admin_user)):
+async def create_banner(req: BannerCreate, user=Depends(get_content_user)):
     if not req.title.strip():
         raise HTTPException(status_code=422, detail="Banner title is required")
     now = datetime.now(timezone.utc).isoformat()
@@ -3081,7 +3090,7 @@ async def create_banner(req: BannerCreate, user=Depends(get_admin_user)):
     return {k: v for k, v in banner.items() if k != "_id"}
 
 @api_router.put("/banners/{banner_id}")
-async def update_banner(banner_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
+async def update_banner(banner_id: str, updates: Dict[str, Any], user=Depends(get_content_user)):
     existing = await db.banners.find_one({"id": banner_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Banner not found")
@@ -3092,14 +3101,14 @@ async def update_banner(banner_id: str, updates: Dict[str, Any], user=Depends(ge
     return await db.banners.find_one({"id": banner_id}, {"_id": 0})
 
 @api_router.delete("/banners/{banner_id}")
-async def delete_banner(banner_id: str, user=Depends(get_admin_user)):
+async def delete_banner(banner_id: str, user=Depends(get_content_user)):
     result = await db.banners.delete_one({"id": banner_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Banner not found")
     return {"message": "Deleted"}
 
 @api_router.post("/banners/upload")
-async def upload_banner_image(file: UploadFile = File(...), user=Depends(get_admin_user)):
+async def upload_banner_image(file: UploadFile = File(...), user=Depends(get_content_user)):
     """Upload a banner image to object storage. Returns the served URL."""
     from shared.media_lifecycle import tracked_put
     data = await file.read(10 * 1024 * 1024 + 1)

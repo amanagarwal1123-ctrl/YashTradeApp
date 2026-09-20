@@ -218,6 +218,11 @@ async def login_helper(api_client, isolated_db, seeded_users):
     async def _login(phone: str, purpose: str = "login", channel: str = "mobile", headers: dict | None = None):
         payload = {"phone": phone, "purpose": purpose, "channel": channel}
         send = await api_client.post("/api/auth/send-otp", json=payload, headers=headers)
+        if send.status_code == 429 and send.json().get("code") == "OTP_COOLDOWN":
+            # Test convenience only: a fixture signing the same synthetic number in twice within the 15-second resend
+            # cooldown clears the previous challenge (the cooldown itself is asserted with a fake clock in R08 tests).
+            await isolated_db["db"].otp_challenges.delete_many({"phone": phone})
+            send = await api_client.post("/api/auth/send-otp", json=payload, headers=headers)
         assert send.status_code == 200, send.text
         otp = isolated_db["sent_otps"].get((phone, purpose))
         assert otp, f"No intercepted OTP for {phone}/{purpose}"

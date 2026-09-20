@@ -39,18 +39,18 @@ def limits():
 
 
 @router.get("/pdf-template/capabilities")
-async def capabilities(user=Depends(c.admin)):
+async def capabilities(user=Depends(c.content)):
     return {"template": contract(), "limits": limits(), "sample_url": "/api/pdf-template/sample.pdf",
             "authoring_url": "/api/pdf-template/authoring.json", "default_mode": "template_v1"}
 
 
 @router.post("/batches/{batch_id}/import-pdf")
-async def retired_direct_import(batch_id: str, user=Depends(c.admin)):
+async def retired_direct_import(batch_id: str, user=Depends(c.content)):
     c.fail(410, "REVIEWED_IMPORT_REQUIRED", "Use the capability endpoint and chunked reviewed import service")
 
 
 @router.get("/pdf-template/sample.pdf")
-async def sample(user=Depends(c.admin)):
+async def sample(user=Depends(c.content)):
     path = FIXTURES / "sample.pdf"
     if not path.exists():
         c.fail(503, "TEMPLATE_NOT_BUILT", "Sample template has not been generated")
@@ -58,7 +58,7 @@ async def sample(user=Depends(c.admin)):
 
 
 @router.get("/pdf-template/authoring.json")
-async def authoring(user=Depends(c.admin)):
+async def authoring(user=Depends(c.content)):
     return FileResponse(FIXTURES / "authoring.json", media_type="application/json", filename="Yash-Catalog-v1.json")
 
 
@@ -81,7 +81,7 @@ class Init(BaseModel):
 
 
 @router.post("/pdf-upload/init")
-async def init(req: Init, user=Depends(c.admin)):
+async def init(req: Init, user=Depends(c.content)):
     lim = limits()
     if await c.db.import_jobs.count_documents({"owner_id": user["id"], "phase": {"$in": ["uploading", "queued", "analyzing", "review", "paused"]}}) >= 4:
         identity = c.digest(f"{user['id']}:{req.batch_id}:{req.sha256}:{req.mode}")[:32]
@@ -111,7 +111,7 @@ async def init(req: Init, user=Depends(c.admin)):
 
 @router.post("/pdf-upload/{jid}/chunk")
 async def chunk(jid: str, chunk_index: int = Query(ge=0), file: UploadFile = File(...),
-                x_chunk_sha256: str | None = Header(None), user=Depends(c.admin)):
+                x_chunk_sha256: str | None = Header(None), user=Depends(c.content)):
     job = await job_for(jid, user)
     if job["phase"] != "uploading":
         c.fail(409, "IMPORT_NOT_UPLOADING", "Resume the upload before sending chunks")
@@ -141,7 +141,7 @@ async def chunk(jid: str, chunk_index: int = Query(ge=0), file: UploadFile = Fil
 
 
 @router.get("/pdf-upload/{jid}/status")
-async def status(jid: str, user=Depends(c.admin)):
+async def status(jid: str, user=Depends(c.content)):
     job = await job_for(jid, user)
     rows = await c.db.import_rows.count_documents({"job_id": jid})
     return {"upload_id": jid, "phase": job["phase"], "upload_status": job["phase"], "sha256": job["sha256"],
@@ -153,7 +153,7 @@ async def status(jid: str, user=Depends(c.admin)):
 
 
 @router.post("/pdf-upload/{jid}/complete")
-async def complete(jid: str, user=Depends(c.admin)):
+async def complete(jid: str, user=Depends(c.content)):
     job = await job_for(jid, user)
     if job["phase"] in {"queued", "analyzing", "review", "committed"}:
         return await status(jid, user)
@@ -164,7 +164,7 @@ async def complete(jid: str, user=Depends(c.admin)):
 
 
 @router.post("/pdf-upload/{jid}/pause")
-async def pause(jid: str, user=Depends(c.admin)):
+async def pause(jid: str, user=Depends(c.content)):
     await job_for(jid, user)
     await c.db.import_jobs.update_one({"id": jid, "phase": {"$in": ["uploading", "queued", "analyzing"]}},
         [{"$set": {"resume_phase": "$phase", "phase": "paused", "updated_at": c.stamp()}}])
@@ -172,7 +172,7 @@ async def pause(jid: str, user=Depends(c.admin)):
 
 
 @router.post("/pdf-upload/{jid}/resume")
-async def resume(jid: str, user=Depends(c.admin)):
+async def resume(jid: str, user=Depends(c.content)):
     job = await job_for(jid, user)
     phase = "uploading" if job["phase"] == "paused" and job.get("resume_phase") == "uploading" else "queued"
     await c.db.import_jobs.update_one({"id": jid, "phase": {"$in": ["paused", "error"]}},
@@ -181,7 +181,7 @@ async def resume(jid: str, user=Depends(c.admin)):
 
 
 @router.post("/pdf-upload/{jid}/cancel")
-async def cancel(jid: str, user=Depends(c.admin)):
+async def cancel(jid: str, user=Depends(c.content)):
     await job_for(jid, user)
     async with c.lock("import:" + jid, seconds=180):
         job = await job_for(jid, user)
@@ -192,7 +192,7 @@ async def cancel(jid: str, user=Depends(c.admin)):
 
 
 @router.get("/pdf-upload/{jid}/preview")
-async def preview(jid: str, page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), user=Depends(c.admin)):
+async def preview(jid: str, page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100), user=Depends(c.content)):
     await job_for(jid, user)
     rows = await c.db.import_rows.find({"job_id": jid}, {"_id": 0, "preview_path": 0}).sort([("page", 1), ("id", 1)]).skip((page-1)*limit).limit(limit).to_list(limit)
     for row in rows:
@@ -203,7 +203,7 @@ async def preview(jid: str, page: int = Query(1, ge=1), limit: int = Query(20, g
 
 
 @router.get("/pdf-upload/{jid}/rows/{rid}/image")
-async def preview_image(jid: str, rid: str, user=Depends(c.admin)):
+async def preview_image(jid: str, rid: str, user=Depends(c.content)):
     await job_for(jid, user)
     row = await c.db.import_rows.find_one({"id": rid, "job_id": jid}, {"_id": 0})
     if not row:
@@ -222,7 +222,7 @@ class Correction(BaseModel):
 
 
 @router.patch("/pdf-upload/{jid}/rows/{rid}")
-async def correct(jid: str, rid: str, req: Correction, user=Depends(c.admin)):
+async def correct(jid: str, rid: str, req: Correction, user=Depends(c.content)):
     async with c.lock("import:" + jid, seconds=180):
         job = await job_for(jid, user)
         if job["phase"] != "review":
@@ -263,7 +263,7 @@ class Commit(BaseModel):
 
 
 @router.post("/pdf-upload/{jid}/commit")
-async def commit(jid: str, req: Commit, user=Depends(c.admin)):
+async def commit(jid: str, req: Commit, user=Depends(c.content)):
     async with c.lock("import:" + jid, seconds=180):
         job = await job_for(jid, user)
         if job["phase"] == "committed":

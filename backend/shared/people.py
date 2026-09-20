@@ -122,12 +122,78 @@ async def staff_update(ref: str, updates: dict, user=Depends(c.admin)):
                 "old_role": c.role(old["role"]), "new_role": new_role, "old_status": c.account_status(old),
                 "new_status": new_status, "at": c.stamp()}}})
         await c.db.session_families.update_many({"user_id": old["id"]}, {"$set": {"revoked": True}})
-        return {"user": c.public_user(await identity(old["id"]))}
+        await c.db.refresh_tokens.update_many({"user_id": old["id"], "used": False}, {"$set": {"used": True}})
+        released = 0
+        if new_status != "active" or new_role not in {"admin", "telecaller"}:
+            from .notifications import detach_devices
+            from .queries import release_assignments
+            await detach_devices(old["id"], "account_disabled" if new_status != "active" else "role_changed")
+            released = await release_assignments(old["id"], user, f"Staff account {'disabled' if new_status != 'active' else 'role changed to ' + new_role} by administrator")
+        elif new_role != c.role(old["role"]):
+            from .notifications import detach_devices
+            await detach_devices(old["id"], "role_changed")
+        return {"user": c.public_user(await identity(old["id"])), "sessions_revoked": True, "queries_released": released}
 
 
 @router.delete("/integrations/staff/{ref}")
 async def staff_disable(ref: str, user=Depends(c.admin)):
-    return await staff_update(ref, {"status": "inactive"}, user)
+    """LEGACY alias kept for already-deployed website consumers: this DISABLES (reversible) and never deletes.
+    Real deletion is the explicit, step-up-authenticated POST /integrations/staff/{ref}/delete."""
+    result = await staff_update(ref, {"status": "inactive"}, user)
+    return {**result, "disabled": True, "deleted": False, "note": "Reversible disable. Use POST /integrations/staff/{ref}/delete to delete the account."}
+
+
+class AccountDeletion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=10, max_length=500)
+    confirm_user_id: str
+    confirm_phone_last4: str = Field(min_length=4, max_length=4)
+
+
+async def admin_delete(ref, req: AccountDeletion, user, expected_roles):
+    async with c.lock("staff-directory", wait_seconds=5):
+        old = await identity(ref)
+        if req.confirm_user_id != old["id"]:
+            c.fail(409, "CONFIRMATION_REQUIRED", "Confirm the account's canonical ID and the last four digits of its number")
+        if c.account_status(old) == "deleted":
+            # Idempotent retry after a completed or interrupted deletion (the tombstone no longer carries the number).
+            existing = await c.db.deletion_requests.find_one({"reference": "DEL-" + old["id"]}, {"_id": 0})
+            return {"deleted": True, "already_deleted": True, "reference": "DEL-" + old["id"], "status": (existing or {}).get("status"),
+                    "cleanup": pe.cleanup_of(existing) if existing else None}
+        if str(old.get("phone", ""))[-4:] != req.confirm_phone_last4:
+            c.fail(409, "CONFIRMATION_REQUIRED", "Confirm the account's canonical ID and the last four digits of its number")
+        if old["id"] == user["id"]:
+            c.fail(409, "SELF_DELETION_DENIED", "Administrators cannot delete their own account here")
+        role = c.role(old["role"])
+        if role not in expected_roles:
+            c.fail(409, "ROLE_MISMATCH", "Use the matching customer or staff deletion operation")
+        await last_admin_guard(old, "customer", "inactive")
+        from .notifications import detach_devices
+        from .queries import release_assignments
+        released = await release_assignments(old["id"], user, "Staff account deleted by administrator") if role in c.STAFF else 0
+        await detach_devices(old["id"], "account_deleted")
+        await c.db.users.update_one({"id": old["id"]}, {"$push": {"identity_events": {"type": "admin_deletion", "actor_id": user["id"],
+            "reason": req.reason, "role": role, "at": c.stamp()}}})
+        result = await erase(old, "admin")
+        await c.db.identity_audit.insert_one({"type": "admin_account_deletion", "target_id": old["id"], "target_role": role, "actor_id": user["id"],
+                                              "actor_role": user["role"], "reason": req.reason, "at": c.stamp(), "queries_released": released})
+        return {**result, "queries_released": released, "reference_role": role}
+
+
+@router.post("/integrations/staff/{ref}/delete")
+async def staff_delete(ref: str, req: AccountDeletion, user=Depends(c.recent_admin)):
+    """Actual deletion of a staff account (telecaller, billing, upload executive, non-owner administrator): sessions and
+    devices revoked, open queries released to the shared queue, personal data removed/anonymized through the same
+    erasure workflow as customers, completion attribution kept in the immutable ledger. Idempotent on retry."""
+    return await admin_delete(ref, req, user, c.STAFF)
+
+
+@router.post("/customers/{uid}/delete")
+async def customer_delete(uid: str, req: AccountDeletion, user=Depends(c.recent_admin)):
+    """Administrator deletion of a customer account through the existing erasure workflow (tombstone, anonymized
+    queries, provider-erasure ledger, website outbox event). Re-registration with the same number is a NEW account."""
+    await customer_ref(uid)
+    return await admin_delete(uid, req, user, {"customer"})
 
 
 class Conversion(BaseModel):
@@ -472,6 +538,9 @@ async def customer_update(uid: str, updates: dict, user=Depends(c.admin)):
         inc["session_version"] = 1
     await c.db.users.update_one({"id": uid}, {"$set": fields, "$inc": inc,
         "$push": {"identity_events": {"type": "customer_updated", "actor_id": user["id"], "at": c.stamp(), "fields": sorted(updates)}}})
+    if fields.get("account_status") == "inactive":
+        # Disabling blocks further sign-in immediately: sessions, refresh tokens and this account's devices are cut.
+        await c.revoke(uid)
     return c.public_user(await customer_ref(uid))
 
 
@@ -489,8 +558,8 @@ async def erase(user, source):
     # a fresh OTP after it is the person's explicit new sign-up and starts a new account.
     await c.db.deleted_identities.update_one({"phone_hash": c.keyed(number)},
         {"$set": {"user_id": uid, "deleted_at": c.stamp()}}, upsert=True)
-    await c.db.users.update_one({"id": uid}, {"$set": {"account_status": "deleted", "status": "deleted"}, "$inc": {"session_version": 1}})
-    await c.db.session_families.update_many({"user_id": uid}, {"$set": {"revoked": True}})
+    await c.db.users.update_one({"id": uid}, {"$set": {"account_status": "deleted", "status": "deleted"}})
+    await c.revoke(uid)  # session version, families, refresh tokens and push devices
     await c.db.deletion_requests.update_one({"reference": ref}, {"$setOnInsert": {
         "id": ref, "reference": ref, "user_id": uid, "source": source, "requested_at": c.stamp(), "providers": providers},
         "$set": {"status": "local_cleanup_pending"}}, upsert=True)
@@ -535,7 +604,8 @@ async def reconcile_outbox_acknowledgements():
 # before the analytics_events rename; both are purged so old rows never survive a deletion.
 PERSONAL_COLLECTIONS = (("cart", "user_id"), ("wishlists", "user_id"), ("telecaller_activity", "customer_id"),
                         ("analytics_events", "user_id"), ("analytics", "user_id"), ("reward_transactions", "user_id"),
-                        ("refresh_tokens", "user_id"), ("ai_reports", "user_id"))
+                        ("refresh_tokens", "user_id"), ("ai_reports", "user_id"), ("push_devices", "user_id"),
+                        ("notifications", "user_id"), ("product_impressions", "user_id"), ("discovery_sessions", "user_id"))
 
 
 EXTERNAL_DETAIL = {

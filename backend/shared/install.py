@@ -19,6 +19,9 @@ from .ai_consent import router as ai_consent
 from .provider_erasure import router as provider_erasure
 from .fonts import router as fonts
 from .maintenance import router as maintenance
+from .notifications import router as notifications, worker_loop as notifications_worker
+from .discovery import router as discovery
+from . import queue_reset
 
 
 class DataScopeMiddleware:
@@ -40,7 +43,7 @@ class DataScopeMiddleware:
 def install_shared(app, legacy, db, sender, put, get, review_enabled=False, review_blobs=None):
     c.configure(db, sender, put, get, review_enabled=review_enabled, review_blobs=review_blobs)
     app.add_middleware(DataScopeMiddleware)
-    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, provider_erasure, maintenance, queries, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
+    routers = [readiness, fonts, auth, review, review_admin, ai_consent, people, provider_erasure, maintenance, queries, notifications, discovery, commerce, catalog, pdf, pdf_authoring, media_lifecycle]
     replacement_names = {
         "health", "send_otp", "verify_otp", "get_me", "update_profile", "phone_change_request", "phone_change_verify",
         "delete_account_request", "delete_account_confirm", "integration_upsert_enrollment", "integration_get_customer",
@@ -83,15 +86,23 @@ def install_shared(app, legacy, db, sender, put, get, review_enabled=False, revi
         # ledger convergence, SMS-log retention - are explicit admin actions in shared/maintenance.py; account cleanup
         # runs only inline with an explicit deletion request or an administrator's explicit resume action.
         app.state.pdf_worker = asyncio.create_task(worker_loop())
+        # Deployed schedulers (every process runs them; the database leases keep them idempotent across workers):
+        # the durable push outbox and the 03:00 Asia/Kolkata query release with startup catch-up.
+        app.state.notifications_worker = asyncio.create_task(notifications_worker())
+        app.state.queue_reset_worker = asyncio.create_task(queue_reset.worker_loop())
 
     @app.on_event("shutdown")
     async def stop_worker():
         import asyncio
-        app.state.pdf_worker.cancel()
-        try:
-            await app.state.pdf_worker
-        except asyncio.CancelledError:
-            pass
+        for name in ("pdf_worker", "notifications_worker", "queue_reset_worker"):
+            task = getattr(app.state, name, None)
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     @app.exception_handler(HTTPException)
     async def error_handler(request, exc):

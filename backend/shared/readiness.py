@@ -72,7 +72,21 @@ async def readiness():
     owner_issues = ([] if owner["applied"] else [owner["reason"]]) + ([] if database_ready else ["DATABASE_UNAVAILABLE"])
     flows["owner_admin"] = {"ready": not owner_issues, "issues": owner_issues, "state": owner["action"],
                             "phone_suffix": owner["phone_suffix"], "detail": owner["detail"]}
-    ready = all(flow["ready"] for name, flow in flows.items() if name != "review")
+    # Deployed schedulers: the 03:00 Asia/Kolkata query release and the push outbox worker run inside this process
+    # (database leases make them idempotent across several processes). Reported, never assumed.
+    from . import notifications, queue_reset
+    reset_status = None
+    if database_ready:
+        try:
+            reset_status = await asyncio.wait_for(queue_reset.status(), timeout=2)
+        except Exception:
+            reset_status = None
+    flows["queue_release"] = {"ready": queue_reset.state["running"] and database_ready, "optional": True,
+                              "issues": [] if queue_reset.state["running"] else ["RELEASE_WORKER_NOT_RUNNING"], "status": reset_status}
+    flows["push_notifications"] = {"ready": notifications.worker_state["running"] and database_ready, "optional": True,
+                                   "issues": [] if notifications.worker_state["running"] else ["PUSH_WORKER_NOT_RUNNING"],
+                                   "worker": notifications.worker_state, "provider": notifications.provider_status()}
+    ready = all(flow["ready"] for name, flow in flows.items() if not flow.get("optional"))
     config["REVIEW_ACCESS_ENABLED"] = c.review_configured()
     config["REVIEW_STORAGE_USABLE"] = c.review_available()
     config["AI_CONSENT_VERSION"] = AI_CONSENT_VERSION

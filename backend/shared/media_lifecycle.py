@@ -110,7 +110,7 @@ async def audit_candidates():
 
 
 @router.get("/usage")
-async def usage(user=Depends(c.admin)):
+async def usage(user=Depends(c.content)):
     groups = await c.db.media_assets.aggregate([{"$group": {"_id": "$purpose", "objects": {"$sum": 1},
         "bytes": {"$sum": "$size_bytes"}, "unknown_size_objects": {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$size_bytes", None]}, None]}, 1, 0]}}}}]).to_list(100)
     totals, limit = await usage_totals(), budget()
@@ -127,6 +127,6 @@ async def usage(user=Depends(c.admin)):
 
 
 @router.post("/lifecycle-audit")
-async def audit(user=Depends(c.admin)):
+async def audit(user=Depends(c.content)):
     await audit_candidates()
     return {"audited": True, "remote_deletions": 0, "status": "blocked_provider_unsupported"}
