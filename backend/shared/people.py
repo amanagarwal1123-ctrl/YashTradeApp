@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import re
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -174,6 +176,23 @@ class StaffPhoneChange(BaseModel):
     confirm_user_id: str
     expected_phone: str
     idempotency_key: str = Field(min_length=8, max_length=120)
+    preview_token: str = Field(min_length=8, max_length=200)
+
+
+PREVIEW_MINUTES = 10
+
+
+def preview_token(target_id, current, number, expires):
+    """Binds the confirmation an administrator saw to the exact target account, its current number and the new number."""
+    return f"{expires}.{c.keyed(f'staff-phone-preview:{target_id}:{current}:{number}:{expires}')}"
+
+
+def check_preview_token(token, target_id, current, number):
+    expires, _, signature = str(token).partition(".")
+    if expires.isdigit() and int(expires) < int(c.now().timestamp()):
+        c.fail(409, "PREVIEW_EXPIRED", "The confirmation has expired; check the number again")
+    if not expires.isdigit() or not secrets.compare_digest(preview_token(target_id, current, number, int(expires)), token):
+        c.fail(409, "PREVIEW_MISMATCH", "The confirmation you saw described a different account or number; check the number again")
 
 
 def phone_change_target(old):
@@ -214,6 +233,8 @@ async def staff_phone_preview(ref: str, req: StaffPhonePreview, user=Depends(c.a
     result = await classify_number(number, old)
     result.update(staff=person(old), new_phone=number, new_phone_display=c.phone_display(number))
     if result["status"] == "available":
+        expires = int(c.now().timestamp()) + PREVIEW_MINUTES * 60
+        result.update(preview_token=preview_token(old["id"], c.phone(old["phone"]), number, expires), preview_expires_in=PREVIEW_MINUTES * 60)
         result["outcome"] = (f"{old.get('name') or 'This staff member'} keeps the same account, role, code, assignments and history. "
             "Only the login number changes. All their current sessions (app and website) are signed out, the old number can no "
             "longer sign in to this account, and the new number must be verified by OTP at the next sign-in.")
@@ -230,58 +251,128 @@ async def staff_phone_preview(ref: str, req: StaffPhonePreview, user=Depends(c.a
     return result
 
 
+OPERATION_WAIT_SECONDS = 8
+
+
+async def operation_replay(doc):
+    return {**doc["result"], "replayed": True}
+
+
+async def operation_applied(doc):
+    """The account update is the point of no return; it carries the operation key inside the pushed identity event."""
+    return bool(doc.get("target_id")) and await c.db.users.find_one(
+        {"id": doc["target_id"], "identity_events": {"$elemMatch": {"operation_key": doc["key"]}}}, {"_id": 0, "id": 1}) is not None
+
+
+async def finish_phone_change(doc, recovered=False):
+    """Every step after the account update is idempotent, so an interrupted operation (audit or replay record not
+    written) is completed by any later request that carries the same key or touches the same staff member."""
+    target_id, key = doc["target_id"], doc["key"]
+    await c.db.session_families.update_many({"user_id": target_id}, {"$set": {"revoked": True}})
+    await c.db.refresh_tokens.update_many({"user_id": target_id, "used": False}, {"$set": {"used": True}})
+    if not await c.db.identity_audit.find_one({"operation_key": key}, {"_id": 0, "operation_key": 1}):
+        await c.db.identity_audit.insert_one({**doc["event"], "target_id": target_id, "target_role": doc["target_role"],
+                                              "actor_role": doc["actor_role"], "operation_key": key, "surface": "admin_staff_phone_change"})
+    fresh = await identity(target_id)
+    body = {"user": c.public_user(fresh), "old_phone_masked": c.phone_masked(doc["old_phone"]), "new_phone": doc["new_phone"],
+            "new_phone_display": c.phone_display(doc["new_phone"]), "verification_required": True, "sessions_revoked": True}
+    await c.db.identity_operations.update_one({"key": key}, {"$set": {"state": "done", "result": body, "finished_at": c.stamp()}})
+    return {**body, "recovered": True} if recovered else body
+
+
+async def reconcile_phone_operations(target_id):
+    """Complete earlier operations on this staff member whose account update succeeded but whose bookkeeping did not."""
+    async for doc in c.db.identity_operations.find({"target_id": target_id, "state": "validated"}, {"_id": 0}):
+        if await operation_applied(doc):
+            await finish_phone_change(doc, recovered=True)
+
+
 @router.post("/integrations/staff/{ref}/phone")
 async def staff_phone_change(ref: str, req: StaffPhoneChange, user=Depends(c.recent_admin)):
     number = c.phone(req.new_phone)
     key = c.digest(f"{user['id']}:{req.idempotency_key}")
     payload_hash = c.digest(req.model_dump_json())
-    prior = await c.db.identity_operations.find_one({"key": key}, {"_id": 0})
-    if prior:
-        if prior["payload_hash"] != payload_hash:
-            c.fail(409, "IDEMPOTENCY_MISMATCH", "This idempotency key was already used for a different request")
-        return {**prior["result"], "replayed": True}
-    async with c.lock("staff-directory", wait_seconds=5):
-        async with c.lock("identity:" + number, wait_seconds=5):
-            old = await identity(ref)
-            role = phone_change_target(old)
-            if req.confirm_user_id != old["id"]:
-                c.fail(409, "CONFIRMATION_REQUIRED", "Confirm the staff member's canonical ID")
-            current = c.phone(old["phone"])
-            if c.phone(req.expected_phone) != current:
-                c.fail(409, "VERSION_CONFLICT", "The staff member's number changed since you opened the form; review and retry")
-            if number == current:
-                c.fail(409, "PHONE_UNCHANGED", "This is already the current login number")
-            owner = await classify_number(number, old)
-            if owner["status"] == "customer":
-                c.fail(409, "CUSTOMER_PROMOTION_REQUIRED", "This number belongs to an existing customer. Promote that customer "
-                       "to staff explicitly (their own account) or choose another number; the staff member being edited is unchanged")
-            if owner["status"] == "staff":
-                c.fail(409, "PHONE_OWNED_BY_STAFF", f"This number already belongs to staff member {owner['owner']['name'] or '(no name)'}; "
-                       "disable or renumber that account first")
-            ts = c.stamp()
-            event = {"type": "staff_phone_changed", "actor_id": user["id"], "old_phone": old["phone"], "new_phone": number,
-                     "reason": req.reason, "at": ts}
-            try:
-                result = await c.db.users.update_one(
-                    {"id": old["id"], "phone": old["phone"], "session_version": old.get("session_version", 0)},
-                    {"$set": {"phone": number, "phone_normalized": number, "phone_verified": False, "updated_at": ts},
-                     "$unset": {"verified_at": ""}, "$inc": {"session_version": 1, "profile_version": 1},
-                     "$push": {"identity_events": event}})
-            except DuplicateKeyError:
-                c.fail(409, "PHONE_CONFLICT", "This number was claimed by another account a moment ago; refresh and retry")
-            if not result.modified_count:
-                c.fail(409, "VERSION_CONFLICT", "The staff record changed concurrently; review and retry")
-            # Every existing session of the affected account ends: app, website portal and refresh tokens.
-            await c.db.session_families.update_many({"user_id": old["id"]}, {"$set": {"revoked": True}})
-            await c.db.refresh_tokens.update_many({"user_id": old["id"], "used": False}, {"$set": {"used": True}})
-            await c.db.identity_audit.insert_one({**event, "target_id": old["id"], "target_role": role, "actor_role": user["role"],
-                                                  "operation_key": key, "surface": "admin_staff_phone_change"})
-            fresh = await identity(old["id"])
-            body = {"user": c.public_user(fresh), "old_phone_masked": c.phone_masked(old["phone"]), "new_phone": number,
-                    "new_phone_display": c.phone_display(number), "verification_required": True, "sessions_revoked": True}
-            await c.db.identity_operations.insert_one({"key": key, "payload_hash": payload_hash, "result": body, "actor_id": user["id"],
-                                                       "at": ts, "expires_at": c.now() + c.timedelta(days=7)})
-            return body
+    # Reserve the key BEFORE any check: simultaneous requests with the same key never run the operation twice - the
+    # later one waits for the first and returns its result (a refusal releases the key, so the waiter then runs the
+    # same validation itself and receives the same refusal).
+    reserved_here = False
+    deadline = time.monotonic() + OPERATION_WAIT_SECONDS
+    while not reserved_here:
+        try:
+            await c.db.identity_operations.insert_one({"key": key, "payload_hash": payload_hash, "state": "pending", "actor_id": user["id"],
+                                                       "at": c.stamp(), "expires_at": c.now() + c.timedelta(days=7)})
+            reserved_here = True
+        except DuplicateKeyError:
+            prior = await c.db.identity_operations.find_one({"key": key}, {"_id": 0})
+            if not prior:
+                continue
+            if prior["payload_hash"] != payload_hash:
+                c.fail(409, "IDEMPOTENCY_MISMATCH", "This idempotency key was already used for a different request")
+            if prior["state"] == "done":
+                return await operation_replay(prior)
+            if time.monotonic() >= deadline:
+                break  # interrupted earlier request: the locked section below recovers or completes it
+            await asyncio.sleep(0.2)
+    applied = False
+    try:
+        async with c.lock("staff-directory", wait_seconds=5):
+            async with c.lock("identity:" + number, wait_seconds=5):
+                current_op = await c.db.identity_operations.find_one({"key": key}, {"_id": 0})
+                if current_op and current_op["state"] == "done":
+                    return await operation_replay(current_op)
+                if current_op and await operation_applied(current_op):
+                    applied = True
+                    return await complete_or_503(current_op, recovered=True)
+                old = await identity(ref)
+                await reconcile_phone_operations(old["id"])
+                role = phone_change_target(old)
+                if req.confirm_user_id != old["id"]:
+                    c.fail(409, "CONFIRMATION_REQUIRED", "Confirm the staff member's canonical ID")
+                current = c.phone(old["phone"])
+                if c.phone(req.expected_phone) != current:
+                    c.fail(409, "VERSION_CONFLICT", "The staff member's number changed since you opened the form; review and retry")
+                if number == current:
+                    c.fail(409, "PHONE_UNCHANGED", "This is already the current login number")
+                owner = await classify_number(number, old)
+                if owner["status"] == "customer":
+                    c.fail(409, "CUSTOMER_PROMOTION_REQUIRED", "This number belongs to an existing customer. Promote that customer "
+                           "to staff explicitly (their own account) or choose another number; the staff member being edited is unchanged")
+                if owner["status"] == "staff":
+                    c.fail(409, "PHONE_OWNED_BY_STAFF", f"This number already belongs to staff member {owner['owner']['name'] or '(no name)'}; "
+                           "disable or renumber that account first")
+                check_preview_token(req.preview_token, old["id"], current, number)
+                ts = c.stamp()
+                event = {"type": "staff_phone_changed", "actor_id": user["id"], "old_phone": old["phone"], "new_phone": number,
+                         "reason": req.reason, "at": ts, "operation_key": key}
+                intent = {"state": "validated", "target_id": old["id"], "target_role": role, "actor_role": user["role"],
+                          "old_phone": old["phone"], "new_phone": number, "event": event}
+                await c.db.identity_operations.update_one({"key": key}, {"$set": intent})
+                try:
+                    result = await c.db.users.update_one(
+                        {"id": old["id"], "phone": old["phone"], "session_version": old.get("session_version", 0)},
+                        {"$set": {"phone": number, "phone_normalized": number, "phone_verified": False, "updated_at": ts},
+                         "$unset": {"verified_at": ""}, "$inc": {"session_version": 1, "profile_version": 1},
+                         "$push": {"identity_events": event}})
+                except DuplicateKeyError:
+                    c.fail(409, "PHONE_CONFLICT", "This number was claimed by another account a moment ago; refresh and retry")
+                if not result.modified_count:
+                    c.fail(409, "VERSION_CONFLICT", "The staff record changed concurrently; review and retry")
+                applied = True
+                return await complete_or_503({"key": key, **intent})
+    finally:
+        if reserved_here and not applied:
+            # refused before any change: release the key so a corrected retry is not answered with a stale replay
+            await c.db.identity_operations.delete_one({"key": key, "state": {"$in": ["pending", "validated"]}})
+
+
+async def complete_or_503(doc, recovered=False):
+    """Every existing session of the affected account ends (app, website portal, refresh tokens) and the audit/replay
+    records are written; if that bookkeeping fails the change itself stands and the caller is told how to finish it."""
+    try:
+        return await finish_phone_change(doc, recovered=recovered)
+    except Exception:
+        c.fail(503, "OPERATION_INCOMPLETE", "The login number was changed but the audit record could not be completed; "
+               "submit again with the same idempotency key to finish the operation")
 
 
 @router.get("/executives")

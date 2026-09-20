@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { api, getImageUrl } from '../src/api';
+import { api, productImage } from '../src/api';
+import { IMAGE_PLACEHOLDER } from '../src/imagePlaceholder';
 import { showAlert } from '../src/utils/alert';
 
 export default function WishlistScreen() {
@@ -59,7 +61,7 @@ export default function WishlistScreen() {
               style={styles.card}
               onPress={() => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
             >
-              <Image source={{ uri: getImageUrl(p, true) }} style={styles.cardImage} />
+              <Image source={{ uri: productImage(p, 80) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
               <View style={styles.cardInfo}>
                 <Text style={styles.cardTitle} numberOfLines={2}>{p.title}</Text>
                 <Text style={styles.cardMeta}>{p.metal_type} {p.category ? `• ${p.category}` : ''}</Text>

@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api } from '../../src/api';
+import { displayPhone } from '../../src/phone';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS } from '../../src/i18n';
@@ -66,7 +67,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{user?.name || 'Jeweller'}</Text>
-            <Text style={styles.profilePhone}>+91 {user?.phone}</Text>
+            <Text style={styles.profilePhone}>{displayPhone(user?.phone || '')}</Text>
             <View style={styles.profileDetailRow}>
               <Ionicons name="storefront-outline" size={13} color={Colors.textSecondary} />
               <Text style={styles.profileDetailText}>{user?.shop_name || 'Shop name not set'}</Text>

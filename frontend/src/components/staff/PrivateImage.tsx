@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Platform, StyleProp, Text, ImageStyle } from 'react-native';
+import { Platform, StyleProp, Text, ImageStyle } from 'react-native';
+import { Image } from 'expo-image';
 import { API_BASE, authenticatedFetch, getToken, resolveFileUrl } from '../../api';
 import { ui } from './Controls';
 
+/** Admin-only media: authorised on every fetch and NEVER written to the device image cache (`cachePolicy="none"`). */
 export default function PrivateImage({id,url,style}:{id:string;url:string;style:StyleProp<ImageStyle>}) {
   const [uri,setUri]=useState(''),[error,setError]=useState('');
   const absolute=resolveFileUrl(url),canonical=absolute.startsWith(`${API_BASE}/`);
@@ -19,5 +21,5 @@ export default function PrivateImage({id,url,style}:{id:string;url:string;style:
     else setUri(absolute);
     return()=>{alive=false;if(objectUrl)URL.revokeObjectURL(objectUrl);};
   },[absolute,canonical]);
-  return uri&&!error?<Image testID={id} source={{uri,...(canonical?{headers:{Authorization:`Bearer ${getToken()}`}}:{})}} resizeMode="contain" style={style} onError={()=>setError('Image could not be loaded')}/>:<Text testID={`${id}-status`} style={error?ui.error:ui.muted}>{error||'Loading private image…'}</Text>;
+  return uri&&!error?<Image testID={id} source={{uri,...(canonical?{headers:{Authorization:`Bearer ${getToken()}`}}:{})}} contentFit="contain" cachePolicy="none" style={style as any} onError={()=>setError('Image could not be loaded')}/>:<Text testID={`${id}-status`} style={error?ui.error:ui.muted}>{error||'Loading private image…'}</Text>;
 }

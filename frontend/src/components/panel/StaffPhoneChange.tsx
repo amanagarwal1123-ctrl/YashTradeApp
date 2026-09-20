@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, FontSize } from '../../theme';
@@ -12,7 +12,7 @@ import type { CountryCode } from 'libphonenumber-js';
 type Staff = { id: string; name: string; phone: string; role: string };
 type Preview = {
   status: 'available' | 'customer' | 'staff' | 'unchanged';
-  outcome: string; new_phone: string; new_phone_display: string;
+  outcome: string; new_phone: string; new_phone_display: string; preview_token?: string;
   customer?: { id: string; name: string; masked_phone: string; role: string; account_status: string };
   owner?: { name: string; role: string; masked_phone: string };
 };
@@ -20,7 +20,10 @@ type Preview = {
 const newKey = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Administrator changes an ordinary staff member's LOGIN NUMBER (same account, role, code, assignments and history),
- *  or - when the number belongs to a customer - explicitly promotes that customer instead. Nothing is ever merged. */
+ *  or - when the number belongs to a customer - explicitly promotes that customer instead. Nothing is ever merged.
+ *  The confirmation shown is bound (server-signed) to this staff member, their current number and the checked number:
+ *  the submission always sends the CHECKED number, late or stale preview responses are ignored, and the field is
+ *  locked while a confirmation is on screen. */
 export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff: Staff; onClose: () => void; onChanged: () => void }) {
   const router = useRouter();
   const { logout } = useAuth();
@@ -33,33 +36,49 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
   const [error, setError] = useState('');
   const [done, setDone] = useState<string>('');
   const canonical = canonicalPhone(national, country);
-  // one key per (staff, number): a retried or double-tapped submit replays the same operation instead of repeating it
-  const idempotencyKey = useMemo(() => newKey(), [staff.id, canonical]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previewSeq = useRef(0);
+  // One key per confirmation: a double tap or a retry after a network / OPERATION_INCOMPLETE error replays the same
+  // operation; after any other refusal a fresh key is issued so a corrected submission is never answered with a replay.
+  const keyRef = useRef(newKey());
 
   const fail = (e: any) => {
     if (e?.code === 'RECENT_AUTH_REQUIRED') {
       confirmAlert('Sign in again to confirm', e.message, async () => { await logout(); router.replace('/login'); }, 'Sign in');
       return;
     }
+    if (e?.code !== 'OPERATION_INCOMPLETE' && e?.status) keyRef.current = newKey();
     setError(e?.message || 'Request failed');
   };
 
   const check = async () => {
     setError(''); setPreview(null);
     if (!canonical) { setError('Enter a valid number for the selected country'); return; }
+    const seq = ++previewSeq.current;
     setBusy(true);
-    try { setPreview(await api.post(`/integrations/staff/${staff.id}/phone/preview`, { new_phone: canonical })); }
-    catch (e: any) { fail(e); } finally { setBusy(false); }
+    try {
+      const res: Preview = await api.post(`/integrations/staff/${staff.id}/phone/preview`, { new_phone: canonical });
+      // ignore a response for a number that is no longer the one on screen
+      if (seq !== previewSeq.current || res.new_phone !== canonicalPhone(national, country)) return;
+      keyRef.current = newKey();
+      setPreview(res);
+    } catch (e: any) { if (seq === previewSeq.current) fail(e); } finally { if (seq === previewSeq.current) setBusy(false); }
   };
 
+  const editNumber = (c: CountryCode, v: string) => { previewSeq.current += 1; setCountry(c); setNational(v); setPreview(null); setError(''); };
+
   const change = async () => {
-    if (!preview || !canonical) return;
+    if (!preview?.preview_token) return;
     if (reason.trim().length < 10) { setError('Give an audit reason of at least 10 characters'); return; }
     setBusy(true); setError('');
+    const body = { new_phone: preview.new_phone, reason: reason.trim(), confirm_user_id: staff.id, expected_phone: staff.phone,
+      idempotency_key: keyRef.current, preview_token: preview.preview_token };
     try {
-      const res = await api.post(`/integrations/staff/${staff.id}/phone`, {
-        new_phone: canonical, reason: reason.trim(), confirm_user_id: staff.id, expected_phone: staff.phone, idempotency_key: idempotencyKey,
-      });
+      let res: any;
+      try { res = await api.post(`/integrations/staff/${staff.id}/phone`, body); }
+      catch (e: any) {
+        if (e?.code !== 'OPERATION_INCOMPLETE') throw e;
+        res = await api.post(`/integrations/staff/${staff.id}/phone`, body); // same key: finishes the interrupted bookkeeping
+      }
       setDone(`${staff.name} now signs in with ${res.new_phone_display}. All their sessions were signed out; the new number must be verified by OTP at the next sign-in.`);
       onChanged();
     } catch (e: any) { fail(e); } finally { setBusy(false); }
@@ -91,7 +110,7 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
             ) : (
               <>
                 <Text style={st.label}>New login number</Text>
-                <PhoneField testID="staff-new-phone" country={country} national={national} onChange={(c, v) => { setCountry(c); setNational(v); setPreview(null); setError(''); }} />
+                <PhoneField testID="staff-new-phone" country={country} national={national} editable={!preview} onChange={editNumber} />
                 <Text style={st.label}>Reason (recorded in the audit log)</Text>
                 <TextInput testID="staff-phone-reason" style={st.input} value={reason} onChangeText={setReason} placeholder="e.g. Handset lost, new company SIM issued" placeholderTextColor={Colors.textMuted} maxLength={500} multiline />
                 {!preview && (
@@ -122,7 +141,7 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
                     )}
                     {preview.status === 'available' && (
                       <>
-                        <Text style={st.cardTitle}>Change {staff.name}'s login number to {preview.new_phone_display}?</Text>
+                        <Text style={st.cardTitle}>Change {staff.name}&apos;s login number to {preview.new_phone_display}?</Text>
                         <Text style={st.cardBody}>{preview.outcome}</Text>
                         <TouchableOpacity testID="staff-phone-confirm" style={[st.primary, busy && st.disabled]} disabled={busy} onPress={change}>
                           {busy ? <ActivityIndicator color="#000" /> : <Text style={st.primaryText}>YES, CHANGE LOGIN NUMBER</Text>}
@@ -130,7 +149,7 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
                       </>
                     )}
                     {(preview.status === 'staff' || preview.status === 'unchanged') && <Text style={st.cardBody}>{preview.outcome}</Text>}
-                    <TouchableOpacity testID="staff-phone-recheck" style={st.secondary} onPress={() => setPreview(null)}><Text style={st.secondaryText}>Use a different number</Text></TouchableOpacity>
+                    <TouchableOpacity testID="staff-phone-recheck" style={st.secondary} onPress={() => { previewSeq.current += 1; setPreview(null); }}><Text style={st.secondaryText}>Use a different number</Text></TouchableOpacity>
                   </View>
                 )}
                 {error ? <Text style={st.error} testID="staff-phone-error">{error}</Text> : null}

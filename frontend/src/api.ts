@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { PixelRatio, Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 export const BACKEND_URL = Constants.expoConfig?.extra?.backendUrl || process.env.EXPO_PUBLIC_BACKEND_URL || '';
@@ -7,6 +7,14 @@ export const API_BASE = `${BACKEND_URL}/api`;
 let authToken: string | null = null;
 let webRefresh: string | null = null;
 let refreshing: Promise<void> | null = null;
+// Session epoch: bumped whenever the signed-in identity changes (login, logout, deletion, revoked session). A response
+// that started under an older epoch is discarded, so a slow request can never restore the previous account's data.
+let sessionEpoch = 0;
+export const currentSession = () => sessionEpoch;
+export const endSession = () => { sessionEpoch += 1; };
+export class SessionChangedError extends Error {
+  constructor() { super('Session changed before the response arrived'); this.name = 'SessionChangedError'; }
+}
 export const setToken = (token: string | null) => { authToken = token; };
 export const getToken = () => authToken;
 export const setRefreshToken = async (token: string | null) => {
@@ -15,11 +23,15 @@ export const setRefreshToken = async (token: string | null) => {
   else await SecureStore.deleteItemAsync('refresh_token');
 };
 
+let sessionLost: (() => void) | null = null;
+/** Registered by the auth provider: runs when a refresh fails (expired/revoked session) so caches and state are dropped. */
+export const onSessionLost = (handler: (() => void) | null) => { sessionLost = handler; };
+
 async function refreshSession() {
   const refresh = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
-  if (!refresh) throw new Error('Please sign in again');
+  if (!refresh) { sessionLost?.(); throw new Error('Please sign in again'); }
   const response = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
-  if (!response.ok) { await setRefreshToken(null); setToken(null); throw new Error('Session expired; please sign in again'); }
+  if (!response.ok) { await setRefreshToken(null); setToken(null); sessionLost?.(); throw new Error('Session expired; please sign in again'); }
   const data = await response.json();
   setToken(data.token); await setRefreshToken(data.refresh_token);
   if (Platform.OS !== 'web') await SecureStore.setItemAsync('auth_token', data.token);
@@ -52,7 +64,10 @@ export async function responseJson(res: Response) {
 }
 
 async function request(path: string, method = 'GET', body?: any) {
-  return responseJson(await authenticatedFetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }));
+  const epoch = sessionEpoch;
+  const response = await authenticatedFetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (epoch !== sessionEpoch) throw new SessionChangedError();
+  return responseJson(response);
 }
 let uploadController: AbortController | null = null;
 export const cancelUpload = () => uploadController?.abort();
@@ -82,13 +97,47 @@ export const api = {
 };
 
 export const resolveFileUrl = (url: string): string => !url ? '' : /^https?:\/\//.test(url) ? url : `${BACKEND_URL}${url}`;
+
+// Display variants served by GET /api/files/{path}?w= (400 | 800, JPEG, derived from the write-once master). The
+// device-pixel need is capped at 2x: a 3x phone gets the same bytes as a 2x one, which is visually sufficient for
+// catalogue cards and keeps mobile data bounded. Full-resolution originals are fetched only where zoom matters.
+export const VARIANT_WIDTHS = [400, 800] as const;
+export type Variant = (typeof VARIANT_WIDTHS)[number];
+export const variantFor = (displayWidthDp: number, pixelRatio = PixelRatio.get()): Variant => {
+  const needed = displayWidthDp * Math.min(2, Math.max(1, pixelRatio));
+  return needed <= 400 ? 400 : 800;
+};
+const fileUrl = (path: string, width?: Variant) => `${API_BASE}/files/${path}${width ? `?w=${width}` : ''}`;
+
+/**
+ * Card / list image for a product at the given display width (dp). Prefers the stored thumbnail when it already
+ * covers the need (no server work), otherwise a sized variant of the master; legacy external URLs pass through.
+ */
+export const productImage = (product: any, displayWidthDp: number): string => {
+  const width = variantFor(displayWidthDp);
+  if (product?.thumbnail_path && width <= 400) return fileUrl(product.thumbnail_path);
+  if (product?.storage_path) return fileUrl(product.storage_path, width);
+  if (product?.thumbnail_path) return fileUrl(product.thumbnail_path);
+  return resolveFileUrl(product?.images?.[0] || '');
+};
+/** Smallest available image: shown instantly as the placeholder while a larger one loads. */
+export const productThumb = (product: any): string => product?.thumbnail_path ? fileUrl(product.thumbnail_path)
+  : product?.storage_path ? fileUrl(product.storage_path, 400) : resolveFileUrl(product?.images?.[0] || '');
+/** Full-resolution master for detail zoom. */
+export const productFull = (product: any): string => product?.storage_path ? fileUrl(product.storage_path) : resolveFileUrl(product?.images?.[0] || '');
+/** Sized variant of any stored gallery URL (`…/api/files/<path>`); external URLs are returned as they are. */
+export const sizedUrl = (url: string, displayWidthDp: number): string => {
+  const prefix = `${API_BASE}/files/`;
+  return url.startsWith(prefix) && !url.includes('?') ? `${url}?w=${variantFor(displayWidthDp)}` : url;
+};
+
 export const getImageUrl = (product: any, thumbnail = true): string => {
-  if (thumbnail && product?.thumbnail_path) return `${API_BASE}/files/${product.thumbnail_path}`;
-  if (product?.storage_path) return `${API_BASE}/files/${product.storage_path}`;
+  if (thumbnail && product?.thumbnail_path) return fileUrl(product.thumbnail_path);
+  if (product?.storage_path) return fileUrl(product.storage_path);
   return resolveFileUrl(product?.images?.[0] || '');
 };
 export const getProductGallery = (product: any): string[] => [...new Set<string>([
-  ...(product?.original_source_storage_path ? [`${API_BASE}/files/${product.original_source_storage_path}`] : []),
+  ...(product?.original_source_storage_path ? [fileUrl(product.original_source_storage_path)] : []),
   ...(product?.storage_path ? [getImageUrl(product, false)] : []),
   ...(product?.images || []).map(resolveFileUrl),
 ].filter(Boolean))];

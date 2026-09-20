@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import PhoneField from '../src/components/PhoneField';
-import { canonicalPhone, DEFAULT_COUNTRY } from '../src/phone';
+import { canonicalPhone, displayPhone, DEFAULT_COUNTRY } from '../src/phone';
 import type { CountryCode } from 'libphonenumber-js';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
@@ -107,7 +107,7 @@ export default function EditProfileScreen() {
           {!completing && (<>
           <Text style={st.label}>PHONE NUMBER</Text>
           <View style={st.phoneRow}>
-            <Text style={st.phoneValue}>+91 {user?.phone}</Text>
+            <Text style={st.phoneValue}>{displayPhone(user?.phone || '')}</Text>
             <View style={st.verifiedBadge}>
               <Ionicons name="shield-checkmark" size={12} color={Colors.success} />
               <Text style={st.verifiedText}>Verified</Text>

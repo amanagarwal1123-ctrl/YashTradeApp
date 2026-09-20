@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
+import { displayPhone } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 
@@ -93,7 +94,7 @@ export default function DeleteAccountScreen() {
 
           {step === 'info' ? (
             <TouchableOpacity testID="delete-send-otp" style={[st.dangerBtn, busy && { opacity: 0.5 }]} onPress={requestOtp} disabled={busy}>
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={st.dangerBtnText}>SEND OTP TO +91 {user?.phone}</Text>}
+              {busy ? <ActivityIndicator color="#fff" /> : <Text style={st.dangerBtnText}>SEND OTP TO {displayPhone(user?.phone || '')}</Text>}
             </TouchableOpacity>
           ) : (
             <View style={st.otpCard}>
@@ -103,7 +104,7 @@ export default function DeleteAccountScreen() {
                   <Text style={st.reviewNoteTitle}>STORE-REVIEW ENVIRONMENT</Text>
                   <Text style={st.reviewNoteText}>SMS is simulated for sample accounts. Your one-time code is <Text style={st.reviewNoteCode}>{simulatedOtp}</Text>. Deleting removes the data of this sample profile; the next reviewer sign-in starts a fresh sample profile.</Text>
                 </View>
-              ) : <Text style={st.hint}>Enter the 4-digit code sent to +91 {user?.phone}</Text>}
+              ) : <Text style={st.hint}>Enter the 4-digit code sent to {displayPhone(user?.phone || '')}</Text>}
               <TextInput
                 testID="delete-otp-input"
                 style={st.otpInput}

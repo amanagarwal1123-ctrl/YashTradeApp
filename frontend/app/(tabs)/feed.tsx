@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, TextInput, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api, getImageUrl } from '../../src/api';
+import { api, productImage, SessionChangedError } from '../../src/api';
+import { cachedGet, swrGet } from '../../src/dataCache';
+import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { showAlert } from '../../src/utils/alert';
 import { useLang } from '../../src/context/LanguageContext';
 
@@ -15,6 +18,9 @@ const METALS = ['All', 'silver', 'gold', 'diamond'];
 export default function FeedScreen() {
   const router = useRouter();
   const { t } = useLang();
+  const { width: windowWidth } = useWindowDimensions();
+  // two columns inside the horizontal padding, 48.5 % each
+  const cardWidth = (windowWidth - Spacing.lg * 2) * 0.485;
   const params = useLocalSearchParams<{ category?: string; metal?: string }>();
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(1);
@@ -36,7 +42,7 @@ export default function FeedScreen() {
     if (typeof params.category === 'string' && params.category !== category) setCategory(params.category);
   }, [params.metal, params.category]);
 
-  const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false) => {
+  const fetchProducts = useCallback(async (p: number = 1, refresh: boolean = false, force: boolean = false) => {
     if (loadingMore && p > 1) return;
     try {
       setLoadError(false);
@@ -45,23 +51,26 @@ export default function FeedScreen() {
       if (category) qs.set('category', category);
       if (metal) qs.set('metal_type', metal);
       if (search) qs.set('search', search);
-      const res = await api.get(`/products?${qs}`);
-      const newProducts = res.products || [];
-      if (refresh || p === 1) {
-        setProducts(newProducts);
-      } else {
-        setProducts(prev => Array.from(new Map([...prev, ...newProducts].map(p=>[p.id,p])).values()));
-      }
-      setTotalPages(res.pages || 1);
-      setPage(p);
-      setHasMore(p < (res.pages || 1));
-    } catch (e) { console.error(e); if (p === 1) setLoadError(true); }
+      const path = `/products?${qs}`;
+      const apply = (res: any) => {
+        const newProducts = res.products || [];
+        if (refresh || p === 1) setProducts(newProducts);
+        else setProducts(prev => Array.from(new Map([...prev, ...newProducts].map(x => [x.id, x])).values()));
+        setTotalPages(res.pages || 1);
+        setPage(p);
+        setHasMore(p < (res.pages || 1));
+        setLoading(false);
+      };
+      // Page 1 paints instantly from the persisted copy and is revalidated; deeper pages share one de-duplicated request.
+      if (p === 1 && !search) await swrGet(path, apply, { force });
+      else apply(await cachedGet(path, { force }));
+    } catch (e) { if (!(e instanceof SessionChangedError)) { console.error(e); if (p === 1) setLoadError(true); } }
     finally { setLoading(false); setLoadingMore(false); setRefreshing(false); }
   }, [category, metal, search, loadingMore]);
 
   useEffect(() => { fetchProducts(1, true); }, [category, metal]);
 
-  const onRefresh = () => { setRefreshing(true); setHasMore(true); fetchProducts(1, true); };
+  const onRefresh = () => { setRefreshing(true); setHasMore(true); fetchProducts(1, true, true); };
   const loadMore = () => { if (!loadingMore && hasMore && page < totalPages) fetchProducts(page + 1); };
   const doSearch = () => fetchProducts(1, true);
 
@@ -85,11 +94,12 @@ export default function FeedScreen() {
   };
 
   const renderItem = ({ item, index }: { item: Product; index: number }) => {
-    const thumbUri = getImageUrl(item, true);
+    const thumbUri = productImage(item, cardWidth);
     const isAdded = cartAdded === item.id;
     return (
       <TouchableOpacity testID={`feed-item-${item.id}`} style={styles.card} onPress={() => openViewer(index)} activeOpacity={0.85}>
-        <Image source={{ uri: thumbUri }} style={styles.cardImage} />
+        <Image source={{ uri: thumbUri }} placeholder={IMAGE_PLACEHOLDER} placeholderContentFit="cover" contentFit="cover" transition={150}
+          cachePolicy="memory-disk" recyclingKey={item.id} style={styles.cardImage} accessibilityLabel={item.title} />
         <View style={styles.cardOverlay}>
           <View style={styles.cardBadge}>
             <Text style={styles.cardBadgeText}>{item.metal_type?.toUpperCase()}</Text>
@@ -160,7 +170,7 @@ export default function FeedScreen() {
         <View style={styles.errorBox} testID="feed-error">
           <Ionicons name="cloud-offline-outline" size={36} color={Colors.error} />
           <Text style={styles.errorText}>Could not load products. Please check your connection.</Text>
-          <TouchableOpacity testID="feed-retry" style={styles.retryBtn} onPress={() => fetchProducts(1, true)}>
+          <TouchableOpacity testID="feed-retry" style={styles.retryBtn} onPress={() => fetchProducts(1, true, true)}>
             <Text style={styles.retryBtnText}>Retry</Text>
           </TouchableOpacity>
         </View>

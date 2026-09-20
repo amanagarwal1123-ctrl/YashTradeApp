@@ -1,10 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api, getImageUrl } from '../../src/api';
+import { api, productImage, SessionChangedError } from '../../src/api';
+import { cachedGet, swrGet } from '../../src/dataCache';
+import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { showAlert } from '../../src/utils/alert';
@@ -15,7 +18,11 @@ interface Story { id: string; title: string; image_url: string; category: string
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
 
 type MetalTab = 'silver' | 'gold';
+type CatalogPage = { items: Product[]; page: number; pages: number; loading: boolean; loaded: boolean };
 const PAGE_SIZE = 20;
+const EMPTY_PAGE: CatalogPage = { items: [], page: 0, pages: 1, loading: false, loaded: false };
+const productsPath = (metal: MetalTab, page: number) => `/products?metal_type=${metal}&page=${page}&limit=${PAGE_SIZE}`;
+const mergeProducts = (previous: Product[], next: Product[]) => Array.from(new Map([...previous, ...next].map(p => [p.id, p])).values());
 
 const QuickAction = ({ icon, label, color, onPress, testID }: any) => (
   <TouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}>
@@ -30,12 +37,12 @@ export default function HomeScreen() {
   const { user, refreshUser } = useAuth();
   const { language } = useLang();
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = windowWidth - Spacing.lg * 2;
   const [stories, setStories] = useState<Story[]>([]);
-  const [silverProducts, setSilverProducts] = useState<Product[]>([]);
-  const [goldProducts, setGoldProducts] = useState<Product[]>([]);
+  const [catalog, setCatalog] = useState<Record<MetalTab, CatalogPage>>({ silver: EMPTY_PAGE, gold: EMPTY_PAGE });
   // Silver is the default on every fresh app launch (not persisted)
   const [metal, setMetal] = useState<MetalTab>('silver');
-  const [visibleCount, setVisibleCount] = useState<Record<MetalTab, number>>({ silver: PAGE_SIZE, gold: PAGE_SIZE });
   const [cartCount, setCartCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -48,38 +55,52 @@ export default function HomeScreen() {
   };
   const t = T[language] || T.en;
 
-  const loadData = useCallback(async () => {
+  /** Server-side pages of 20. Page 1 paints instantly from the persisted copy and is revalidated; `force` bypasses caches. */
+  const loadPage = useCallback(async (m: MetalTab, page: number, force = false) => {
+    setCatalog(prev => ({ ...prev, [m]: { ...prev[m], loading: true } }));
+    const apply = (res: any) => setCatalog(prev => ({ ...prev, [m]: {
+      items: page === 1 ? (res.products || []) : mergeProducts(prev[m].items, res.products || []),
+      page, pages: res.pages || 1, loading: false, loaded: true } }));
+    try {
+      if (page === 1) await swrGet(productsPath(m, 1), apply, { force });
+      else apply(await cachedGet(productsPath(m, page)));
+    } catch (e) {
+      setCatalog(prev => ({ ...prev, [m]: { ...prev[m], loading: false } }));
+      throw e;
+    }
+  }, []);
+
+  const loadData = useCallback(async (force = false) => {
     try {
       setLoadError(false);
-      const [storyRes, silverRes, goldRes, cartRes] = await Promise.all([
-        api.get('/stories').catch(() => ({ stories: [] })),
-        api.get('/products?metal_type=silver&limit=100'),
-        api.get('/products?metal_type=gold&limit=100'),
+      const [, cartRes] = await Promise.all([
+        swrGet('/stories', res => setStories(res.stories || []), { force }).catch(() => setStories([])),
         api.get('/cart/count').catch(() => ({ count: 0 })),
+        loadPage('silver', 1, force),
       ]);
-      setStories(storyRes.stories || []);
-      setSilverProducts(silverRes.products || []);
-      setGoldProducts(goldRes.products || []);
       setCartCount(cartRes.count || 0);
       refreshUser(); // profile completeness / website-conflict cards reflect the latest account state
-    } catch (e) { console.error(e); setLoadError(true); }
+    } catch (e) { if (!(e instanceof SessionChangedError)) { console.error(e); setLoadError(true); } }
     finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  }, [loadPage]);
 
   useEffect(() => { loadData(); }, []);
 
-  const onRefresh = () => { setRefreshing(true); loadData(); };
+  // Gold is fetched the first time it is shown (lazy), never up front with silver.
+  useEffect(() => {
+    if (metal === 'gold' && !catalog.gold.loaded && !catalog.gold.loading) loadPage('gold', 1).catch(() => setLoadError(true));
+  }, [metal]);
 
-  const allProducts = metal === 'silver' ? silverProducts : goldProducts;
-  const displayProducts = allProducts.slice(0, visibleCount[metal]);
+  const onRefresh = () => { setRefreshing(true); setCatalog(prev => ({ ...prev, gold: prev.gold.loaded ? { ...prev.gold, loaded: false } : prev.gold })); loadData(true); };
+
+  const current = catalog[metal];
+  const displayProducts = current.items;
 
   const loadMoreProducts = useCallback(() => {
-    setVisibleCount(prev => {
-      const total = metal === 'silver' ? silverProducts.length : goldProducts.length;
-      if (total === 0 || prev[metal] >= total) return prev;
-      return { ...prev, [metal]: Math.min(prev[metal] + PAGE_SIZE, total) };
-    });
-  }, [metal, silverProducts.length, goldProducts.length]);
+    const state = catalog[metal];
+    if (state.loading || !state.loaded || state.page >= state.pages) return;
+    loadPage(metal, state.page + 1).catch(() => {});
+  }, [metal, catalog, loadPage]);
 
   const handleStoryPress = (story: Story) => {
     if (story.link_type === 'category' && story.link_id) {
@@ -110,7 +131,9 @@ export default function HomeScreen() {
 
   const renderProduct = useCallback(({ item: p }: { item: Product }) => (
     <TouchableOpacity testID={`product-card-${p.id}`} style={styles.productCard} onPress={() => router.push({ pathname: '/product/[id]', params: { id: p.id } })} activeOpacity={0.8}>
-      <Image source={{ uri: getImageUrl(p, false) }} style={styles.productImage} />
+      {/* Sized card variant (never the full-resolution original), cached on the device, neutral placeholder while loading */}
+      <Image source={{ uri: productImage(p, cardWidth) }} placeholder={IMAGE_PLACEHOLDER} placeholderContentFit="cover" contentFit="cover"
+        transition={150} cachePolicy="memory-disk" recyclingKey={p.id} style={styles.productImage} accessibilityLabel={p.title} />
       <View style={styles.productInfo}>
         <View style={styles.productBadges}>
           <View style={[styles.badge, { backgroundColor: p.metal_type === 'gold' ? '#D4AF3720' : p.metal_type === 'diamond' ? '#3B82F620' : '#E0E0E020' }]}>
@@ -134,7 +157,7 @@ export default function HomeScreen() {
         </View>
       </View>
     </TouchableOpacity>
-  ), [t]);
+  ), [t, cardWidth]);
 
   const headerComponent = useCallback(() => (
     <>
@@ -177,7 +200,7 @@ export default function HomeScreen() {
           <FlatList horizontal data={stories} keyExtractor={s => s.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesRow}
             renderItem={({ item: s }) => (
               <TouchableOpacity testID={`story-${s.id}`} onPress={() => handleStoryPress(s)} activeOpacity={0.7}>
-                <View style={styles.storyItem}><View style={styles.storyRing}><Image source={{ uri: s.image_url }} style={styles.storyImage} /></View><Text style={styles.storyTitle} numberOfLines={1}>{s.title}</Text></View>
+                <View style={styles.storyItem}><View style={styles.storyRing}><Image source={{ uri: s.image_url }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={150} cachePolicy="memory-disk" style={styles.storyImage} /></View><Text style={styles.storyTitle} numberOfLines={1}>{s.title}</Text></View>
               </TouchableOpacity>
             )}
           />
@@ -213,7 +236,7 @@ export default function HomeScreen() {
           <View style={styles.errorBox} testID="home-error">
             <Ionicons name="cloud-offline-outline" size={18} color={Colors.error} />
             <Text style={styles.errorBoxText}>{t.loadFailed}</Text>
-            <TouchableOpacity testID="home-retry" style={styles.retryBtn} onPress={() => { setLoading(true); loadData(); }}>
+            <TouchableOpacity testID="home-retry" style={styles.retryBtn} onPress={() => { setLoading(true); loadData(true); }}>
               <Text style={styles.retryBtnText}>{t.retry}</Text>
             </TouchableOpacity>
           </View>
@@ -235,19 +258,19 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
         onEndReached={loadMoreProducts}
         onEndReachedThreshold={0.5}
-        initialNumToRender={8}
-        maxToRenderPerBatch={8}
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
         windowSize={5}
         removeClippedSubviews={true}
         contentContainerStyle={{ paddingHorizontal: Spacing.lg, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={!loadError ? (
+        ListEmptyComponent={!loadError && current.loaded ? (
           <View style={styles.emptyBox} testID="home-empty">
             <Ionicons name="cube-outline" size={36} color={Colors.textMuted} />
             <Text style={styles.emptyBoxText}>{metal === 'silver' ? t.emptySilver : t.emptyGold}</Text>
           </View>
         ) : null}
-        ListFooterComponent={displayProducts.length > 0 && displayProducts.length < allProducts.length ? <ActivityIndicator color={Colors.gold} style={{ paddingVertical: 20 }} /> : null}
+        ListFooterComponent={current.loading || (displayProducts.length > 0 && current.page < current.pages) ? <ActivityIndicator testID="home-loading-more" color={Colors.gold} style={{ paddingVertical: 20 }} /> : null}
       />
     </SafeAreaView>
   );

@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { api, setToken, setRefreshToken, getToken } from '../api';
+import { api, setToken, setRefreshToken, getToken, endSession, onSessionLost } from '../api';
+import { clearCaches, setCacheIdentity, cacheIdentity } from '../dataCache';
 
 // Secure token storage: SecureStore on devices. On web the session is memory-only (never persisted): the
 // module-level token survives a navigator reset that remounts this provider, but not a page reload.
@@ -69,44 +70,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Expired or revoked session (e.g. an administrator changed this staff member's number): drop state and caches.
+    onSessionLost(() => { endSession(); setCacheIdentity(null); clearCaches(); tokenStore.remove(); setUser(null); });
     (async () => {
       try {
         const token = await tokenStore.get();
         if (token) {
           setToken(token);
           const me = await api.get('/auth/me');
+          setCacheIdentity(me);
           setUser(me);
         }
-      } catch (e) {
+      } catch {
         await tokenStore.remove();
         setToken(null);
+        await clearCaches();
       } finally {
         setLoading(false);
       }
     })();
+    return () => onSessionLost(null);
   }, []);
 
   const login = async (token: string, userData: User, refreshToken?: string) => {
+    // A new identity starts: nothing from a previous account (memory, disk or an in-flight response) may carry over.
+    endSession();
+    setCacheIdentity(null);
+    await clearCaches();
     await tokenStore.set(token);
     setToken(token);
     await setRefreshToken(refreshToken || null);
     const me = await api.get('/auth/me');
     if (!['customer', 'admin', 'telecaller', 'billing_executive'].includes(me.role)) throw new Error('Unknown account role');
+    setCacheIdentity(me);
     setUser(me);
     return me;
   };
 
   const logout = async () => {
     try { await api.post('/auth/logout'); } catch { /* Local tokens are still removed if offline. */ }
+    endSession();
     await setRefreshToken(null);
     await tokenStore.remove();
     setToken(null);
+    setCacheIdentity(null);
+    await clearCaches();
     setUser(null);
   };
 
   const refreshUser = async () => {
     try {
       const me = await api.get('/auth/me');
+      const before = cacheIdentity();
+      setCacheIdentity(me);
+      if (before !== 'anon' && cacheIdentity() !== before) await clearCaches(); // role / permission change
       setUser(me);
     } catch {}
   };

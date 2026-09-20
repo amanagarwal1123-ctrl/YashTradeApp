@@ -225,7 +225,7 @@ async def test_interrupted_upload_resumes_without_duplicates_and_adopted_master_
     for path in (product["storage_path"], product["thumbnail_path"]):
         public = await api_client.get(f"/api/files/{path}")
         assert public.status_code == 200 and public.headers["content-type"].startswith("image/png"), path
-        assert public.headers["cache-control"] == "private, no-store"
+        assert public.headers["cache-control"] == "private, max-age=86400" and public.headers["etag"]
     assert (await api_client.get(f"/api/files/{product['storage_path']}", headers=_auth(customer))).status_code == 200
     # Previews nobody adopted, and source chunks, stay behind the owner-bound job routes.
     assert (await api_client.get(f"/api/files/{excluded['preview_path']}", headers=_auth(token))).status_code == 404

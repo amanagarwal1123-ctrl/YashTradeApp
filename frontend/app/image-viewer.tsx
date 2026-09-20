@@ -1,9 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../src/theme';
-import { api, getProductGallery } from '../src/api';
+import { api, getProductGallery, productThumb, sizedUrl, SessionChangedError } from '../src/api';
+import { cachedGet } from '../src/dataCache';
+import { IMAGE_PLACEHOLDER } from '../src/imagePlaceholder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../src/context/AuthContext';
 
@@ -36,19 +39,19 @@ export default function ImageViewerScreen() {
         setHasMore(p < (res.pages || 1));
         setPage(p);
       } else if (typeof ids === 'string' && ids.length > 0) {
-        // Stable ordered list passed from the source screen — guarantees continuity
-        const res = await api.get(`/products?ids=${encodeURIComponent(ids)}`);
+        // Stable ordered list passed from the source screen — guarantees continuity (shared, de-duplicated request)
+        const res = await cachedGet(`/products?ids=${encodeURIComponent(ids)}`);
         setImages(res.products || []);
         setHasMore(false);
       } else if (productId) {
         // Load the selected product directly by its ID
-        const p2 = await api.get(`/products/${productId}`);
+        const p2 = await cachedGet(`/products/${productId}`);
         setImages(p2 && p2.id ? [p2] : []);
         setHasMore(false);
       } else {
         setImages([]);
       }
-    } catch (e) { console.error(e); setLoadError(true); }
+    } catch (e) { if (!(e instanceof SessionChangedError)) { console.error(e); setLoadError(true); } }
     finally { setLoading(false); }
   }, [batchId, ids, productId]);
 
@@ -112,6 +115,8 @@ export default function ImageViewerScreen() {
 
   const productPhotos = getProductGallery(currentItem);
   const fullUri = productPhotos[photoIndex] || productPhotos[0] || '';
+  // thumbnail (already cached from the list) first, full-resolution photo replaces it when ready; zoom keeps the full image
+  const previewUri = photoIndex === 0 ? productThumb(currentItem) : sizedUrl(fullUri, 400);
   const title = currentItem.title || '';
   const meta = [currentItem.metal_type, currentItem.category].filter(Boolean).join(' • ');
 
@@ -140,7 +145,8 @@ export default function ImageViewerScreen() {
         style={styles.imageContainer}
         testID="viewer-zoom-scroll"
       >
-        <Image source={{ uri: fullUri }} style={styles.fullImage} resizeMode="contain" testID="viewer-main-image" />
+        <Image source={{ uri: fullUri }} placeholder={previewUri ? { uri: previewUri } : IMAGE_PLACEHOLDER} placeholderContentFit="contain" contentFit="contain"
+          transition={200} cachePolicy="memory-disk" style={styles.fullImage} testID="viewer-main-image" accessibilityLabel={title || 'Product photograph'} />
       </ScrollView>
 
       {/* Zoom hint */}
@@ -164,7 +170,7 @@ export default function ImageViewerScreen() {
       {/* Bottom Info */}
       <View style={[styles.bottomInfo, {paddingBottom: Math.max(insets.bottom, 16)}]}>
         {productPhotos.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoStrip}>
-          {productPhotos.map((uri,index)=><TouchableOpacity key={uri} testID={`viewer-photo-${index}`} accessibilityLabel={`Product photograph ${index+1}`} onPress={()=>setPhotoIndex(index)} style={[styles.photoThumb, photoIndex===index && styles.photoSelected]}><Image source={{uri}} style={styles.fullImage} resizeMode="contain"/></TouchableOpacity>)}
+          {productPhotos.map((uri,index)=><TouchableOpacity key={uri} testID={`viewer-photo-${index}`} accessibilityLabel={`Product photograph ${index+1}`} onPress={()=>setPhotoIndex(index)} style={[styles.photoThumb, photoIndex===index && styles.photoSelected]}><Image source={{uri: sizedUrl(uri, 54)}} placeholder={IMAGE_PLACEHOLDER} cachePolicy="memory-disk" style={styles.fullImage} contentFit="contain"/></TouchableOpacity>)}
         </ScrollView>}
         {user?.role==='admin' && <TouchableOpacity testID="viewer-manage-photos" style={styles.photoManage} onPress={()=>router.push({pathname:'/product-photos',params:{id:currentItem.id}})}><Text style={styles.imageMeta}>Manage product photographs</Text></TouchableOpacity>}
         {title ? <Text style={styles.imageTitle} numberOfLines={1}>{title}</Text> : null}

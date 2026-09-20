@@ -156,10 +156,21 @@ async def update_product(pid: str, updates: dict, user=Depends(c.admin)):
     return doc
 
 
+# Cache policy. Stored objects are write-once: every upload, import row and thumbnail gets a fresh unique path and a
+# replaced photo is a NEW path (identical rewrites are reused, never changed), so a public URL always names the same
+# bytes and may be cached by the signed-in device for a day. Anything that is not public catalogue/banner media
+# (hidden or deleted products, import previews, admin-only masters) stays `no-store` and is re-authorised every time.
+PUBLIC_CACHE = "private, max-age=86400"
+PRIVATE_CACHE = "private, no-store"
+
+
 @router.get("/files/{path:path}")
-async def media(path: str, authorization: str | None = Header(None)):
+async def media(path: str, authorization: str | None = Header(None), w: int | None = None, if_none_match: str | None = Header(None)):
+    from .media_cache import VARIANT_WIDTHS, cached_get, etag_of
     if ".." in path or not re.fullmatch(r"[A-Za-z0-9_./-]+", path):
         c.fail(404, "MEDIA_NOT_FOUND", "Image not found")
+    if w is not None and w not in VARIANT_WIDTHS:
+        c.fail(422, "INVALID_VARIANT", f"Supported display widths: {', '.join(map(str, VARIANT_WIDTHS))}")
     # Private uploads and previews never inherit public catalog access.
     product = await c.db.products.find_one({"is_deleted": {"$ne": True}, "$or": [{"storage_path": path}, {"thumbnail_path": path},
         {"original_source_storage_path": path}, {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1, "visibility": 1})
@@ -175,11 +186,14 @@ async def media(path: str, authorization: str | None = Header(None)):
         if user["role"] != "admin":
             c.fail(403, "MEDIA_PRIVATE", "This media is private")
     try:
-        from .media_cache import cached_get
-        data, content_type = await cached_get(path, bool(public))
+        data, content_type = await cached_get(path, bool(public), w)
     except Exception:
         c.fail(404, "MEDIA_NOT_FOUND", "Image could not be loaded")
-    return Response(data, media_type=content_type, headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    etag = etag_of(data)
+    headers = {"Cache-Control": PUBLIC_CACHE if public else PRIVATE_CACHE, "ETag": etag, "X-Content-Type-Options": "nosniff", "Vary": "Authorization"}
+    if if_none_match and etag in [tag.strip() for tag in if_none_match.split(",")]:
+        return Response(status_code=304, headers=headers)
+    return Response(data, media_type=content_type, headers=headers)
 
 
 async def latest():

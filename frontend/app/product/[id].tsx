@@ -1,36 +1,42 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
-import { api, getProductGallery } from '../../src/api';
+import { api, getProductGallery, productThumb, sizedUrl, SessionChangedError } from '../../src/api';
+import { swrGet } from '../../src/dataCache';
+import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { showAlert } from '../../src/utils/alert';
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [currentImage, setCurrentImage] = useState(0);
+  const [fullLoaded, setFullLoaded] = useState(false);
   const [wishlisted, setWishlisted] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
 
   const loadProduct = async () => {
     try {
       setLoadError(false);
-      const p = await api.get(`/products/${id}`);
-      setProduct(p);
-      // Check wishlist status (non-critical)
+      // The detail is painted at once from the cached catalogue copy (thumbnail visible immediately) and revalidated.
+      await swrGet(`/products/${id}`, p => { setProduct(p); setLoading(false); });
+      // Check wishlist status (non-critical, never cached)
       try {
         const wl = await api.get('/wishlist');
         setWishlisted((wl.products || []).some((w: any) => w.id === id));
       } catch {}
-    } catch { setLoadError(true); } finally { setLoading(false); }
+    } catch (e) { if (!(e instanceof SessionChangedError)) setLoadError(true); } finally { setLoading(false); }
   };
 
-  useEffect(() => { loadProduct(); }, [id]);
+  useEffect(() => { setFullLoaded(false); loadProduct(); }, [id]);
+  useEffect(() => { setFullLoaded(false); }, [currentImage]);
 
   const toggleWishlist = async () => {
     try {
@@ -70,6 +76,8 @@ export default function ProductDetail() {
 
   const images = getProductGallery(product);
   const displayImageUri = images[currentImage] || images[0] || '';
+  // Thumbnail first (usually already on the device from the list), replaced by the full-resolution photo when ready.
+  const previewUri = currentImage === 0 ? productThumb(product) : sizedUrl(displayImageUri, windowWidth);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -103,8 +111,16 @@ export default function ProductDetail() {
                 pinchGestureEnabled={true}
                 style={{ width: '100%', aspectRatio: 1 }}
               >
-                <Image source={{ uri: displayImageUri }} style={styles.mainImage} resizeMode="contain" data-testid="product-main-image" />
+                <Image source={{ uri: displayImageUri }} placeholder={previewUri ? { uri: previewUri } : IMAGE_PLACEHOLDER} placeholderContentFit="contain"
+                  contentFit="contain" transition={200} cachePolicy="memory-disk" style={styles.mainImage} onLoad={() => setFullLoaded(true)}
+                  testID="product-main-image" accessibilityLabel={product.title} />
               </ScrollView>
+              {!fullLoaded && (
+                <View style={styles.loadingChip} pointerEvents="none" testID="product-image-loading">
+                  <ActivityIndicator size="small" color={Colors.gold} />
+                  <Text style={styles.zoomHintText}>Loading full photo</Text>
+                </View>
+              )}
               <View style={styles.zoomHint} pointerEvents="none">
                 <Ionicons name="search" size={14} color="rgba(255,255,255,0.8)" />
                 <Text style={styles.zoomHintText}>Pinch to zoom</Text>
@@ -119,7 +135,7 @@ export default function ProductDetail() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbRow}>
               {images.map((img: string, i: number) => (
                 <TouchableOpacity testID={`product-photo-${i}`} key={i} onPress={() => setCurrentImage(i)}>
-                  <Image source={{ uri: img }} style={[styles.thumb, currentImage === i && styles.thumbActive]} />
+                  <Image source={{ uri: sizedUrl(img, 56) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" cachePolicy="memory-disk" style={[styles.thumb, currentImage === i && styles.thumbActive]} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -216,6 +232,7 @@ const styles = StyleSheet.create({
   imageContainer: { marginTop: Spacing.md },
   mainImage: { width: '100%', aspectRatio: 1, backgroundColor: Colors.surface },
   zoomHint: { position: 'absolute', bottom: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
+  loadingChip: { position: 'absolute', bottom: 12, left: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16 },
   zoomHintText: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '600' },
   thumbRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
   thumb: { width: 56, height: 56, borderRadius: 8, marginRight: 8, borderWidth: 2, borderColor: 'transparent' },

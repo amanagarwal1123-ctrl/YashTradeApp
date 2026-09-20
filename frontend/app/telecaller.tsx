@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
 import { api } from '../src/api';
+import { displayPhone, telLink, whatsappLink } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import RequestsWorkspace from '../src/components/staff/RequestsWorkspace';
@@ -112,8 +113,8 @@ export default function TelecallerScreen() {
 
   const logQuickAction = async (c: TCCustomer, action: 'call' | 'whatsapp') => {
     const phone = c.phone;
-    if (action === 'call') Linking.openURL(`tel:+91${phone}`).catch(() => {});
-    else Linking.openURL(`https://wa.me/91${phone}`).catch(() => {});
+    if (action === 'call') Linking.openURL(telLink(phone)).catch(() => {});
+    else Linking.openURL(whatsappLink(phone)).catch(() => {});
     try { await api.post(`/telecaller/customers/${c.id}/action`, { action }); } catch {}
   };
 
@@ -177,7 +178,7 @@ export default function TelecallerScreen() {
           <Text style={st.custMeta} numberOfLines={1}>
             {c.shop_name || 'No shop name'} • {c.location || c.city || 'No location'}
           </Text>
-          <Text style={st.custPhone}>+91 {c.phone}</Text>
+          <Text style={st.custPhone}>{displayPhone(c.phone)}</Text>
           {c.follow_up_at ? (
             <View style={st.followRow}>
               <Ionicons name="alarm-outline" size={12} color={Colors.warning} />
@@ -288,7 +289,7 @@ export default function TelecallerScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={st.modalName}>{selected.name || selected.phone}</Text>
                       <Text style={st.custMeta}>{selected.shop_name || 'No shop name'} • {selected.location || selected.city || 'No location'}</Text>
-                      <Text style={st.custPhone}>+91 {selected.phone}</Text>
+                      <Text style={st.custPhone}>{displayPhone(selected.phone)}</Text>
                     </View>
                     <TouchableOpacity testID="tc-modal-close" onPress={() => setSelected(null)} style={st.closeBtn}>
                       <Ionicons name="close" size={22} color={Colors.text} />

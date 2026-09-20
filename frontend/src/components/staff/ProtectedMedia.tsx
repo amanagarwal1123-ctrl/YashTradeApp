@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Platform, StyleProp, ImageStyle, Text } from 'react-native';
+import { Platform, StyleProp, ImageStyle, Text } from 'react-native';
+import { Image } from 'expo-image';
 import { API_BASE, authenticatedFetch, getToken } from '../../api';
 import { ui } from './Controls';
 
+/** Owner-bound import previews / private media: authorised per fetch, never kept in the device image cache. */
 export default function ProtectedMedia({uri,id,style}:{uri:string;id:string;style:StyleProp<ImageStyle>}) {
   const [source,setSource]=useState(''),[error,setError]=useState('');
   useEffect(()=>{
@@ -16,5 +18,5 @@ export default function ProtectedMedia({uri,id,style}:{uri:string;id:string;styl
     return()=>{active=false;if(objectUrl)URL.revokeObjectURL(objectUrl);};
   },[uri]);
   if(error)return <Text testID={`${id}-error`} style={ui.error}>{error}</Text>;
-  return <Image testID={id} source={{uri:source,headers:uri?.startsWith(API_BASE)?{Authorization:`Bearer ${getToken()}`}:undefined}} style={style} resizeMode="contain"/>;
+  return <Image testID={id} source={{uri:source,headers:uri?.startsWith(API_BASE)?{Authorization:`Bearer ${getToken()}`}:undefined}} style={style as any} contentFit="contain" cachePolicy="none"/>;
 }

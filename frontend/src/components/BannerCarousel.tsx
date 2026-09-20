@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Linking, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Linking, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../theme';
-import { api, resolveFileUrl } from '../api';
+import { resolveFileUrl, sizedUrl } from '../api';
+import { swrGet } from '../dataCache';
+import { IMAGE_PLACEHOLDER } from '../imagePlaceholder';
 
 interface Banner {
   id: string;
@@ -32,8 +35,8 @@ export default function BannerCarousel() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.get('/banners');
-        setBanners(res.banners || []);
+        // cached copy paints immediately, the network copy follows (banners are stable admin content)
+        await swrGet('/banners', res => { setBanners(res.banners || []); setLoading(false); });
       } catch {
         // Banners are non-critical decoration — fail silently and hide the section
         setBanners([]);
@@ -88,7 +91,8 @@ export default function BannerCarousel() {
   if (banners.length === 0) return null;
 
   const renderBanner = ({ item }: { item: Banner }) => {
-    const imageUri = resolveFileUrl(item.image_url || '');
+    // sized to the carousel width (never the full upload), device-cached
+    const imageUri = sizedUrl(resolveFileUrl(item.image_url || ''), containerWidth);
     const imageFailed = !imageUri || failedImages[item.id];
     return (
       <TouchableOpacity
@@ -104,8 +108,11 @@ export default function BannerCarousel() {
         ) : (
           <Image
             source={{ uri: imageUri }}
+            placeholder={IMAGE_PLACEHOLDER}
             style={styles.bannerImage}
-            resizeMode="cover"
+            contentFit="cover"
+            transition={200}
+            cachePolicy="memory-disk"
             onError={() => setFailedImages(prev => ({ ...prev, [item.id]: true }))}
           />
         )}

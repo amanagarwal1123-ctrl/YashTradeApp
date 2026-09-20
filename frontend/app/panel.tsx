@@ -12,7 +12,7 @@ import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
 import DeletionRequests from '../src/components/staff/DeletionRequests';
 import StaffPhoneChange from '../src/components/panel/StaffPhoneChange';
 import PhoneField from '../src/components/PhoneField';
-import { canonicalPhone, displayPhone, DEFAULT_COUNTRY } from '../src/phone';
+import { canonicalPhone, displayPhone, telLink, whatsappLink, DEFAULT_COUNTRY } from '../src/phone';
 import type { CountryCode } from 'libphonenumber-js';
 import { downloadSample } from '../src/pdfClient';
 
@@ -366,8 +366,9 @@ export default function PanelScreen() {
     confirmAlert('Cancel Upload?', 'Image upload will stop.', () => { cancelUpload(); }, 'Cancel');
   };
 
-  const openWhatsApp = (phoneNum: string) => { Linking.openURL(`https://wa.me/91${phoneNum}`); };
-  const openCall = (phoneNum: string) => { Linking.openURL(`tel:+91${phoneNum}`); };
+  // Contact actions keep each number's own country code (+91 / +1 / +61) — never a hard-coded "91" prefix.
+  const openWhatsApp = (phoneNum: string) => { Linking.openURL(whatsappLink(phoneNum)); };
+  const openCall = (phoneNum: string) => { Linking.openURL(telLink(phoneNum)); };
 
   // Billing functions
   const searchCustomers = async (q: string) => {
@@ -1087,7 +1088,7 @@ export default function PanelScreen() {
                     <TouchableOpacity key={c.id} style={s.listItem} onPress={() => openCustomerWallet(c)}>
                       <View style={{ flex: 1 }}>
                         <Text style={s.listTitle}>{c.name || c.phone}</Text>
-                        <Text style={s.listMeta}>{c.phone} • {c.city || 'No city'} • {c.customer_code} • {c.reward_points || 0} pts</Text>
+                        <Text style={s.listMeta}>{displayPhone(c.phone)} • {c.city || 'No city'} • {c.customer_code} • {c.reward_points || 0} pts</Text>
                       </View>
                       <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
                     </TouchableOpacity>
@@ -1183,7 +1184,7 @@ export default function PanelScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={s.listTitle}>{c.name || c.phone}</Text>
                         <Text style={s.listMeta}>
-                          {c.shop_name ? `${c.shop_name} • ` : ''}{c.location || c.city || 'No location'} • {c.phone}
+                          {c.shop_name ? `${c.shop_name} • ` : ''}{c.location || c.city || 'No location'} • {displayPhone(c.phone)}
                         </Text>
                         <Text style={s.listMeta}>
                           {c.customer_code} • {c.reward_points || 0} pts • via {c.registration_source || 'app'}

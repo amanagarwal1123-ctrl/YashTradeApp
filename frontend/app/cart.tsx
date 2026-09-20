@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { api, getImageUrl } from '../src/api';
+import { api, productImage } from '../src/api';
+import { IMAGE_PLACEHOLDER } from '../src/imagePlaceholder';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import { useProfileGate } from '../src/hooks/useProfileGate';
 
@@ -94,7 +96,7 @@ export default function CartScreen() {
             const p = item.product || {};
             return (
               <View key={item.id} style={styles.card} testID={`cart-item-${item.id}`}>
-                <Image source={{ uri: getImageUrl(p, true) }} style={styles.cardImage} />
+                <Image source={{ uri: productImage(p, 90) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardTitle} numberOfLines={2}>{p.title || 'Product'}</Text>
                   <Text style={styles.cardMeta}>{p.metal_type} {p.category ? `• ${p.category}` : ''}</Text>
