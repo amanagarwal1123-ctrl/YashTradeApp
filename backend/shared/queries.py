@@ -81,12 +81,17 @@ def enrich_pipeline():
                   "version": {"$ifNull": ["$version", 0]}, "assignee_id": {"$ifNull": ["$assignee_id", "$assigned_to"]},
                   "queue_sort_at": {"$ifNull": ["$queue_sort_at", "$created_at"]}, "head": {"$ifNull": ["$head", "new"]}}},
         {"$lookup": {"from": c.collection_name("users"), "localField": "customer_id", "foreignField": "id", "as": "_customers",
-            "pipeline": [{"$project": {"_id": 0, "name": 1, "phone": 1, "shop_name": 1, "location": 1, "city": 1, "lead_status": 1}}]}},
+            "pipeline": [{"$project": {"_id": 0, "name": 1, "phone": 1, "shop_name": 1, "location": 1, "city": 1, "lead_status": 1, "account_status": 1}}]}},
         {"$set": {"_customer": {"$arrayElemAt": ["$_customers", 0]}}},
+        # A deleted account is a tombstone (phone "deleted:<id>", name "Deleted customer"): it must never surface as a
+        # dialable number or personal data in staff views; the anonymized request fields are used instead.
+        {"$set": {"_customer": {"$cond": [{"$eq": ["$_customer.account_status", "deleted"]},
+                                          {"name": "$_customer.name", "account_status": "deleted"}, "$_customer"]}}},
         {"$set": {"customer_name": {"$ifNull": ["$_customer.name", "$user_name"]},
             "customer_phone": {"$ifNull": ["$_customer.phone", "$user_phone"]},
             "customer_shop_name": {"$ifNull": ["$_customer.shop_name", "$shop_name"]},
             "customer_lead_status": "$_customer.lead_status",
+            "customer_deleted": {"$eq": ["$_customer.account_status", "deleted"]},
             "customer_location": {"$ifNull": ["$_customer.location", {"$ifNull": ["$_customer.city", "$user_city"]}]},
             "pending_since": {"$ifNull": ["$pending_since", "$created_at"]}}},
         {"$project": {"_id": 0, "_customer": 0, "_customers": 0}},
@@ -230,27 +235,44 @@ async def create(req: NewRequest, user=Depends(c.allow("customer")), idempotency
         "user_city": user.get("location") or user.get("city", ""), "shop_name": user.get("shop_name", ""),
         "status": "pending", "head": "new", "assignee_id": "", "assigned_to": "", "claimed_at": None, "follow_up_at": None,
         "created_at": ts, "updated_at": ts, "queue_sort_at": ts, "pending_since": ts, "version": 0, "payload_hash": payload_hash,
-        "notes_history": [], "events": [event("creation", user, rid, new="pending", request_status="pending")]}
+        "notify_state": "pending", "notes_history": [], "events": [event("creation", user, rid, new="pending", request_status="pending")]}
     # Deterministic _id provides idempotency without relying on a non-unique legacy id index.
     result = await c.db.requests.update_one({"_id": rid}, {"$setOnInsert": doc}, upsert=True)
     stored = await c.db.requests.find_one({"_id": rid}, {"_id": 0})
     if stored.get("payload_hash") != payload_hash:
         c.fail(409, "IDEMPOTENCY_CONFLICT", "This idempotency key was used for different request content")
-    if result.upserted_id is not None:
-        await notify_created(stored)
+    if result.upserted_id is not None or stored.get("notify_state") == "pending":
+        await notify_created(stored)   # a same-key retry also repairs an alert that could not be queued the first time
     return view_doc(stored, customer=True)
 
 
 async def notify_created(doc):
     """Every creation path (this endpoint, the cart submission, legacy routes) raises ONE durable operational event
-    for the telecallers; a failure to queue never fails the customer's request."""
+    for the telecallers; a failure to queue never fails the customer's request. The request carries a durable
+    `notify_state` marker (F06): `pending` until the event is in the outbox, so the notifications worker can queue it
+    later (`reconcile_pending_notifications`) - the alert is never silently lost."""
     from . import notifications
     try:
-        return await notifications.query_created(doc)
-    except Exception as exc:  # the request is stored; the notification outbox is best-effort at enqueue time only
+        result = await notifications.query_created(doc)
+    except Exception as exc:  # the request is stored; the marker stays `pending` for the worker to reconcile
         import logging
-        logging.getLogger("shared").warning("Query notification not queued: %s", type(exc).__name__)
+        logging.getLogger("shared").warning("Query notification not queued (kept pending for the worker): %s", type(exc).__name__)
+        await c.db.requests.update_one({"id": doc["id"]}, {"$set": {"notify_state": "pending"}, "$inc": {"notify_attempts": 1},
+                                                          "$push": {"notify_errors": {"at": c.stamp(), "error": type(exc).__name__}}})
         return None
+    await c.db.requests.update_one({"id": doc["id"]}, {"$set": {"notify_state": "queued", "notified_at": c.stamp()}})
+    return result
+
+
+async def reconcile_pending_notifications(limit=50, min_age_seconds=20):
+    """Worker-side repair for query alerts whose enqueue failed at creation time: idempotent on the request id."""
+    cutoff = (c.now() - timedelta(seconds=min_age_seconds)).isoformat()
+    docs = await c.db.requests.find({"notify_state": "pending", "created_at": {"$lt": cutoff}}, {"_id": 0}).sort("created_at", 1).limit(limit).to_list(limit)
+    queued = 0
+    for doc in docs:
+        if await notify_created(doc) is not None:
+            queued += 1
+    return queued
 
 
 @router.get("/requests/my")
@@ -366,6 +388,7 @@ async def completion_report(date: str = "", start: str = "", end: str = "", tele
     1-366 days). Counts come from the immutable completion ledger: a retried completion is one record, a completion that
     was later reopened is excluded (`superseded`), a re-completion after reopening is a new record."""
     lower, upper, days = date_bounds(start or date, end or date)
+    await reconcile_completion_ledger(since_iso=lower)   # F03: counts never miss a completion whose ledger write was interrupted
     query = {"completed_at": {"$gte": lower, "$lt": upper}, "superseded_at": None}
     if user["role"] == "telecaller":
         telecaller = user["id"]
@@ -392,9 +415,13 @@ async def completion_report(date: str = "", start: str = "", end: str = "", tele
 
 @router.get("/requests/{rid}")
 async def detail(rid: str, user=Depends(c.operations)):
-    rows = await c.db.requests.aggregate([{"$match": {"id": rid}}] + enrich_pipeline()).to_list(1)
-    if not rows:
+    raw = await c.db.requests.find_one({"id": rid}, {"_id": 0})
+    if not raw:
         c.fail(404, "REQUEST_NOT_FOUND", "Request not found")
+    from .queue_reset import release_if_due
+    await release_if_due(raw)   # F04: the screen never shows yesterday's claimant as the current owner after 03:00
+    await ensure_completion_ledger(raw)
+    rows = await c.db.requests.aggregate([{"$match": {"id": rid}}] + enrich_pipeline()).to_list(1)
     doc = rows[0]
     names = {u["id"]: u.get("name", "") async for u in c.db.users.find({"id": {"$in": [x for x in (doc.get("assignee_id"), doc.get("resolver_id")) if x]}}, {"_id": 0, "id": 1, "name": 1})}
     completions = await c.db.request_completions.find({"request_id": rid}, {"_id": 0}).sort("completed_at", -1).to_list(20)
@@ -442,8 +469,11 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
     old = await c.db.requests.find_one({"id": rid}, {"_id": 0})
     if not old:
         c.fail(404, "REQUEST_NOT_FOUND", "Request not found")
+    from .queue_reset import release_if_due
+    old = await release_if_due(old)   # F04: an assignment from before today's 03:00 boundary is released before any edit
     key = c.digest(user["id"] + ":" + req.idempotency_key) if req.idempotency_key else None
     if key and key in old.get("mutation_keys", []):
+        await ensure_completion_ledger(old)   # a retried completion whose ledger write was interrupted is repaired here
         return view_doc(old)
     version = old.get("version", 0)
     if req.version is not None and req.version != version:
@@ -481,6 +511,7 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
     elif req.action == "reopen":
         c.fail(409, "NOT_TERMINAL", "Only completed or cancelled queries can be reopened")
     if before in TERMINAL and req.action == "complete":
+        await ensure_completion_ledger(old)   # F03: a missing ledger row (partial write) is recovered by any retry
         return {**view_doc(old), "already_completed": True}  # idempotent retry: no second event, no second ledger row
     if req.action == "complete" and not assignee and user["role"] != "admin":
         c.fail(403, "CLAIM_REQUIRED", "Take the query before completing it")
@@ -517,8 +548,8 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
         events.append(event(kind, user, rid, before, after, notes=req.reason if req.action == "reopen" else "", request_status=after))
         if after == "resolved":
             changes.update(resolved_at=ts, resolver_id=user["id"], resolver_name=user.get("name", ""), completed_by_id=user["id"],
-                           completed_by_name=user.get("name", ""), handled_by_id=user["id"], handled_by_name=user.get("name", ""),
-                           outcome=req.outcome or old.get("outcome") or "other")
+                           completed_by_name=user.get("name", ""), completed_by_role=user["role"], handled_by_id=user["id"],
+                           handled_by_name=user.get("name", ""), outcome=req.outcome or old.get("outcome") or "other")
         if req.action == "reopen":
             changes.update(pending_since=ts, resolved_at=None, resolver_id=None, completed_by_id=None, assignee_id="", assigned_to="",
                            claimed_at=None, head="new", queue_sort_at=ts)
@@ -544,7 +575,10 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
     if after == "resolved" and before != after:
         await record_completion(doc, user, ts)
     if req.action == "reopen":
-        await c.db.request_completions.update_many({"request_id": rid, "superseded_at": None},
+        # Scoped to the completion being reopened (sequence read under this version): a delayed reopen can never
+        # supersede a LATER completion, and the reopened completion's row is written first if it was missing.
+        await ensure_completion_ledger(old)
+        await c.db.request_completions.update_many({"request_id": rid, "superseded_at": None, "sequence": {"$lte": int(old.get("completion_count") or 1)}},
             {"$set": {"superseded_at": ts, "superseded_by": user["id"], "reopen_reason": req.reason}})
     return view_doc(doc)
 
@@ -552,17 +586,41 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
 async def record_completion(doc, user, ts):
     """Immutable completion ledger row (one per completion; keyed by the request's completion sequence so a replayed
     write cannot add a second row). Attribution is snapshotted so reports survive later staff changes."""
+    await ensure_completion_ledger({**doc, "completed_by_id": user["id"], "completed_by_name": user.get("name", ""),
+                                    "completed_by_role": user["role"], "resolved_at": ts})
+
+
+async def ensure_completion_ledger(doc):
+    """The resolved request document is the source of truth (resolver, time, sequence, outcome); the ledger row is
+    derived from it and inserted if missing (F03). Safe to call on every retry / report / startup: the unique key
+    `<request id>:<completion sequence>` makes it idempotent. Returns True when a row was added."""
     from pymongo.errors import DuplicateKeyError
+    if status(doc.get("status")) != "resolved" or not doc.get("completed_by_id") or not doc.get("resolved_at"):
+        return False
     seq = int(doc.get("completion_count") or 1)
+    ts = doc["resolved_at"]
     try:
         await c.db.request_completions.insert_one({"id": secrets.token_hex(12), "key": f"{doc['id']}:{seq}", "request_id": doc["id"], "sequence": seq,
-            "actor_id": user["id"], "actor_name": user.get("name", ""), "actor_role": user["role"], "completed_at": ts,
-            "completed_date_ist": datetime.fromisoformat(ts).astimezone(IST).date().isoformat(), "request_type": doc.get("request_type"),
+            "actor_id": doc["completed_by_id"], "actor_name": doc.get("completed_by_name", ""), "actor_role": doc.get("completed_by_role", "telecaller"),
+            "completed_at": ts, "completed_date_ist": datetime.fromisoformat(ts).astimezone(IST).date().isoformat(), "request_type": doc.get("request_type"),
             "customer_id": doc.get("user_id") or doc.get("customer_id"), "customer_name": doc.get("user_name") or doc.get("customer_name", ""),
             "shop_name": doc.get("shop_name") or doc.get("customer_shop_name", ""), "item_count": len(doc.get("product_ids") or []),
             "created_at": doc.get("created_at"), "outcome": doc.get("outcome", "other"), "superseded_at": None})
+        return True
     except DuplicateKeyError:
-        pass
+        return False
+
+
+async def reconcile_completion_ledger(since_iso=None, limit=500):
+    """Repairs missing ledger rows for resolved requests (crash between the request update and the ledger write)."""
+    query = {"status": "resolved", "completed_by_id": {"$nin": [None, ""]}, "resolved_at": {"$ne": None}}
+    if since_iso:
+        query["resolved_at"] = {"$gte": since_iso}
+    repaired = 0
+    async for doc in c.db.requests.find(query, {"_id": 0}).sort("resolved_at", -1).limit(limit):
+        if not await c.db.request_completions.find_one({"key": f"{doc['id']}:{int(doc.get('completion_count') or 1)}"}, {"_id": 0, "id": 1}):
+            repaired += int(await ensure_completion_ledger(doc))
+    return repaired
 
 
 @router.post("/requests/{rid}/claim")

@@ -52,10 +52,29 @@ def release_event(doc, cycle_id):
 
 
 def candidate_query(cycle_id, boundary_iso):
+    """Eligible for this cycle: still open, created before the boundary, not yet released in this cycle, and NOT holding
+    a claim made at/after the boundary. Eligibility is decided by the ASSIGNMENT's age (`claimed_at`), never by
+    `updated_at`: a note or head change typed by yesterday's claimant after 03:00 cannot extend that assignment (F04).
+    A genuinely new post-boundary claim (claimed_at >= boundary) is respected; a completion is excluded by status."""
     return {"status": {"$in": OPEN}, "created_at": {"$lt": boundary_iso}, "reset_cycle": {"$ne": cycle_id},
-            # Post-boundary activity (a claim or any work after 03:00, e.g. during catch-up after downtime) is respected.
-            "$and": [{"$or": [{"claimed_at": None}, {"claimed_at": {"$lt": boundary_iso}}]},
-                     {"$or": [{"updated_at": None}, {"updated_at": {"$lt": boundary_iso}}]}]}
+            "$or": [{"claimed_at": None}, {"claimed_at": {"$lt": boundary_iso}}]}
+
+
+async def release_if_due(doc, moment=None):
+    """Inline release used by the work mutations and the detail view (F04): if `doc` still carries an assignment from
+    before the current 03:00 boundary that the worker has not released yet (worker poll gap, catch-up after downtime),
+    release it now with the same atomic predicate the worker uses and return the refreshed document. Unclaimed
+    documents are left to the worker (their ordering is the worker's job); nothing happens when not due."""
+    if not doc or doc.get("status") not in OPEN or not (doc.get("assignee_id") or doc.get("assigned_to")):
+        return doc
+    cycle_id, boundary = boundary_for(moment or c.now())
+    boundary_iso = boundary.isoformat()
+    claimed_at = doc.get("claimed_at")
+    if doc.get("reset_cycle") == cycle_id or not (doc.get("created_at") or "") < boundary_iso or (claimed_at and claimed_at >= boundary_iso):
+        return doc
+    if await release_one(doc, cycle_id, boundary_iso):
+        return await c.db.requests.find_one({"id": doc["id"]}, {"_id": 0}) or doc
+    return await c.db.requests.find_one({"id": doc["id"]}, {"_id": 0}) or doc
 
 
 async def release_one(doc, cycle_id, boundary_iso):

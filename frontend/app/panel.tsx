@@ -14,7 +14,7 @@ import StaffPhoneChange from '../src/components/panel/StaffPhoneChange';
 import AccountActions from '../src/components/panel/AccountActions';
 import PhoneField from '../src/components/PhoneField';
 import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
-import { ROLE_LABELS } from '../src/navigation';
+import { ROLE_LABELS, useRootBackHandler } from '../src/navigation';
 import { canonicalPhone, displayPhone, telLink, DEFAULT_COUNTRY } from '../src/phone';
 import type { CountryCode } from 'libphonenumber-js';
 import { downloadSample } from '../src/pdfClient';
@@ -51,6 +51,15 @@ export default function PanelScreen() {
   const [tab, setTab] = useState<PanelTab>('dashboard');
   const [productSubView, setProductSubView] = useState<ProductSubView>('menu');
   const [loading, setLoading] = useState(false);
+  // Android system back on the staff root: leave a product sub-view first, then return to the role's default tab,
+  // then stay on the panel (never exit, never show login) — R01-A.
+  const onRootBack = useCallback(() => {
+    if (productSubView !== 'menu') { setProductSubView('menu'); return true; }
+    const home = defaultTabFor(role || '');
+    if (tab !== home) { setTab(home); return true; }
+    return true;
+  }, [productSubView, tab, role]);
+  useRootBackHandler(onRootBack);
 
   // Data
   const [dashData, setDashData] = useState<any>(null);

@@ -75,7 +75,7 @@ describe('AuthProvider on web (memory-only session)', () => {
     await act(async () => { await captured!.login('jwt-access', ME as any); });
     await waitFor(() => expect(first.getByText('user:u-admin')).toBeTruthy());
     await act(async () => { await captured!.logout(); });
-    expect(mockPost).toHaveBeenCalledWith('/auth/logout');
+    expect(mockPost).toHaveBeenCalledWith('/auth/logout', undefined);
     expect(getToken()).toBeNull();
     await first.unmount();
     mockGet.mockClear();

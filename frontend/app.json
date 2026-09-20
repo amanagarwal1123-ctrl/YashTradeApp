@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.yashtryontest.lt5e6b"
+      "bundleIdentifier": "com.emergent.yashtryontest.lt5e6b",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "icon": "./assets/images/icon-android-legacy.png",

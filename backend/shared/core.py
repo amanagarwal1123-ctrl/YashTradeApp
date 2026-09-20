@@ -563,6 +563,7 @@ async def indexes():
     await db.push_devices.create_index("token", unique=True)
     await db.push_devices.create_index([("user_id", 1), ("enabled", 1)])
     await db.notifications.create_index([("user_id", 1), ("created_at", -1), ("id", 1)])
+    await db.notifications.create_index("id", unique=True)
     await db.notifications.create_index("expires_at", expireAfterSeconds=0)
     await db.notification_outbox.create_index("key", unique=True)
     await db.notification_outbox.create_index([("status", 1), ("next_attempt_at", 1)])

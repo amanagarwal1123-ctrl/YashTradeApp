@@ -9,7 +9,7 @@ import { api } from '../src/api';
 import { displayPhone, telLink, whatsappLink } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
-import { homeRouteFor } from '../src/navigation';
+import { homeRouteFor, useRootBackHandler } from '../src/navigation';
 import RequestsWorkspace from '../src/components/staff/RequestsWorkspace';
 
 const STATUSES = [
@@ -33,6 +33,9 @@ export default function TelecallerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [showLeads, setShowLeads] = useState(false);
+  // Android system back on the telecaller root: the legacy Customer-leads view returns to Requests; on Requests the app stays (R01-A).
+  const onRootBack = useCallback(() => { if (showLeads) { setShowLeads(false); return true; } return true; }, [showLeads]);
+  useRootBackHandler(onRootBack);
 
   const [customers, setCustomers] = useState<TCCustomer[]>([]);
   const [summary, setSummary] = useState<any>(null);

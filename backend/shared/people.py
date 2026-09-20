@@ -637,6 +637,8 @@ async def erasure_report(uid):
     not_applicable). Only `confirmed` is an erased copy; the website acknowledgement is a separate outcome."""
     remaining = {coll: await c.db[coll].count_documents({field: uid}) for coll, field in PERSONAL_COLLECTIONS}
     remaining["ai_chat_history"] = await c.db.ai_chat_history.count_documents({"$or": [{"user_id": uid}, {"session_id": f"jeweller-{uid}"}]})
+    remaining["request_completions_with_personal_data"] = await c.db.request_completions.count_documents({"customer_id": uid, "customer_anonymized": {"$ne": True}})
+    remaining["notification_outbox_unsent_messages"] = await c.db.notification_outbox.count_documents({"status": {"$in": ["pending", "failed"]}, "messages._user_id": uid})
     media = await c.db.media_assets.count_documents({"owner_id": uid})
     deletion = await c.db.deletion_requests.find_one({"reference": "DEL-" + uid}, {"_id": 0, "providers": 1, "status": 1}) or {}
     ledger = deletion.get("providers") or {}
@@ -659,6 +661,7 @@ async def erasure_report(uid):
                 "deleted_identities": "keyed hash of the phone number + canonical ID + deletion time (blocks silent re-enrolment)",
                 "deletion_requests": "reference, canonical ID, source, timestamps, cleanup status and the provider-erasure ledger (no name/phone)",
                 "requests": "anonymized enquiry rows: type, status, dates, assignee (name/phone/shop/notes blanked)",
+                "request_completions": "completion ledger rows: completing staff member, time, request type, outcome (customer name/shop blanked)",
                 "integration_outbox": "account_erased event for the website, kept until acknowledged"},
             "external": external}
 
@@ -674,6 +677,12 @@ async def cleanup_deletion(uid, number, ref):
     # the guard keeps any future personal object detached). The managed store cannot delete bytes (managed_delete=0).
     await c.db.media_assets.update_many({"owner_id": uid}, {"$set": {"owner_id": f"deleted:{uid}", "owner_erased_at": c.stamp(),
                                                                        "access_revoked": True}})
+    # Completion ledger rows keep the staff attribution (reports) but lose the customer's name / shop (F07).
+    await c.db.request_completions.update_many({"customer_id": uid}, {"$set": {"customer_name": "Deleted customer", "shop_name": "", "customer_anonymized": True}})
+    # Notification history addressed to the account and any not-yet-sent outbox messages for it are dropped
+    # (the outbox worker re-validates recipients before every send as well).
+    await c.db.notification_outbox.update_many({"status": {"$in": ["pending", "failed"]}, "messages._user_id": uid},
+                                               [{"$set": {"messages": {"$filter": {"input": "$messages", "as": "m", "cond": {"$ne": ["$$m._user_id", uid]}}}}}])
     # Preserve anonymous operational totals, not personal/free-text trade snapshots.
     async for q in c.db.requests.find({"user_id": uid}, {"_id": 0}):
         events = [{k: v for k, v in e.items() if k not in {"notes", "old", "new", "actor_name"}}

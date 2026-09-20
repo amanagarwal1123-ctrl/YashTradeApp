@@ -15,7 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 from . import core as c
 
@@ -163,8 +163,10 @@ async def mark_all_read(user=Depends(c.current_user)):
 
 # ---- building and queueing ----------------------------------------------------------------------------------------
 
-def inbox_row(user_id, title, body, kind, destination, image_url="", campaign_id="", request_id=""):
-    return {"id": secrets.token_hex(12), "user_id": user_id, "title": title, "body": body, "kind": kind,
+def inbox_row(user_id, title, body, kind, destination, image_url="", campaign_id="", request_id="", key_prefix=""):
+    # Deterministic id per (event, user): a retried fan-out of the same event never duplicates the inbox row.
+    row_id = c.digest(f"{key_prefix}:{user_id}")[:24] if key_prefix else secrets.token_hex(12)
+    return {"id": row_id, "user_id": user_id, "title": title, "body": body, "kind": kind,
             "destination": destination, "image_url": image_url, "campaign_id": campaign_id, "request_id": request_id,
             "created_at": c.stamp(), "read_at": None, "expires_at": c.now() + timedelta(days=INBOX_RETENTION_DAYS)}
 
@@ -203,27 +205,39 @@ async def devices_for(user_ids):
 
 async def fan_out(key_prefix, kind, recipients, title, body, destination, image_url="", campaign_id="", request_id=""):
     """recipients: iterable of user ids. Writes one inbox row per user (revisitable history) and queues push messages
-    for every enabled device in bounded batches. Returns counts of users, devices and batches."""
-    users, devices, batches, pending = 0, 0, 0, []
+    for every enabled device in bounded batches. Idempotent per `key_prefix`: a retried fan-out (after a crash midway)
+    re-derives the same batch keys and inbox ids, so nothing is queued or listed twice. Returns counts of users,
+    devices and NEWLY queued batches."""
+    users, devices, batches, existing, index, pending = 0, 0, 0, 0, 0, []
     rows = []
     recipients = list(dict.fromkeys(recipients))
     for start in range(0, len(recipients), 500):
         chunk = recipients[start:start+500]
-        chunk_rows = {uid: inbox_row(uid, title, body, kind, destination, image_url, campaign_id, request_id) for uid in chunk}
+        chunk_rows = {uid: inbox_row(uid, title, body, kind, destination, image_url, campaign_id, request_id, key_prefix) for uid in chunk}
         rows.extend(chunk_rows.values())
         users += len(chunk)
         for device in await devices_for(chunk):
             devices += 1
             pending.append(message_for(device, chunk_rows[device["user_id"]]))
             if len(pending) == BATCH:
-                if await enqueue(f"{key_prefix}:{batches}", kind, pending, campaign_id, request_id):
+                if await enqueue(f"{key_prefix}:{index}", kind, pending, campaign_id, request_id):
                     batches += 1
+                else:
+                    existing += 1
+                index += 1
                 pending = []
-    if pending and await enqueue(f"{key_prefix}:{batches}", kind, pending, campaign_id, request_id):
-        batches += 1
+    if pending:
+        if await enqueue(f"{key_prefix}:{index}", kind, pending, campaign_id, request_id):
+            batches += 1
+        else:
+            existing += 1
     if rows:
-        await c.db.notifications.insert_many(rows)
-    return {"users": users, "devices": devices, "batches": batches}
+        try:
+            await c.db.notifications.insert_many(rows, ordered=False)
+        except BulkWriteError as exc:   # duplicates from a previous attempt of the same event are expected
+            if any(e.get("code") != 11000 for e in exc.details.get("writeErrors", [])):
+                raise
+    return {"users": users, "devices": devices, "batches": batches, "existing_batches": existing}
 
 
 REQUEST_LABELS = {"video_call": "Video call request", "ask_price": "Price enquiry", "callback": "Call-back request",
@@ -416,11 +430,19 @@ async def send_campaign(cid: str, req: SendConfirmation, user=Depends(c.admin)):
     if not claimed:
         c.fail(409, "CAMPAIGN_ALREADY_SENT", "This campaign was already sent or is being sent")
     recipients = [u["id"] async for u in c.db.users.find(audience_query(spec), {"_id": 0, "id": 1})]
-    result = await fan_out(f"campaign:{cid}", "marketing", recipients, draft["title"], draft["body"], draft["destination"],
-                           draft.get("image_url", ""), campaign_id=cid)
-    await c.db.notification_campaigns.update_one({"id": cid}, {"$set": {"status": "queued" if result["batches"] else "sent",
-        "stats.users": result["users"], "stats.devices": result["devices"], "stats.batches": result["batches"], "updated_at": c.stamp()}})
-    return {"campaign_id": cid, "status": "queued" if result["batches"] else "sent", **result,
+    try:
+        result = await fan_out(f"campaign:{cid}", "marketing", recipients, draft["title"], draft["body"], draft["destination"],
+                               draft.get("image_url", ""), campaign_id=cid)
+    except Exception as exc:
+        # Never leave the campaign stuck in "sending": it returns to draft with the error recorded; the batches already
+        # queued keep their idempotent keys, so a second SEND completes the fan-out without duplicating them.
+        await c.db.notification_campaigns.update_one({"id": cid, "status": "sending"},
+            {"$set": {"status": "draft", "updated_at": c.stamp()}, "$push": {"send_errors": {"at": c.stamp(), "error": type(exc).__name__}}})
+        c.fail(503, "FAN_OUT_FAILED", "Queuing the campaign failed before every batch was stored; nothing was sent twice. Review and send again")
+    total_batches = result["batches"] + result["existing_batches"]
+    await c.db.notification_campaigns.update_one({"id": cid}, {"$set": {"status": "queued" if total_batches else "sent",
+        "stats.users": result["users"], "stats.devices": result["devices"], "stats.batches": total_batches, "updated_at": c.stamp()}})
+    return {"campaign_id": cid, "status": "queued" if total_batches else "sent", **result, "batches": total_batches,
             "note": "Queued for the push provider; provider acceptance and receipts are recorded per batch, they are not proof of display"}
 
 
@@ -443,8 +465,51 @@ async def _invalidate(token, reason):
     await c.db.push_devices.update_one({"token": token}, {"$set": {"enabled": False, "invalid_at": c.stamp(), "unlink_reason": reason}})
 
 
-async def process_job(job):
+INACTIVE = ["inactive", "deleted", "disabled"]
+QUERY_WORKER_ROLES = {"telecaller", "executive", "admin"}
+
+
+async def eligible_messages(job):
+    """F02: the outbox froze token + recipient at fan-out time. Immediately before every send/retry each message is
+    re-validated against the CURRENT state: the token must still be an enabled device of that same account, the
+    account must be usable, marketing recipients must still accept marketing, and operational query alerts only go to
+    accounts that still hold a query-worker role. Ineligible messages are dropped from the batch and accounted for
+    (never sent to a device that now belongs to someone else, a signed-out phone or an opted-out person)."""
     messages = job["messages"]
+    tokens = {m["to"] for m in messages}
+    devices = {d["token"]: d async for d in c.db.push_devices.find({"token": {"$in": list(tokens)}}, {"_id": 0, "token": 1, "user_id": 1, "enabled": 1})}
+    users = {u["id"]: u async for u in c.db.users.find({"id": {"$in": list({m["_user_id"] for m in messages})}},
+                                                       {"_id": 0, "id": 1, "role": 1, "account_status": 1, "status": 1, "notification_prefs": 1})}
+    keep, skipped = [], []
+    for m in messages:
+        device, user = devices.get(m["to"]), users.get(m["_user_id"])
+        reason = None
+        if not device or not device.get("enabled", False):
+            reason = "device_unlinked"
+        elif device["user_id"] != m["_user_id"]:
+            reason = "device_reassigned"
+        elif not user or c.account_status(user) in INACTIVE or user.get("status") in INACTIVE:
+            reason = "account_unusable"
+        elif job["kind"] == "marketing" and (user.get("notification_prefs") or {}).get("marketing") is False:
+            reason = "marketing_opt_out"
+        elif job["kind"] == "operational" and job.get("request_id") and ("telecaller" if user.get("role") == "executive" else user.get("role")) not in QUERY_WORKER_ROLES:
+            reason = "role_changed"
+        if reason:
+            skipped.append({"token_tail": m["to"][-6:], "user_id": m["_user_id"], "reason": reason})
+            if reason in {"marketing_opt_out", "account_unusable", "role_changed"} and m.get("_notification_id"):
+                await c.db.notifications.delete_one({"id": m["_notification_id"], "user_id": m["_user_id"], "read_at": None})
+        else:
+            keep.append(m)
+    return keep, skipped
+
+
+async def process_job(job):
+    messages, skipped = await eligible_messages(job)
+    if not messages:
+        await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": "sent", "sent_at": c.stamp(), "tickets": [], "skipped": skipped,
+            "accepted": 0, "errors_count": 0, "invalid_tokens": 0, "skipped_count": len(skipped), "lease_until": None}, "$inc": {"attempts": 1}})
+        await _campaign_progress(job, 0, 0, 0, len(skipped))
+        return "sent"
     try:
         tickets = await transport(_strip(messages))
     except Exception as exc:  # provider/network failure: retry with backoff, never drop the batch silently
@@ -470,16 +535,22 @@ async def process_job(job):
                 invalid += 1
                 await _invalidate(message["to"], "DeviceNotRegistered")
         stored.append(entry)
-    await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": "sent", "sent_at": c.stamp(), "tickets": stored,
-        "accepted": accepted, "errors_count": errors, "invalid_tokens": invalid, "lease_until": None}, "$inc": {"attempts": 1}})
-    if job.get("campaign_id"):
-        await c.db.notification_campaigns.update_one({"id": job["campaign_id"]}, {"$inc": {"stats.accepted": accepted, "stats.errors": errors, "stats.invalid_tokens": invalid}})
-        remaining = await c.db.notification_outbox.count_documents({"campaign_id": job["campaign_id"], "status": {"$in": ["pending", "sending"]}})
-        if not remaining:
-            await c.db.notification_campaigns.update_one({"id": job["campaign_id"], "status": {"$in": ["queued", "sending"]}},
-                                                         {"$set": {"status": "sent", "completed_at": c.stamp()}})
+    await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": "sent", "sent_at": c.stamp(), "tickets": stored, "skipped": skipped,
+        "accepted": accepted, "errors_count": errors, "invalid_tokens": invalid, "skipped_count": len(skipped), "lease_until": None}, "$inc": {"attempts": 1}})
+    await _campaign_progress(job, accepted, errors, invalid, len(skipped))
     worker_state["sent_batches"] += 1
     return "sent"
+
+
+async def _campaign_progress(job, accepted, errors, invalid, skipped):
+    if not job.get("campaign_id"):
+        return
+    await c.db.notification_campaigns.update_one({"id": job["campaign_id"]},
+        {"$inc": {"stats.accepted": accepted, "stats.errors": errors, "stats.invalid_tokens": invalid, "stats.skipped": skipped}})
+    remaining = await c.db.notification_outbox.count_documents({"campaign_id": job["campaign_id"], "status": {"$in": ["pending", "sending"]}})
+    if not remaining:
+        await c.db.notification_campaigns.update_one({"id": job["campaign_id"], "status": {"$in": ["queued", "sending"]}},
+                                                     {"$set": {"status": "sent", "completed_at": c.stamp()}})
 
 
 async def claim_job():
@@ -519,9 +590,12 @@ async def check_receipts(limit=20):
 
 
 async def tick():
-    """One worker pass over every usable data scope: bounded number of batches per pass."""
+    """One worker pass over every usable data scope: bounded number of batches per pass. Query alerts whose enqueue
+    failed at creation time (durable `notify_state=pending` marker on the request, F06) are queued here."""
+    from .queries import reconcile_pending_notifications
     for scope in c.scopes():
         with c.scoped(scope):
+            await reconcile_pending_notifications()
             for _ in range(10):
                 job = await claim_job()
                 if not job:

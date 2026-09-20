@@ -33,18 +33,31 @@ export class TransientError extends Error {
 const isTransientStatus = (status: number) => status >= 500 || status === 408 || status === 429;
 
 async function refreshSession() {
+  // The refresh is bound to the session generation and the credential it started with (F01): if the session changes
+  // while the HTTP request is pending (logout, another account signed in, revocation), its result - success OR failure -
+  // is obsolete and must neither persist credentials nor sign the CURRENT session out.
+  const epoch = sessionEpoch;
   const refresh = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
-  if (!refresh) { sessionLost?.(); throw new Error('Please sign in again'); }
+  if (!refresh) { if (epoch === sessionEpoch) sessionLost?.(); throw new Error('Please sign in again'); }
   let response: Response;
   try {
     response = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
   } catch {
     throw new TransientError('You are offline; your session is kept and will reconnect');
   }
+  const stillCurrent = async () => {
+    if (epoch !== sessionEpoch) return false;
+    const now = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
+    return now === refresh; // the credential this refresh rotated is still the device's credential
+  };
   if (response.status === 409) return; // concurrent refresh already rotated the credentials on this device: keep going
   if (isTransientStatus(response.status)) throw new TransientError('Server unavailable; your session is kept');
-  if (!response.ok) { await setRefreshToken(null); setToken(null); sessionLost?.(); throw new Error('Session expired; please sign in again'); }
+  if (!response.ok) {
+    if (!(await stillCurrent())) throw new SessionChangedError();
+    await setRefreshToken(null); setToken(null); sessionLost?.(); throw new Error('Session expired; please sign in again');
+  }
   const data = await response.json();
+  if (!(await stillCurrent())) throw new SessionChangedError();
   setToken(data.token); await setRefreshToken(data.refresh_token);
   if (Platform.OS !== 'web') await SecureStore.setItemAsync('auth_token', data.token);
 }

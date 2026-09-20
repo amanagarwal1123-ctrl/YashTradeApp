@@ -6,14 +6,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 const mockPost = jest.fn<Promise<any>, [string, any?]>();
 const mockLogin = jest.fn(async () => ({ id: 'u1', role: 'customer' }));
 const mockReplace = jest.fn(), mockDismissAll = jest.fn();
-let params: Record<string, string> = {};
+let mockParams: Record<string, string> = {};
 
 jest.mock('@expo/vector-icons', () => {
   const ReactActual = jest.requireActual('react');
   const { Text: RNText } = jest.requireActual('react-native');
   return { Ionicons: (props: { name: string }) => ReactActual.createElement(RNText, { testID: `icon-${props.name}` }, props.name) };
 });
-jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace, dismissAll: mockDismissAll, canDismiss: () => false, push: jest.fn(), back: jest.fn() }), useLocalSearchParams: () => params }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace, dismissAll: mockDismissAll, canDismiss: () => false, push: jest.fn(), back: jest.fn() }), useLocalSearchParams: () => mockParams }));
 jest.mock('../api', () => ({ api: { get: jest.fn(), post: (...a: [string, any?]) => mockPost(...a) } }));
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ login: mockLogin }) }));
 
@@ -25,7 +25,7 @@ const boxes = () => [0, 1, 2, 3].map(i => screen.getByTestId(`otp-box-${i}`).pro
 
 beforeEach(() => {
   mockPost.mockReset(); mockLogin.mockClear(); mockReplace.mockReset(); mockDismissAll.mockReset();
-  params = { phone: '9300000001', challengeId: 'ch-1' };
+  mockParams = { phone: '9300000001', challengeId: 'ch-1' };
 });
 
 describe('OTP helpers', () => {
@@ -84,7 +84,7 @@ describe('VerifyOTPScreen four boxes', () => {
 
   it('drives the resend countdown from the server timing and swaps to the new challenge after resend', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-09-20T10:00:00Z') });
-    params = { phone: '9300000001', challengeId: 'ch-1', resendAt: '2026-09-20T10:00:15Z', serverTime: '2026-09-20T10:00:00Z' };
+    mockParams = { phone: '9300000001', challengeId: 'ch-1', resendAt: '2026-09-20T10:00:15Z', serverTime: '2026-09-20T10:00:00Z' };
     mockPost.mockResolvedValue({ challenge_id: 'ch-2', resend_at: '2026-09-20T10:00:31Z', server_time: '2026-09-20T10:00:16Z' });
     render(<VerifyOTPScreen />);
     expect(screen.getByTestId('otp-resend-countdown').props.children).toBe('Resend available in 15s');
@@ -103,7 +103,7 @@ describe('VerifyOTPScreen four boxes', () => {
 
   it('shows the server-imposed retry time when the resend is refused (cooldown or abuse limit)', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-09-20T10:00:00Z') });
-    params = { phone: '9300000001', challengeId: 'ch-1' };
+    mockParams = { phone: '9300000001', challengeId: 'ch-1' };
     const refused: any = new Error('Too many codes requested'); refused.status = 429;
     refused.body = { code: 'OTP_RATE_LIMIT', resend_at: '2026-09-20T10:02:00Z', server_time: '2026-09-20T10:00:00Z' };
     mockPost.mockRejectedValueOnce(refused);

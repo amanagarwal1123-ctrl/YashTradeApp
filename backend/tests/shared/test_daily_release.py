@@ -104,11 +104,13 @@ async def test_catch_up_after_downtime_and_restart_midway(isolated_db, seeded_us
     await db.queue_cycles.insert_one({"_id": cycle_id, "status": "running", "worker": "dead", "released": 2, "batches": 1, "attempts": 1,
                                       "lease_until": (clock["now"] - timedelta(minutes=5)).isoformat(), "boundary": boundary.isoformat(), "started_at": "x"})
     results = await queue_reset.tick()
-    assert results[0]["completed"] and results[0]["released"] == 2 + 3        # cumulative: two before the crash, three after restart
+    assert results[0]["completed"] and results[0]["released"] == 2 + 4        # cumulative: two before the crash, four after restart
     ids = {d["id"] async for d in db.requests.find({"reset_cycle": cycle_id}, {"id": 1})}
-    assert ids == {"r0", "r1", "r2", "r3", "r4"}      # post-boundary activity and post-boundary creation preserved
+    # F04: an edit typed after the boundary under YESTERDAY's claim does not keep the assignment; only a post-boundary
+    # claim or a post-boundary creation is preserved
+    assert ids == {"r0", "r1", "r2", "r3", "r4", "worked_after_boundary"}
     assert all(d["reset_count"] == 1 for d in await db.requests.find({"reset_cycle": cycle_id}).to_list(None))
-    assert (await db.requests.find_one({"id": "worked_after_boundary"}))["assignee_id"] == "u_tele1"
+    assert (await db.requests.find_one({"id": "worked_after_boundary"}))["assignee_id"] == ""
     assert (await db.requests.find_one({"id": "new_today"}))["head"] == "new" and "reset_cycle" not in await db.requests.find_one({"id": "new_today"})
 
 

@@ -39,7 +39,7 @@ export function useDiscovery(filters: { metal_type?: string; category?: string }
     if (!ids.length) return;
     ids.forEach(id => pending.current.delete(id));
     try { await api.post('/discovery/impressions', { product_ids: ids, session_id: state.sessionId }); }
-    catch { ids.forEach(id => reported.current.delete(id)); } // retry on the next flush
+    catch { ids.forEach(id => pending.current.add(id)); } // offline / server error: kept pending, sent with the next flush
   }, [state.sessionId]);
 
   /** Called from FlatList.onViewableItemsChanged with the viewable product ids. */
