@@ -365,6 +365,48 @@ async def test_disable_vs_delete_for_staff_and_customers(api_client, isolated_db
 
 # ---- R03 --------------------------------------------------------------------------------------------------------------
 
+async def test_legacy_executives_routes_delegate_to_the_canonical_staff_directory(api_client, isolated_db, seeded_users, login_helper):
+    """The panel's legacy /executives family (used by installed builds) must behave exactly like /integrations/staff:
+    Upload Executive creatable, explicit promotion for customer numbers (never a silent upgrade), disabled accounts stay
+    listed with their status so they can be re-enabled, disable revokes sessions and detaches devices."""
+    db = isolated_db["db"]
+    admin, _ = await auth_headers(login_helper, "9999813334")
+    created = await api_client.post("/api/executives", json={"name": "Uma Upload", "phone": "9000000077", "code": "UP01", "role": "upload_executive"}, headers=admin)
+    assert created.status_code == 200, created.text
+    assert created.json()["role"] == "upload_executive" and created.json()["created"] is True
+    uid = created.json()["id"]
+    # a customer's number is never upgraded silently
+    promo = await api_client.post("/api/executives", json={"name": "X", "phone": "9000000004", "code": "T9", "role": "executive"}, headers=admin)
+    assert promo.status_code == 409 and promo.json()["code"] == "EXPLICIT_CONVERSION_REQUIRED" and promo.json()["customer"]["id"] == "u_cust1"
+    # invalid role / invalid number are actionable errors, not silent failures
+    bad_role = await api_client.post("/api/executives", json={"name": "X", "phone": "9000000078", "code": "T9", "role": "customer"}, headers=admin)
+    assert bad_role.status_code == 422 and bad_role.json()["code"] == "STAFF_ROLE_REQUIRED"
+    assert (await api_client.post("/api/executives", json={"name": "X", "phone": "12", "code": "T9", "role": "executive"}, headers=admin)).status_code == 422
+    # the new account signs in and is then disabled through the legacy DELETE (reversible)
+    up, up_body = await auth_headers(login_helper, "9000000077")
+    await api_client.post("/api/notifications/devices", json={"token": "ExponentPushToken[upxxxxxxxxxxxxx]", "platform": "android"}, headers=up)
+    disabled = await api_client.delete(f"/api/executives/{uid}", headers=admin)
+    assert disabled.status_code == 200 and disabled.json()["disabled"] is True and disabled.json()["deleted"] is False
+    assert (await api_client.get("/api/auth/me", headers=up)).status_code == 401
+    assert (await api_client.post("/api/auth/refresh", json={"refresh_token": up_body["refresh_token"]})).status_code == 401
+    assert (await db.push_devices.find_one({"user_id": uid}))["enabled"] is False
+    listed = (await api_client.get("/api/executives", headers=admin)).json()["executives"]
+    row = next(u for u in listed if u["id"] == uid)
+    assert row["status"] == "inactive" and row["customer_code"] == "UP01"          # still visible -> can be re-enabled
+    assert [u["id"] for u in (await api_client.get("/api/executives?status=inactive", headers=admin)).json()["executives"]] == [uid]
+    enabled = await api_client.put(f"/api/executives/{uid}", json={"status": "active", "name": "Uma U."}, headers=admin)
+    assert enabled.status_code == 200 and enabled.json()["status"] == "active" and enabled.json()["name"] == "Uma U."
+    up, _ = await auth_headers(login_helper, "9000000077")
+    assert (await api_client.get("/api/auth/me", headers=up)).status_code == 200
+    # the login number is never changed through the generic update
+    assert (await api_client.put(f"/api/executives/{uid}", json={"phone": "9000000079"}, headers=admin)).status_code == 409
+    # owner protection surfaces as an actionable 409 on the legacy route as well
+    guard = await api_client.delete("/api/executives/u_admin", headers=admin)
+    assert guard.status_code == 409 and guard.json()["code"] in {"OWNER_ADMIN_PROTECTED", "LAST_ADMIN"}
+    # non-admin staff cannot manage the directory
+    assert (await api_client.get("/api/executives", headers=up)).status_code == 403
+
+
 async def test_discovery_sessions_unseen_first_stable_pages_and_isolation(api_client, isolated_db, seeded_users, login_helper):
     db = isolated_db["db"]
     now = datetime.now(timezone.utc)

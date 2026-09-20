@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Modal, ScrollView, Linking } from 'react-native';
+import { KeyboardAvoiding } from '../src/components/KeyboardScreen';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +9,7 @@ import { api } from '../src/api';
 import { displayPhone, telLink, whatsappLink } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
+import { homeRouteFor } from '../src/navigation';
 import RequestsWorkspace from '../src/components/staff/RequestsWorkspace';
 
 const STATUSES = [
@@ -58,7 +60,7 @@ export default function TelecallerScreen() {
     if (!authLoading) {
       if (!user) router.replace('/login');
       else if (user.role === 'customer') router.replace('/(tabs)');
-      else if (user.role === 'admin' || user.role === 'billing_executive') router.replace('/panel');
+      else if (user.role !== 'telecaller') router.replace(homeRouteFor(user.role) as any);
     }
   }, [authLoading, user]);
 
@@ -279,7 +281,7 @@ export default function TelecallerScreen() {
 
       {/* Customer detail modal */}
       <Modal visible={!!selected} animationType="slide" transparent onRequestClose={() => setSelected(null)}>
-        <View style={st.modalOverlay}>
+        <KeyboardAvoiding style={st.modalOverlay}>
           <View style={[st.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={st.modalHandle} />
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
@@ -360,7 +362,7 @@ export default function TelecallerScreen() {
               )}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoiding>
       </Modal>
     </SafeAreaView>
   );

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Linking } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,8 +64,7 @@ export default function DeleteAccountScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen style={{ flex: 1 }} contentContainerStyle={st.content}>
           <View style={st.warnCard}>
             <Ionicons name="warning" size={22} color={Colors.error} />
             <Text style={st.warnText}>Deletion revokes your sessions and removes or anonymizes your data in the app immediately. The enrolment website is notified to remove its copy. Enrollment retries cannot automatically restore this identity.</Text>
@@ -131,8 +131,7 @@ export default function DeleteAccountScreen() {
             <Text style={st.cancelText}>Keep my account</Text>
           </TouchableOpacity>
           <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
     </SafeAreaView>
   );
 }

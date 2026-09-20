@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { KeyboardAvoiding } from '../KeyboardScreen';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, FontSize } from '../../theme';
 import { api } from '../../api';
@@ -97,7 +98,7 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={st.backdrop}>
+      <KeyboardAvoiding style={st.backdrop}>
         <View style={st.sheet}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={st.title} testID="staff-phone-title">Change login number</Text>
@@ -158,7 +159,7 @@ export default function StaffPhoneChange({ staff, onClose, onChanged }: { staff:
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoiding>
     </Modal>
   );
 }

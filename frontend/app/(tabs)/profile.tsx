@@ -114,6 +114,7 @@ export default function ProfileScreen() {
           <MenuItem testID="my-orders-btn" icon="bag-check" label="My Orders" value={`${orders.length}`} onPress={() => router.push('/my-orders')} />
           <MenuItem testID="wishlist-btn" icon="heart" label="Wishlist" onPress={() => router.push('/wishlist')} />
           <MenuItem testID="rewards-btn" icon="gift" label="Rewards History" onPress={() => router.push('/rewards')} />
+          <MenuItem testID="notifications-menu-btn" icon="notifications" label="Notifications & alerts" onPress={() => router.push('/notifications')} />
         </View>
 
         <View style={styles.menuSection}>

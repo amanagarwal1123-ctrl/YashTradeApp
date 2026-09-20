@@ -11,6 +11,8 @@ import { useAuth } from '../src/context/AuthContext';
 import { resetToHome } from '../src/navigation';
 
 const LENGTH = 4;
+/** Whole-string distribution: an autofill suggestion, a paste ("Your code is 1234 …") or manual typing all arrive as one
+ *  text value; only the first four digits count, everything else (spaces, letters, extra digits) is ignored. */
 export const digitsOnly = (text: string) => text.replace(/[^0-9]/g, '').slice(0, LENGTH);
 
 /** Seconds until `resendAt` measured against the SERVER clock (skew-safe): offset = serverTime - deviceTime at receipt. */
@@ -65,7 +67,9 @@ export default function VerifyOTPScreen() {
   }, [loading, phone, activeChallenge, login, router]);
 
   const onChange = (text: string) => {
-    const next = digitsOnly(text);
+    // Typing a 5th digit on a complete (not yet submitted / rejected) code starts a fresh entry with that digit.
+    const raw = text.replace(/[^0-9]/g, '');
+    const next = code.length === LENGTH && raw.length > LENGTH && raw.startsWith(code) ? raw.slice(LENGTH, LENGTH + LENGTH) : digitsOnly(raw);
     setCode(next);
     setError('');
     if (next.length === LENGTH) verifyOTP(next);
@@ -115,7 +119,7 @@ export default function VerifyOTPScreen() {
             onChangeText={onChange}
             keyboardType="number-pad"
             inputMode="numeric"
-            maxLength={LENGTH}
+            // No maxLength: a native maxLength would truncate an autofill/paste payload BEFORE onChangeText sees it.
             editable={!loading}
             autoFocus
             caretHidden

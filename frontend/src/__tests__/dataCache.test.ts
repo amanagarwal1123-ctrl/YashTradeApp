@@ -42,7 +42,8 @@ describe('dataCache', () => {
 
   it('persists only approved public fields', () => {
     const safe = sanitize('/products?page=1', { total: 1, page: 1, pages: 1, products: [{ id: 'p', title: 'Ring', thumbnail_path: 't', views: 99, original_filename: 'secret.jpg', batch_id: 'b', source_upload_id: 'j' }] });
-    expect(safe.products[0]).toEqual({ id: 'p', title: 'Ring', thumbnail_path: 't' });
+    expect(safe).not.toBeNull();
+    expect(safe!.products[0]).toEqual({ id: 'p', title: 'Ring', thumbnail_path: 't' });
     expect(sanitize('/banners', { banners: [{ id: 'b', title: 'x', image_url: '/api/files/a', created_by: 'admin' }] })).toEqual({ banners: [{ id: 'b', title: 'x', image_url: '/api/files/a' }] });
     expect(sanitize('/cart/count', { count: 3 })).toBeNull();
   });

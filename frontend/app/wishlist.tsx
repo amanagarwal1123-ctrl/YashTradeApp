@@ -61,7 +61,9 @@ export default function WishlistScreen() {
               style={styles.card}
               onPress={() => router.push({ pathname: '/product/[id]', params: { id: p.id } })}
             >
-              <Image source={{ uri: productImage(p, 80) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
+              <TouchableOpacity testID={`wishlist-photo-${p.id}`} accessibilityLabel={`Open photo of ${p.title}`} onPress={() => router.push({ pathname: '/image-viewer', params: { productId: p.id, ids: p.id } })}>
+                <Image source={{ uri: productImage(p, 80) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
+              </TouchableOpacity>
               <View style={styles.cardInfo}>
                 <Text style={styles.cardTitle} numberOfLines={2}>{p.title}</Text>
                 <Text style={styles.cardMeta}>{p.metal_type} {p.category ? `• ${p.category}` : ''}</Text>

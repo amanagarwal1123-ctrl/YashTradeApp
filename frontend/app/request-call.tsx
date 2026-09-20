@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Image, FlatList, Modal } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Image, FlatList, Modal } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,8 +96,7 @@ export default function RequestCallScreen() {
 
   return (
     <SafeAreaView style={st.container} edges={['top']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScreen style={{ flex: 1 }}>
           <View style={st.header}>
             <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={st.backBtn}><Ionicons name="close" size={24} color={Colors.text} /></TouchableOpacity>
             <Text style={st.headerTitle}>Contact Us</Text>
@@ -175,8 +175,7 @@ export default function RequestCallScreen() {
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       {/* Product Picker Modal */}
       <Modal visible={showProductPicker} transparent animationType="slide">

@@ -51,11 +51,26 @@ export function useRootBackHandler(onBack?: () => boolean) {
   }, [onBack]);
 }
 
-/** Routes a notification / deep-link destination only when the signed-in role may open it. */
+/** Route families and the roles allowed to open them from a notification / deep link (server permissions still apply). */
+const ROUTE_ROLES: [string[], readonly string[]][] = [
+  [['/(tabs)', '/wishlist', '/cart', '/my-requests', '/my-orders', '/rewards', '/request-call', '/request-success', '/edit-profile', '/delete-account', '/ai-assistant', '/ai-consent'], ['customer']],
+  [['/admin-notifications', '/customer-directory', '/review-keys', '/media-usage', '/staff-reports'], ['admin']],
+  [['/staff-requests', '/telecaller'], ['admin', 'telecaller', 'billing_executive']],
+  [['/panel', '/staff-rates'], ['admin', 'billing_executive', 'upload_executive']],
+  [['/product-catalog', '/pdf-import', '/catalog-author', '/product-photos'], ['admin', 'upload_executive']],
+];
+
+/** Routes a notification / deep-link destination only when the signed-in role may open it; otherwise the role's home. */
 export function authorizedDestination(destination: string | undefined, role?: string | null): string {
-  if (!destination || !destination.startsWith('/')) return homeRouteFor(role);
-  const staffOnly = destination.startsWith('/staff-requests');
-  if (staffOnly && !['admin', 'telecaller', 'billing_executive'].includes(role || '')) return homeRouteFor(role);
-  if (['/(tabs)', '/wishlist', '/cart', '/my-requests', '/my-orders', '/rewards'].some(p => destination.startsWith(p)) && role !== 'customer') return homeRouteFor(role);
-  return destination;
+  if (!role || !destination || !destination.startsWith('/') || destination.startsWith('//')) return homeRouteFor(role);
+  const path = destination.split('?')[0];
+  for (const [prefixes, roles] of ROUTE_ROLES) {
+    if (prefixes.some(p => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'))) {
+      if (!roles.includes(role)) return homeRouteFor(role);
+      // The telecaller root is that role's home; other query workers reach the same workspace through /staff-requests.
+      if (path === '/telecaller' && role !== 'telecaller') return destination.replace('/telecaller', '/staff-requests');
+      return destination;
+    }
+  }
+  return destination; // public/shared screens (product, rate list, schemes, brands, notifications history, …)
 }

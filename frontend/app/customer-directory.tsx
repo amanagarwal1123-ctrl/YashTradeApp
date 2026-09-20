@@ -1,22 +1,27 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { RefreshControl, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../src/api';
 import { displayPhone } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
+import AccountActions from '../src/components/panel/AccountActions';
 import { Button, dateText, Input, ui } from '../src/components/staff/Controls';
 
 export default function CustomerDirectory() {
   const router = useRouter(); const {user} = useAuth();
+  const { customer: deepLinkCustomer } = useLocalSearchParams<{ customer?: string }>();
   const [data,setData]=useState<any>(null),[search,setSearch]=useState(''),[page,setPage]=useState(1),[status,setStatus]=useState(''),[login,setLogin]=useState(''),[onboarding,setOnboarding]=useState('');
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[detail,setDetail]=useState<any>(null);
   const [staff,setStaff]=useState<any[]>([]),[assigned,setAssigned]=useState(''),[registeredFrom,setRegisteredFrom]=useState(''),[registeredTo,setRegisteredTo]=useState(''),[loginFrom,setLoginFrom]=useState(''),[loginTo,setLoginTo]=useState('');
   useEffect(()=>{if(user?.role==='admin')api.get('/integrations/staff?role=telecaller&status=active').then(r=>setStaff(r.users)).catch(e=>setError(e.message));},[user]);
   const load=useCallback(async()=>{setBusy(true);try{setData(await api.get(`/customers?${new URLSearchParams({page:String(page),limit:'20',search,account_status:status,login_state:login,onboarding_status:onboarding,assigned_to:assigned,registered_from:registeredFrom,registered_to:registeredTo,login_from:loginFrom,login_to:loginTo})}`));setError('');}catch(e:any){setError(e.message);}finally{setBusy(false);}},[page,search,status,login,onboarding,assigned,registeredFrom,registeredTo,loginFrom,loginTo]);
+  const openDetail=useCallback(async(id:string)=>{try{setDetail(await api.get(`/customers/${id}`));setError('');}catch(e:any){setError(e.message);}},[]);
   useFocusEffect(useCallback(()=>{if(user?.role==='admin')load();},[load,user]));
+  useEffect(()=>{if(user?.role==='admin'&&deepLinkCustomer)openDetail(String(deepLinkCustomer));},[deepLinkCustomer,user,openDetail]);
   if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="directory-access-denied" style={ui.error}>Admin access required</Text></SafeAreaView>;
-  return <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={busy} onRefresh={load}/>}>
+  return <SafeAreaView style={ui.screen}><KeyboardAwareScreen contentContainerStyle={ui.content} refreshControl={<RefreshControl refreshing={busy} onRefresh={load}/>}>
     <Button id="directory-back" title={detail?'Back to list':'Back to panel'} onPress={()=>detail?setDetail(null):router.replace('/panel')}/><Text testID="directory-title" style={ui.title}>Customer directory</Text>{!!error&&<Text testID="directory-error" style={ui.error}>{error}</Text>}
     {!detail?<><Input id="directory-search" label="Search name, phone, shop or place" value={search} onChange={s=>{setSearch(s);setPage(1);}}/>
       <View style={ui.row}>{['','active','inactive'].map(v=><Button key={v} id={`directory-status-${v||'all'}`} title={v||'All accounts'} active={status===v} onPress={()=>{setStatus(v);setPage(1);}}/>)}</View>
@@ -26,13 +31,14 @@ export default function CustomerDirectory() {
       <Text testID="directory-assigned-label" style={ui.label}>ASSIGNED TELECALLER</Text><View style={ui.row}>{[{id:'',name:'All staff'},{id:'unassigned',name:'Unassigned'},...staff].map(s=><Button key={s.id} id={`directory-assigned-${s.id||'all'}`} title={s.name} active={assigned===s.id} onPress={()=>{setAssigned(s.id);setPage(1);}}/>)}</View>
       <Input id="directory-registered-from" label="Registered from · YYYY-MM-DD (IST)" value={registeredFrom} onChange={v=>{setRegisteredFrom(v);setPage(1);}}/><Input id="directory-registered-to" label="Registered to · YYYY-MM-DD (IST)" value={registeredTo} onChange={v=>{setRegisteredTo(v);setPage(1);}}/>
       <Input id="directory-login-from" label="Last app login from · YYYY-MM-DD (IST)" value={loginFrom} onChange={v=>{setLoginFrom(v);setPage(1);}}/><Input id="directory-login-to" label="Last app login to · YYYY-MM-DD (IST)" value={loginTo} onChange={v=>{setLoginTo(v);setPage(1);}}/>
-      {data?.customers.map((u:any)=><View key={u.id} testID={`directory-customer-${u.id}`} style={ui.card}><Text style={ui.text}>{u.number}. {u.name} · {displayPhone(u.phone)}</Text><Text style={ui.muted}>{u.shop_name} · {u.location||u.city}</Text><Text style={ui.muted}>Step 1 {u.step1_complete?'complete':'pending'} · {u.account_status} · {u.has_logged_in?'Has app login':'No recorded app login'}</Text><Text style={ui.muted}>Registered {dateText(u.registered_at)}{ '\n' }First app login {dateText(u.first_mobile_login_at)}{ '\n' }Last app login {dateText(u.last_mobile_login_at)}</Text><Button id={`directory-open-${u.id}`} title="Profile, queries & activity" onPress={async()=>{try{setDetail(await api.get(`/customers/${u.id}`));}catch(e:any){setError(e.message);}}}/></View>)}
+      {data?.customers.map((u:any)=><View key={u.id} testID={`directory-customer-${u.id}`} style={ui.card}><Text style={ui.text}>{u.number}. {u.name} · {displayPhone(u.phone)}</Text><Text style={ui.muted}>{u.shop_name} · {u.location||u.city}</Text><Text style={ui.muted}>Step 1 {u.step1_complete?'complete':'pending'} · {u.account_status} · {u.has_logged_in?'Has app login':'No recorded app login'}</Text><Text style={ui.muted}>Registered {dateText(u.registered_at)}{ '\n' }First app login {dateText(u.first_mobile_login_at)}{ '\n' }Last app login {dateText(u.last_mobile_login_at)}</Text><Button id={`directory-open-${u.id}`} title="Profile, queries & activity" onPress={()=>openDetail(u.id)}/></View>)}
       <View style={ui.row}><Button id="directory-prev" title="Previous" disabled={page<=1} onPress={()=>setPage(page-1)}/><Text testID="directory-page" style={ui.text}>Page {page}</Text><Button id="directory-next" title="Next" disabled={!data||page>=data.pages} onPress={()=>setPage(page+1)}/></View>
-    </>:<><Text testID="customer-detail-name" style={ui.title}>{detail.name}</Text><Text style={ui.text}>{displayPhone(detail.phone)} · {detail.shop_name} · {detail.location}</Text><Text testID="customer-assigned-name" style={ui.muted}>Telecaller: {staff.find(s=>s.id===detail.assigned_salesperson)?.name||(detail.assigned_salesperson?'Inactive or unknown staff':'Unassigned')}</Text>
+    </>:<><Text testID="customer-detail-name" style={ui.title}>{detail.name}</Text><Text style={ui.text}>{displayPhone(detail.phone)} · {detail.shop_name} · {detail.location}</Text><Text testID="customer-detail-status" style={ui.muted}>Account {detail.account_status} · ID {detail.id}</Text><Text testID="customer-assigned-name" style={ui.muted}>Telecaller: {staff.find(s=>s.id===detail.assigned_salesperson)?.name||(detail.assigned_salesperson?'Inactive or unknown staff':'Unassigned')}</Text>
       <View style={ui.row}>{[{id:'',name:'Unassign'},...staff].map(s=><Button key={s.id} id={`customer-assign-${s.id||'none'}`} title={s.name} onPress={async()=>{try{await api.patch(`/customers/${detail.id}`,{assigned_salesperson:s.id});setDetail(await api.get(`/customers/${detail.id}`));}catch(e:any){setError(e.message);}}}/>)}</View>
-      <Button id="customer-status-toggle" title={detail.account_status==='active'?'Disable account':'Enable account'} onPress={async()=>{try{await api.patch(`/customers/${detail.id}`,{account_status:detail.account_status==='active'?'inactive':'active'});setDetail(await api.get(`/customers/${detail.id}`));await load();}catch(e:any){setError(e.message);}}}/>
+      <Text style={ui.label}>ACCOUNT</Text>
+      <AccountActions kind="customer" account={detail} onChanged={async()=>{await load();try{setDetail(await api.get(`/customers/${detail.id}`));}catch{/* deleted: the tombstone may no longer be readable */}}} onDeleted={()=>setDetail(null)}/>
       <Text style={ui.label}>QUERIES (LATEST 100)</Text>{detail.queries.map((q:any)=><View key={q.id} testID={`customer-query-${q.id}`} style={ui.card}><Text style={ui.text}>{q.request_type} · {q.status}</Text><Text style={ui.muted}>{dateText(q.created_at)} · {q.notes}</Text></View>)}
       <Text style={ui.label}>LEAD ACTIVITY (LATEST 100)</Text>{detail.activity.map((a:any)=><View key={a.id} testID={`customer-activity-${a.id}`} style={ui.card}><Text style={ui.text}>{a.action} · {a.notes}</Text><Text style={ui.muted}>{dateText(a.created_at)}</Text></View>)}
     </>}
-  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+  </KeyboardAwareScreen></SafeAreaView>;
 }

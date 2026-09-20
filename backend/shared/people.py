@@ -442,22 +442,35 @@ async def complete_or_503(doc, recovered=False):
 
 
 @router.get("/executives")
-async def executives(user=Depends(c.admin)):
-    return {"executives": (await staff_list(user=user))["users"]}
+async def executives(status: str = "", user=Depends(c.admin)):
+    """Legacy panel route: every staff account WITH its account status (disabled accounts stay visible so they can be
+    re-enabled); `status=active|inactive` narrows the list."""
+    return {"executives": (await staff_list("", status, user))["users"]}
 
 
 @router.post("/executives")
 async def legacy_create(req: StaffCreate, user=Depends(c.admin)):
-    return (await staff_create(req, user))["user"]
+    try:
+        result = await staff_create(req, user)
+    except c.HTTPException as exc:
+        if isinstance(exc.detail, dict) and exc.detail.get("code") == "EXPLICIT_CONVERSION_REQUIRED":
+            existing = await c.by_phone(c.phone(req.phone))
+            raise c.HTTPException(409, {**exc.detail, "detail": "This number belongs to an existing customer. Promote that customer "
+                                  "explicitly (their account, history and ID are kept) instead of creating a second person.",
+                                  "customer": {"id": existing["id"], "name": existing.get("name", "")} if existing else {}})
+        raise
+    return {**result["user"], "created": result["created"]}
 
 
 @router.put("/executives/{ref}")
 async def legacy_update(ref: str, updates: dict, user=Depends(c.admin)):
-    return (await staff_update(ref, updates, user))["user"]
+    result = await staff_update(ref, updates, user)
+    return {**result["user"], "sessions_revoked": result["sessions_revoked"], "queries_released": result["queries_released"]}
 
 
 @router.delete("/executives/{ref}")
 async def legacy_disable(ref: str, user=Depends(c.admin)):
+    """DISABLES (reversible). Never deletes: actual deletion is POST /integrations/staff/{ref}/delete."""
     return await staff_disable(ref, user)
 
 

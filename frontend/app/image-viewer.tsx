@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,24 +9,28 @@ import { cachedGet } from '../src/dataCache';
 import { IMAGE_PLACEHOLDER } from '../src/imagePlaceholder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../src/context/AuthContext';
-
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+import ZoomableImage from '../src/components/ZoomableImage';
 
 export default function ImageViewerScreen() {
-  const { productId, batchId, startIndex: startIndexStr, ids } = useLocalSearchParams<{
-    productId?: string; batchId?: string; startIndex?: string; ids?: string;
+  const { productId, batchId, startIndex: startIndexStr, ids, photo } = useLocalSearchParams<{
+    productId?: string; batchId?: string; startIndex?: string; ids?: string; photo?: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {user} = useAuth();
+  // Live viewport: orientation / window changes re-measure the zoom area (and reset the transform).
+  const { width: SCREEN_W, height: SCREEN_H } = useWindowDimensions();
+  const viewerHeight = Math.round(SCREEN_H * 0.65);
+  const [zoomed, setZoomed] = useState(false);
   const [images, setImages] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  const [photoIndex, setPhotoIndex] = useState(0);
-  useEffect(() => { setPhotoIndex(0); }, [currentIndex]);
+  const [photoIndex, setPhotoIndex] = useState(() => Math.max(0, parseInt(photo || '0') || 0));
+  const firstSelection = useRef(true);
+  useEffect(() => { if (firstSelection.current) { firstSelection.current = false; return; } setPhotoIndex(0); }, [currentIndex]);
 
   const loadImages = useCallback(async (p: number = 1) => {
     try {
@@ -132,36 +136,26 @@ export default function ImageViewerScreen() {
         <Text style={styles.counterText}>{currentIndex + 1} / {images.length}</Text>
       </View>
 
-      {/* Main Image — Zoomable */}
-      <ScrollView
-        maximumZoomScale={5}
-        minimumZoomScale={1}
-        bouncesZoom={true}
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ width: SCREEN_W, height: SCREEN_H * 0.65, alignItems: 'center', justifyContent: 'center' }}
-        centerContent={true}
-        pinchGestureEnabled={true}
-        style={styles.imageContainer}
-        testID="viewer-zoom-scroll"
-      >
+      {/* Main Image — real pinch / pan / double-tap zoom on Android, iOS and web (gesture-handler + reanimated). The
+          transform resets whenever the product or the selected photo changes (resetKey). */}
+      <ZoomableImage width={SCREEN_W} height={viewerHeight} resetKey={`${currentItem.id}:${photoIndex}`} onZoomChange={setZoomed} testID="viewer-zoom-area">
         <Image source={{ uri: fullUri }} placeholder={previewUri ? { uri: previewUri } : IMAGE_PLACEHOLDER} placeholderContentFit="contain" contentFit="contain"
           transition={200} cachePolicy="memory-disk" style={styles.fullImage} testID="viewer-main-image" accessibilityLabel={title || 'Product photograph'} />
-      </ScrollView>
+      </ZoomableImage>
 
       {/* Zoom hint */}
-      <View style={styles.zoomHint} pointerEvents="none">
-        <Ionicons name="search" size={12} color="rgba(255,255,255,0.7)" />
-        <Text style={styles.zoomHintText}>Pinch to zoom</Text>
+      <View style={[styles.zoomHint, { top: viewerHeight - 30 }]} pointerEvents="none" testID="viewer-zoom-state" accessibilityLabel={zoomed ? 'Zoomed in' : 'Not zoomed'}>
+        <Ionicons name={zoomed ? 'contract' : 'search'} size={12} color="rgba(255,255,255,0.7)" />
+        <Text style={styles.zoomHintText}>{zoomed ? 'Double-tap to reset' : 'Pinch or double-tap to zoom'}</Text>
       </View>
 
-      {/* Navigation Arrows */}
-      {currentIndex > 0 && (
+      {/* Navigation Arrows — hidden while zoomed so a zoom gesture can never switch products */}
+      {!zoomed && currentIndex > 0 && (
         <TouchableOpacity testID="viewer-prev" style={[styles.navBtn, styles.navLeft]} onPress={goPrev}>
           <Ionicons name="chevron-back" size={32} color="#fff" />
         </TouchableOpacity>
       )}
-      {currentIndex < images.length - 1 && (
+      {!zoomed && currentIndex < images.length - 1 && (
         <TouchableOpacity testID="viewer-next" style={[styles.navBtn, styles.navRight]} onPress={goNext}>
           <Ionicons name="chevron-forward" size={32} color="#fff" />
         </TouchableOpacity>
@@ -199,7 +193,6 @@ const styles = StyleSheet.create({
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
   counter: { position: 'absolute', top: 56, left: 0, right: 0, zIndex: 10, alignItems: 'center' },
   counterText: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.7)', fontWeight: '600' },
-  imageContainer: { width: SCREEN_W, height: SCREEN_H * 0.65 },
   fullImage: { width: '100%', height: '100%' },
   navBtn: { position: 'absolute', top: '45%', zIndex: 10, width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
   navLeft: { left: 12 },
@@ -213,6 +206,6 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: FontSize.md, color: '#fff', textAlign: 'center', paddingHorizontal: 32 },
   retryBtn: { marginTop: 16, backgroundColor: Colors.gold, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 10 },
   retryBtnText: { fontSize: FontSize.sm, fontWeight: '700', color: '#000' },
-  zoomHint: { position: 'absolute', top: SCREEN_H * 0.65 - 30, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  zoomHint: { position: 'absolute', alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   zoomHintText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600' },
 });

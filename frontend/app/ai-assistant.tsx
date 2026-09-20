@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, ActivityIndicator, ScrollView } from 'react-native';
+import { KeyboardAvoiding } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -99,7 +100,7 @@ export default function AIAssistantScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={0}>
+      <KeyboardAvoiding style={{ flex: 1 }}>
         {consent && !consent.granted ? (
           <ScrollView contentContainerStyle={styles.consentWrap} keyboardShouldPersistTaps="handled">
             <AiConsentCard info={consent} busy={consentBusy} onAllow={allowConsent} onDecline={() => router.back()} declineLabel="Not now — back to the app" />
@@ -144,7 +145,7 @@ export default function AIAssistantScreen() {
             <Ionicons name="send" size={18} color="#000" />
           </TouchableOpacity>
         </View> : null}
-      </KeyboardAvoidingView>
+      </KeyboardAvoiding>
     </SafeAreaView>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -82,8 +83,7 @@ export default function EditProfileScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen style={{ flex: 1 }} contentContainerStyle={st.content}>
           {completing && (
             <View style={st.completeBox} testID="complete-profile-intro">
               <Ionicons name="information-circle-outline" size={18} color={Colors.gold} />
@@ -157,8 +157,7 @@ export default function EditProfileScreen() {
           )}
           </>)}
           <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
     </SafeAreaView>
   );
 }

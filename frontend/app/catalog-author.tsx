@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -10,6 +11,8 @@ import { useAuth } from '../src/context/AuthContext';
 import ProductFields, { emptyProduct } from '../src/components/staff/ProductFields';
 import PrivateImage from '../src/components/staff/PrivateImage';
 import { Button, ui } from '../src/components/staff/Controls';
+// Content domain (R10): administrators and Upload Executives; the server enforces the same gate on every route.
+const CONTENT_ROLES = ['admin', 'upload_executive'];
 
 export default function CatalogAuthor() {
   const router=useRouter(),{user}=useAuth();
@@ -34,8 +37,8 @@ export default function CatalogAuthor() {
     }
     setMessage('Version 1 PDF exported. Review it, then upload through Import PDF. No products were published.');
   });
-  if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="author-access-denied" style={ui.error}>Admin access required</Text></SafeAreaView>;
-  return <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
+  if(!CONTENT_ROLES.includes(user?.role||''))return <SafeAreaView style={ui.guard}><Text testID="author-access-denied" style={ui.error}>Admin or Upload Executive access required</Text></SafeAreaView>;
+  return <SafeAreaView style={ui.screen}><KeyboardAwareScreen contentContainerStyle={ui.content}>
     <Button id="author-back" title="Back" onPress={()=>router.canGoBack()?router.back():router.replace('/panel')}/><Text testID="author-screen-title" style={ui.title}>Create your catalogue</Text>
     <Text testID="author-help" style={ui.muted}>Fill in a product and choose its photograph. Save a single hidden product, or collect up to 20 entries and export the exact v1 PDF. Keep this screen open until export; unsaved form entries are not durable drafts.</Text>
     {!!error&&<Text testID="author-error" style={ui.error}>{error}</Text>}{!!message&&<Text testID="author-message" style={ui.success}>{message}</Text>}
@@ -47,5 +50,5 @@ export default function CatalogAuthor() {
     <Text testID="author-entry-count" style={ui.label}>{entries.length} / 20 PDF ENTRIES</Text>
     {entries.map((e,i)=><View key={i} style={ui.card}><Text testID={`author-entry-${i}`} style={ui.text}>{e.product_code} · {e.title}</Text><Button id={`author-remove-${i}`} title="Remove from PDF" disabled={busy} onPress={()=>setEntries(entries.filter((_,n)=>n!==i))}/></View>)}
     <Button id="author-export" title={busy?'Working…':'Export version 1 PDF'} disabled={busy||!entries.length} onPress={exportPDF}/>
-  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+  </KeyboardAwareScreen></SafeAreaView>;
 }

@@ -5,25 +5,35 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Colors, Spacing, FontSize } from '../src/theme';
-import { api, setToken, getImageUrl, resolveFileUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
+import { api, setToken, resolveFileUrl, cancelUpload, getLastUploadId, clearLastUploadId } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import SmsDiagnostics from '../src/components/panel/SmsDiagnostics';
 import DeletionRequests from '../src/components/staff/DeletionRequests';
 import StaffPhoneChange from '../src/components/panel/StaffPhoneChange';
+import AccountActions from '../src/components/panel/AccountActions';
 import PhoneField from '../src/components/PhoneField';
-import { canonicalPhone, displayPhone, telLink, whatsappLink, DEFAULT_COUNTRY } from '../src/phone';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
+import { ROLE_LABELS } from '../src/navigation';
+import { canonicalPhone, displayPhone, telLink, DEFAULT_COUNTRY } from '../src/phone';
 import type { CountryCode } from 'libphonenumber-js';
 import { downloadSample } from '../src/pdfClient';
 
-type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'deletions' | 'rewards' | 'content' | 'executives' | 'sms' | 'review';
+type PanelTab = 'dashboard' | 'requests' | 'rates' | 'products' | 'customers' | 'deletions' | 'rewards' | 'content' | 'executives' | 'sms' | 'review' | 'notifications' | 'reports';
 type ProductSubView = 'menu' | 'list' | 'add' | 'bulk' | 'batches' | 'batch_upload' | 'pdf_import';
 type ContentSubView = 'menu' | 'about' | 'ratelist' | 'schemes' | 'brands' | 'showroom' | 'exhibitions' | 'banners';
-type Role = 'admin' | 'telecaller' | 'billing_executive' | null;
+type Role = 'admin' | 'telecaller' | 'billing_executive' | 'upload_executive' | null;
+/** Roles that sign in to this panel; telecallers are redirected to their own Requests home. */
+const PANEL_ROLES = ['admin', 'telecaller', 'billing_executive', 'upload_executive'];
+const STAFF_ROLE_OPTIONS: { key: string; label: string }[] = [
+  { key: 'executive', label: 'Telecaller' },
+  { key: 'billing_executive', label: 'Billing Executive' },
+  { key: 'upload_executive', label: 'Upload Executive' },
+];
 
 const KEEP_AWAKE_TAG = 'yash-panel-upload';
-
-const CANONICAL_STATUSES = ['pending', 'in_progress', 'contacted', 'resolved', 'no_response'];
+/** First tab after sign-in: billing lands on its wallet, an Upload Executive on Products, everyone else on the dashboard. */
+const defaultTabFor = (role: string): PanelTab => role === 'billing_executive' ? 'rewards' : role === 'upload_executive' ? 'products' : 'dashboard';
 
 export default function PanelScreen() {
   // Auth
@@ -44,12 +54,8 @@ export default function PanelScreen() {
 
   // Data
   const [dashData, setDashData] = useState<any>(null);
-  const [requests, setRequests] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
   const [products, setProducts] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
 
   // Executives management
   const [executives, setExecutives] = useState<any[]>([]);
@@ -58,21 +64,6 @@ export default function PanelScreen() {
   const [phoneChangeStaff, setPhoneChangeStaff] = useState<any>(null);
   const [editingExecId, setEditingExecId] = useState('');
   const [showExecForm, setShowExecForm] = useState(false);
-
-  // Rates
-  const [silverDollar, setSilverDollar] = useState('');
-  const [silverMcx, setSilverMcx] = useState('');
-  const [silverPhysical, setSilverPhysical] = useState('');
-  const [silverPhysicalMode, setSilverPhysicalMode] = useState('manual');
-  const [silverPremium, setSilverPremium] = useState('0');
-  const [silverMov, setSilverMov] = useState('stable');
-  const [goldDollar, setGoldDollar] = useState('');
-  const [goldMcx, setGoldMcx] = useState('');
-  const [goldPhysical, setGoldPhysical] = useState('');
-  const [goldPhysicalMode, setGoldPhysicalMode] = useState('manual');
-  const [goldPremium, setGoldPremium] = useState('0');
-  const [goldMov, setGoldMov] = useState('stable');
-  const [marketSummary, setMarketSummary] = useState('');
 
   // Batch create
   const [newBatchName, setNewBatchName] = useState('');
@@ -89,9 +80,6 @@ export default function PanelScreen() {
   const [editingBannerId, setEditingBannerId] = useState('');
   const [bannerUploading, setBannerUploading] = useState(false);
 
-  // Customer management
-  const [assigningCustId, setAssigningCustId] = useState('');
-
   // Upload
   const [uploadBatchId, setUploadBatchId] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -105,10 +93,6 @@ export default function PanelScreen() {
   const [pdfPhase, setPdfPhase] = useState('');
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfStage, setPdfStage] = useState<'idle' | 'validating' | 'uploading' | 'processing' | 'done' | 'error'>('idle');
-
-  // Request detail
-  const [editingReqId, setEditingReqId] = useState('');
-  const [noteText, setNoteText] = useState('');
 
   // Add product form
   const [newProdTitle, setNewProdTitle] = useState('');
@@ -142,10 +126,10 @@ export default function PanelScreen() {
     if (appUser) {
       if (appUser.role === 'customer') { router.replace('/(tabs)'); return; }
       if (appUser.role === 'telecaller') { router.replace('/telecaller'); return; }
-      if (['admin', 'telecaller', 'billing_executive'].includes(appUser.role)) {
+      if (PANEL_ROLES.includes(appUser.role)) {
         setUser(appUser);
         setRole(appUser.role as Role);
-        setTab(appUser.role === 'billing_executive' ? 'rewards' : 'dashboard');
+        setTab(defaultTabFor(appUser.role));
         setAuthStep('done');
       }
     }
@@ -166,7 +150,7 @@ export default function PanelScreen() {
     try {
       const res = await api.post('/auth/verify-otp', { phone: panelCanonical, otp });
       const u = res.user;
-      if (u.role !== 'admin' && u.role !== 'telecaller' && u.role !== 'billing_executive') {
+      if (!PANEL_ROLES.includes(u.role)) {
         setAuthError('Access denied. This panel is for admin and executive users only.');
         setToken(null);
         return;
@@ -175,7 +159,7 @@ export default function PanelScreen() {
       if (canonical.role === 'telecaller') { router.replace('/telecaller'); return; }
       setUser(canonical);
       setRole(canonical.role as Role);
-      setTab(canonical.role === 'billing_executive' ? 'rewards' : 'dashboard');
+      setTab(defaultTabFor(canonical.role));
       setAuthStep('done');
     } catch (e: any) { setAuthError(e.message); }
     finally { setAuthLoading(false); }
@@ -194,25 +178,6 @@ export default function PanelScreen() {
     try {
       switch (t) {
         case 'dashboard': setDashData(await api.get('/analytics/dashboard')); break;
-        case 'requests': {
-          const params = new URLSearchParams();
-          if (statusFilter) params.set('status', statusFilter);
-          if (typeFilter) params.set('request_type', typeFilter);
-          const r = await api.get(`/requests?${params}`);
-          setRequests(r.requests || []);
-          break;
-        }
-        case 'rates': {
-          const r = await api.get('/rates/latest');
-          setSilverDollar(String(r.silver_dollar_rate || '')); setSilverMcx(String(r.silver_mcx_rate || ''));
-          setSilverPhysical(String(r.silver_physical_rate || '')); setSilverPhysicalMode(r.silver_physical_mode || 'manual');
-          setSilverPremium(String(r.silver_physical_premium || 0)); setSilverMov(r.silver_movement || 'stable');
-          setGoldDollar(String(r.gold_dollar_rate || '')); setGoldMcx(String(r.gold_mcx_rate || ''));
-          setGoldPhysical(String(r.gold_physical_rate || '')); setGoldPhysicalMode(r.gold_physical_mode || 'manual');
-          setGoldPremium(String(r.gold_physical_premium || 0)); setGoldMov(r.gold_movement || 'stable');
-          setMarketSummary(r.market_summary || '');
-          break;
-        }
         case 'products': {
           const [prodRes, batchRes] = await Promise.all([
             api.get('/products?limit=1&include_hidden=true'),
@@ -222,20 +187,13 @@ export default function PanelScreen() {
           setBatches(batchRes.batches || []);
           break;
         }
-        case 'customers': {
-          const r = await api.get('/customers?limit=100');
-          setCustomers(r.customers || []);
-          try { const e = await api.get('/executives'); setExecutives(e.executives || []); } catch {}
-          break;
-        }
         case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [statusFilter, typeFilter]);
+  }, []);
 
   useEffect(() => { if (role) { setProductSubView('menu'); loadTab(tab); } }, [tab, role]);
-  useEffect(() => { if (role && tab === 'requests') loadTab('requests'); }, [statusFilter, typeFilter]);
 
   // Keep the mobile screen awake during long uploads (native only — expo-keep-awake breaks the web panel)
   useEffect(() => {
@@ -250,27 +208,6 @@ export default function PanelScreen() {
   }, [uploading, pdfImporting, bannerUploading]);
 
   // === ACTIONS ===
-  const updateRates = async () => {
-    try {
-      await api.post('/rates', {
-        silver_dollar_rate: parseFloat(silverDollar) || 0, silver_mcx_rate: parseFloat(silverMcx) || 0, silver_physical_rate: parseFloat(silverPhysical) || 0,
-        silver_physical_mode: silverPhysicalMode, silver_physical_premium: parseFloat(silverPremium) || 0, silver_physical_base: 'mcx', silver_movement: silverMov,
-        gold_dollar_rate: parseFloat(goldDollar) || 0, gold_mcx_rate: parseFloat(goldMcx) || 0, gold_physical_rate: parseFloat(goldPhysical) || 0,
-        gold_physical_mode: goldPhysicalMode, gold_physical_premium: parseFloat(goldPremium) || 0, gold_physical_base: 'mcx', gold_movement: goldMov,
-        market_summary: marketSummary
-      });
-      showAlert('Success', 'Rates updated');
-    } catch (e: any) { showAlert('Error', e.message); }
-  };
-
-  const updateRequestStatus = async (id: string, status: string) => {
-    try {
-      await api.patch(`/requests/${id}`, { status, assigned_to: user?.name || '', notes: noteText || '' });
-      setEditingReqId(''); setNoteText('');
-      loadTab('requests');
-    } catch (e: any) { showAlert('Error', e.message); }
-  };
-
   const createBatch = async () => {
     if (!newBatchName.trim()) return;
     try {
@@ -367,7 +304,6 @@ export default function PanelScreen() {
   };
 
   // Contact actions keep each number's own country code (+91 / +1 / +61) — never a hard-coded "91" prefix.
-  const openWhatsApp = (phoneNum: string) => { Linking.openURL(whatsappLink(phoneNum)); };
   const openCall = (phoneNum: string) => { Linking.openURL(telLink(phoneNum)); };
 
   // Billing functions
@@ -406,15 +342,11 @@ export default function PanelScreen() {
     switch (s) { case 'pending': return Colors.warning; case 'in_progress': return Colors.info; case 'contacted': return '#A855F7'; case 'resolved': return Colors.success; case 'no_response': return Colors.error; default: return Colors.textMuted; }
   };
 
-  const typeIcon = (t: string) => {
-    switch (t) { case 'video_call': return 'videocam'; case 'call': return 'call'; case 'ask_price': return 'pricetag'; case 'ask_similar': return 'copy'; case 'hold_item': return 'bookmark'; case 'quick_reorder': return 'refresh'; default: return 'chatbox'; }
-  };
-
   // === LOGIN SCREEN ===
   if (authStep !== 'done') {
     return (
       <SafeAreaView style={s.container}>
-        <View style={s.loginBox}>
+        <KeyboardAwareScreen contentContainerStyle={s.loginBox}>
           <Ionicons name="shield-checkmark" size={48} color={Colors.gold} />
           <Text style={s.loginTitle}>Yash Trade Panel</Text>
           <Text style={s.loginSub}>Admin & Executive Access Only</Text>
@@ -437,22 +369,29 @@ export default function PanelScreen() {
             </>
           )}
           {authError ? <Text style={s.loginError}>{authError}</Text> : null}
-        </View>
+        </KeyboardAwareScreen>
       </SafeAreaView>
     );
   }
 
   // === TABS ===
+  // Contents domain (Products + Content pages): administrators and Upload Executives. Everything else is admin-only
+  // or billing-only; the server enforces the same matrix on every endpoint.
+  const CONTENT_TABS: { key: PanelTab; label: string; icon: string }[] = [
+    { key: 'products', label: 'Products', icon: 'grid' },
+    { key: 'content', label: 'Content', icon: 'document-text' },
+  ];
   const ADMIN_TABS: { key: PanelTab; label: string; icon: string }[] = [
     { key: 'dashboard', label: 'Dashboard', icon: 'stats-chart' },
     { key: 'requests', label: 'Requests', icon: 'call' },
+    { key: 'reports', label: 'Completion reports', icon: 'bar-chart' },
     { key: 'rates', label: 'Rates', icon: 'trending-up' },
-    { key: 'products', label: 'Products', icon: 'grid' },
-    { key: 'content', label: 'Content', icon: 'document-text' },
+    ...CONTENT_TABS,
+    { key: 'notifications', label: 'Notifications', icon: 'notifications' },
     { key: 'customers', label: 'Customers', icon: 'people' },
     // Account-deletion ledger: app/website cleanup vs provider erasure (Play / App Store compliance log).
     { key: 'deletions', label: 'Deletions', icon: 'shield-checkmark' },
-    { key: 'executives', label: 'Executives', icon: 'people-circle' },
+    { key: 'executives', label: 'Staff', icon: 'people-circle' },
     { key: 'sms', label: 'SMS', icon: 'chatbox-ellipses' },
     // Owner-only console (server-side authorisation); hidden inside store-review sessions where it can never apply.
     ...(!(appUser as any)?.review_environment ? [{ key: 'review' as PanelTab, label: 'Store review', icon: 'key' }] : []),
@@ -465,7 +404,7 @@ export default function PanelScreen() {
     { key: 'requests', label: 'Pending queries', icon: 'time-outline' },
     { key: 'rates', label: 'Rates & rate list', icon: 'trending-up' },
   ];
-  const tabs = role === 'admin' ? ADMIN_TABS : role === 'billing_executive' ? BILLING_TABS : EXEC_TABS;
+  const tabs = role === 'admin' ? ADMIN_TABS : role === 'billing_executive' ? BILLING_TABS : role === 'upload_executive' ? CONTENT_TABS : EXEC_TABS;
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -475,7 +414,7 @@ export default function PanelScreen() {
         <View style={s.headerRight}>
           <Text style={s.headerUser}>{user?.name || user?.phone}</Text>
           <View style={[s.roleBadge, { backgroundColor: role === 'admin' ? Colors.gold + '20' : Colors.info + '20' }]}>
-            <Text style={[s.roleText, { color: role === 'admin' ? Colors.gold : Colors.info }]}>{role?.toUpperCase()}</Text>
+            <Text style={[s.roleText, { color: role === 'admin' ? Colors.gold : Colors.info }]} testID="panel-role-badge">{ROLE_LABELS[role || ''] || role}</Text>
           </View>
           <TouchableOpacity testID="panel-logout" onPress={panelLogout} style={s.logoutBtn}><Ionicons name="log-out-outline" size={18} color={Colors.error} /></TouchableOpacity>
         </View>
@@ -486,8 +425,10 @@ export default function PanelScreen() {
         {tabs.map(t => (
           <TouchableOpacity key={t.key} testID={`panel-tab-${t.key}`} style={[s.tabItem, tab === t.key && s.tabActive]} onPress={() => {
             if(t.key === 'requests') router.push('/staff-requests');
+            else if(t.key === 'reports') router.push({ pathname: '/staff-requests', params: { section: 'reports' } } as any);
             else if(t.key === 'rates') router.push('/staff-rates');
             else if(t.key === 'customers') router.push('/customer-directory');
+            else if(t.key === 'notifications') router.push('/admin-notifications');
             else if(t.key === 'review') router.push('/review-keys');
             else setTab(t.key);
           }}>
@@ -498,7 +439,7 @@ export default function PanelScreen() {
       </ScrollView>
 
       {loading ? <ActivityIndicator color={Colors.gold} style={{ marginTop: 40 }} /> : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.content}>
+        <KeyboardAwareScreen contentContainerStyle={s.content}>
 
           {/* ===== DASHBOARD ===== */}
           {tab === 'dashboard' && dashData && (
@@ -527,165 +468,6 @@ export default function PanelScreen() {
                 </View>
               ))}
             </>
-          )}
-
-          {/* ===== REQUESTS (Executive core) ===== */}
-          {tab === 'requests' && (
-            <>
-              {/* Filters */}
-              <View style={s.filterSection}>
-                <Text style={s.filterLabel}>Status:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-                  {['', ...CANONICAL_STATUSES].map(st => (
-                    <TouchableOpacity key={st} style={[s.chip, statusFilter === st && { backgroundColor: (st ? statusColor(st) : Colors.gold) + '20', borderColor: st ? statusColor(st) : Colors.gold }]} onPress={() => setStatusFilter(st)}>
-                      <Text style={[s.chipText, statusFilter === st && { color: st ? statusColor(st) : Colors.gold }]}>{st ? st.replace(/_/g, ' ') : 'All'}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-              <View style={s.filterSection}>
-                <Text style={s.filterLabel}>Type:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-                  {['', 'call', 'video_call', 'ask_price', 'ask_similar', 'hold_item', 'quick_reorder'].map(tp => (
-                    <TouchableOpacity key={tp} style={[s.chip, typeFilter === tp && s.chipActive]} onPress={() => setTypeFilter(tp)}>
-                      <Text style={[s.chipText, typeFilter === tp && s.chipTextActive]}>{tp ? tp.replace(/_/g, ' ') : 'All'}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-
-              <Text style={s.sectionTitle}>REQUESTS ({requests.length})</Text>
-              {requests.map(r => (
-                <View key={r.id} style={s.reqCard}>
-                  <View style={s.reqTop}>
-                    <View style={[s.reqIcon, { backgroundColor: statusColor(r.status) + '15' }]}>
-                      <Ionicons name={typeIcon(r.request_type) as any} size={18} color={statusColor(r.status)} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.reqType}>{r.request_type?.replace(/_/g, ' ')}</Text>
-                      <Text style={s.reqTime}>{new Date(r.created_at).toLocaleString()}</Text>
-                    </View>
-                    <View style={[s.badge, { backgroundColor: statusColor(r.status) + '20' }]}>
-                      <Text style={[s.badgeText, { color: statusColor(r.status) }]}>{r.status?.replace(/_/g, ' ')}</Text>
-                    </View>
-                  </View>
-
-                  {/* Customer info */}
-                  <View style={s.reqInfo}>
-                    <View style={s.infoRow}><Ionicons name="person" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.user_name || 'Unknown'}</Text></View>
-                    <View style={s.infoRow}><Ionicons name="call" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.user_phone}</Text></View>
-                    {r.user_city ? <View style={s.infoRow}><Ionicons name="location" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.user_city}</Text></View> : null}
-                    {r.category ? <View style={s.infoRow}><Ionicons name="grid" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.category}</Text></View> : null}
-                    {r.preferred_time ? <View style={s.infoRow}><Ionicons name="time" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.preferred_time}</Text></View> : null}
-                    {r.notes ? <View style={s.infoRow}><Ionicons name="document-text" size={14} color={Colors.textMuted} /><Text style={s.infoText}>{r.notes}</Text></View> : null}
-                    {r.admin_notes ? <View style={[s.infoRow, { backgroundColor: Colors.gold + '08', padding: 6, borderRadius: 6 }]}><Ionicons name="chatbox" size={14} color={Colors.gold} /><Text style={[s.infoText, { color: Colors.gold }]}>{r.admin_notes}</Text></View> : null}
-                    {r.handled_by_name ? <View style={[s.infoRow, { backgroundColor: '#A855F708', padding: 6, borderRadius: 6 }]}><Ionicons name="person-circle" size={14} color="#A855F7" /><Text style={[s.infoText, { color: '#A855F7', fontWeight: '600' }]}>Handled by: {r.handled_by_name} ({r.handled_by_code || r.handled_by_phone}){r.last_action_at ? ` • ${new Date(r.last_action_at).toLocaleString()}` : ''}</Text></View> : null}
-                  </View>
-
-                  {/* Linked Products */}
-                  {r.linked_products?.length > 0 && (
-                    <View style={{ paddingHorizontal: 0, marginTop: 8, gap: 6 }}>
-                      <Text style={{ fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1 }}>SELECTED PRODUCTS</Text>
-                      {r.linked_products.map((lp: any) => (
-                        <View key={lp.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surface, borderRadius: 8, padding: 6 }}>
-                          <Image source={{ uri: getImageUrl(lp, true) }} style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: Colors.card }} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: FontSize.sm, color: Colors.text, fontWeight: '500' }} numberOfLines={1}>{lp.title}</Text>
-                            <Text style={{ fontSize: FontSize.xs, color: Colors.textMuted, textTransform: 'capitalize' }}>{lp.metal_type} {lp.category ? `• ${lp.category}` : ''}{lp.purity ? ` • ${lp.purity}` : ''}</Text>
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                  {r.cart_items?.length > 0 && (
-                    <View style={{ marginTop: 8, gap: 4 }}>
-                      <Text style={{ fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600', letterSpacing: 1 }}>CART ITEMS ({r.cart_count})</Text>
-                      {r.cart_items.map((ci: any, idx: number) => (
-                        <Text key={idx} style={{ fontSize: FontSize.sm, color: Colors.text }}>{ci.title || ci.product_id} — {ci.metal_type} • Qty: {ci.quantity}</Text>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* Quick contact */}
-                  {r.user_phone && (
-                    <View style={s.contactRow}>
-                      <TouchableOpacity testID={`wa-${r.id}`} style={[s.contactBtn, { backgroundColor: '#25D36620' }]} onPress={() => openWhatsApp(r.user_phone)}>
-                        <Ionicons name="logo-whatsapp" size={16} color="#25D366" /><Text style={[s.contactBtnText, { color: '#25D366' }]}>WhatsApp</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity testID={`call-${r.id}`} style={[s.contactBtn, { backgroundColor: Colors.success + '20' }]} onPress={() => openCall(r.user_phone)}>
-                        <Ionicons name="call" size={16} color={Colors.success} /><Text style={[s.contactBtnText, { color: Colors.success }]}>Call</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {/* Notes input */}
-                  {editingReqId === r.id && (
-                    <TextInput style={s.noteInput} placeholder="Add notes..." placeholderTextColor={Colors.textMuted} value={noteText} onChangeText={setNoteText} multiline />
-                  )}
-
-                  {/* Status actions */}
-                  <View style={s.actionsRow}>
-                    {r.status === 'pending' && <>
-                      <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.info + '15' }]} onPress={() => updateRequestStatus(r.id, 'in_progress')}><Text style={[s.actText, { color: Colors.info }]}>In Progress</Text></TouchableOpacity>
-                      <TouchableOpacity style={[s.actBtn, { backgroundColor: '#A855F715' }]} onPress={() => updateRequestStatus(r.id, 'contacted')}><Text style={[s.actText, { color: '#A855F7' }]}>Contacted</Text></TouchableOpacity>
-                    </>}
-                    {['pending', 'in_progress', 'contacted'].includes(r.status) && <>
-                      <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.success + '15' }]} onPress={() => { if (editingReqId !== r.id) setEditingReqId(r.id); else updateRequestStatus(r.id, 'resolved'); }}>
-                        <Text style={[s.actText, { color: Colors.success }]}>Resolved</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.error + '15' }]} onPress={() => updateRequestStatus(r.id, 'no_response')}>
-                        <Text style={[s.actText, { color: Colors.error }]}>No Response</Text>
-                      </TouchableOpacity>
-                    </>}
-                    {editingReqId !== r.id && (
-                      <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]} onPress={() => setEditingReqId(r.id)}>
-                        <Ionicons name="create" size={12} color={Colors.gold} /><Text style={[s.actText, { color: Colors.gold }]}>Notes</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              ))}
-              {requests.length === 0 && <Text style={s.emptyText}>No requests found</Text>}
-            </>
-          )}
-
-          {/* ===== RATES ===== */}
-          {tab === 'rates' && (
-            <View style={s.formCard}>
-              <Text style={s.formTitle}>Update Daily Rates</Text>
-              <Text style={[s.formLabel, { color: Colors.silver }]}>SILVER RATES</Text>
-              <View style={s.formRow}>
-                <View style={{ flex: 1 }}><Text style={s.formLabel}>Dollar $/oz</Text><TextInput style={s.formInput} value={silverDollar} onChangeText={setSilverDollar} keyboardType="decimal-pad" placeholder="31.25" placeholderTextColor={Colors.textMuted} /></View>
-                <View style={{ flex: 1 }}><Text style={s.formLabel}>MCX Rs/g</Text><TextInput style={s.formInput} value={silverMcx} onChangeText={setSilverMcx} keyboardType="decimal-pad" placeholder="95.80" placeholderTextColor={Colors.textMuted} /></View>
-              </View>
-              <Text style={s.formLabel}>Physical Mode</Text>
-              <View style={s.formRow}>{['manual', 'calculated'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, silverPhysicalMode === m && s.metalBtnActive]} onPress={() => setSilverPhysicalMode(m)}><Text style={[s.metalBtnText, silverPhysicalMode === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-              {silverPhysicalMode === 'manual' ? (
-                <><Text style={s.formLabel}>Physical Rate Rs/g</Text><TextInput style={s.formInput} value={silverPhysical} onChangeText={setSilverPhysical} keyboardType="decimal-pad" placeholder="96.50" placeholderTextColor={Colors.textMuted} /></>
-              ) : (
-                <><Text style={s.formLabel}>Premium over MCX (Rs)</Text><TextInput style={s.formInput} value={silverPremium} onChangeText={setSilverPremium} keyboardType="decimal-pad" placeholder="0.70" placeholderTextColor={Colors.textMuted} /></>
-              )}
-              <Text style={s.formLabel}>Movement</Text>
-              <View style={s.formRow}>{['up', 'down', 'stable'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, silverMov === m && s.metalBtnActive]} onPress={() => setSilverMov(m)}><Text style={[s.metalBtnText, silverMov === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-              <View style={{ height: 1, backgroundColor: Colors.border, marginVertical: 16 }} />
-              <Text style={[s.formLabel, { color: Colors.gold }]}>GOLD RATES</Text>
-              <View style={s.formRow}>
-                <View style={{ flex: 1 }}><Text style={s.formLabel}>Dollar $/oz</Text><TextInput style={s.formInput} value={goldDollar} onChangeText={setGoldDollar} keyboardType="decimal-pad" placeholder="2385" placeholderTextColor={Colors.textMuted} /></View>
-                <View style={{ flex: 1 }}><Text style={s.formLabel}>MCX Rs/g</Text><TextInput style={s.formInput} value={goldMcx} onChangeText={setGoldMcx} keyboardType="decimal-pad" placeholder="7380" placeholderTextColor={Colors.textMuted} /></View>
-              </View>
-              <Text style={s.formLabel}>Physical Mode</Text>
-              <View style={s.formRow}>{['manual', 'calculated'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, goldPhysicalMode === m && s.metalBtnActive]} onPress={() => setGoldPhysicalMode(m)}><Text style={[s.metalBtnText, goldPhysicalMode === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-              {goldPhysicalMode === 'manual' ? (
-                <><Text style={s.formLabel}>Physical Rate Rs/g</Text><TextInput style={s.formInput} value={goldPhysical} onChangeText={setGoldPhysical} keyboardType="decimal-pad" placeholder="7450" placeholderTextColor={Colors.textMuted} /></>
-              ) : (
-                <><Text style={s.formLabel}>Premium over MCX (Rs)</Text><TextInput style={s.formInput} value={goldPremium} onChangeText={setGoldPremium} keyboardType="decimal-pad" placeholder="70" placeholderTextColor={Colors.textMuted} /></>
-              )}
-              <Text style={s.formLabel}>Movement</Text>
-              <View style={s.formRow}>{['up', 'down', 'stable'].map(m => (<TouchableOpacity key={m} style={[s.metalBtn, goldMov === m && s.metalBtnActive]} onPress={() => setGoldMov(m)}><Text style={[s.metalBtnText, goldMov === m && s.metalBtnTextActive]}>{m}</Text></TouchableOpacity>))}</View>
-              <Text style={s.formLabel}>Market Summary</Text>
-              <TextInput style={s.formInput} value={marketSummary} onChangeText={setMarketSummary} placeholder="e.g., Silver up 1.2% today" placeholderTextColor={Colors.textMuted} />
-              <TouchableOpacity testID="panel-update-rates" style={s.saveBtn} onPress={updateRates}><Text style={s.saveBtnText}>UPDATE RATES</Text></TouchableOpacity>
-            </View>
           )}
 
           {/* ===== PRODUCTS MANAGEMENT (unified with sub-navigation) ===== */}
@@ -1169,127 +951,24 @@ export default function PanelScreen() {
             </>
           )}
 
-          {/* ===== CUSTOMERS ===== */}
-          {tab === 'customers' && (
-            <>
-              <Text style={s.sectionTitle}>ALL CUSTOMERS ({customers.length})</Text>
-              {customers.map(c => {
-                const acct = c.account_status || c.status || 'active';
-                const isActive = acct === 'active';
-                const isDeleted = acct === 'deleted';
-                const telecaller = executives.find(e => e.id === c.assigned_salesperson);
-                return (
-                  <View key={c.id} style={[s.listItem, { flexDirection: 'column', alignItems: 'stretch' }, isDeleted && { opacity: 0.6 }]} data-testid={`customer-row-${c.id}`}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.listTitle}>{c.name || c.phone}</Text>
-                        <Text style={s.listMeta}>
-                          {c.shop_name ? `${c.shop_name} • ` : ''}{c.location || c.city || 'No location'} • {displayPhone(c.phone)}
-                        </Text>
-                        <Text style={s.listMeta}>
-                          {c.customer_code} • {c.reward_points || 0} pts • via {c.registration_source || 'app'}
-                        </Text>
-                      </View>
-                      <View style={s.contactRow}>
-                        <TouchableOpacity onPress={() => openWhatsApp(c.phone)}><Ionicons name="logo-whatsapp" size={18} color="#25D366" /></TouchableOpacity>
-                        <TouchableOpacity onPress={() => openCall(c.phone)}><Ionicons name="call" size={18} color={Colors.success} /></TouchableOpacity>
-                      </View>
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' }}>
-                      <View style={[s.custBadge, { backgroundColor: (isActive ? Colors.success : Colors.error) + '18' }]}>
-                        <Text style={[s.custBadgeText, { color: isActive ? Colors.success : Colors.error }]}>{isDeleted ? `DELETED ${c.deleted_at ? new Date(c.deleted_at).toLocaleDateString() : ''} (${c.deletion_source || 'app'})` : acct.toUpperCase()}</Text>
-                      </View>
-                      {!isDeleted && (
-                      <View style={[s.custBadge, { backgroundColor: (c.has_logged_in ? Colors.info : Colors.warning) + '18' }]}>
-                        <Text style={[s.custBadgeText, { color: c.has_logged_in ? Colors.info : Colors.warning }]}>
-                          {c.has_logged_in ? `LAST LOGIN: ${c.last_login_at ? new Date(c.last_login_at).toLocaleDateString() : '-'}` : 'NEVER LOGGED IN'}
-                        </Text>
-                      </View>
-                      )}
-                      <View style={[s.custBadge, { backgroundColor: Colors.gold + '15' }]}>
-                        <Text style={[s.custBadgeText, { color: Colors.gold }]}>TC: {telecaller ? telecaller.name : 'Unassigned'}</Text>
-                      </View>
-                    </View>
-                    {!isDeleted && (
-                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
-                      <TouchableOpacity
-                        data-testid={`assign-btn-${c.id}`}
-                        style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]}
-                        onPress={() => setAssigningCustId(assigningCustId === c.id ? '' : c.id)}
-                      >
-                        <Ionicons name="person-add" size={12} color={Colors.gold} />
-                        <Text style={[s.actText, { color: Colors.gold }]}>Assign Telecaller</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        data-testid={`toggle-active-${c.id}`}
-                        style={[s.actBtn, { backgroundColor: (isActive ? Colors.error : Colors.success) + '15' }]}
-                        onPress={async () => {
-                          try {
-                            const updated = await api.patch(`/customers/${c.id}`, { account_status: isActive ? 'inactive' : 'active' });
-                            setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
-                          } catch (e: any) { showAlert('Error', e?.message || 'Could not update customer.'); }
-                        }}
-                      >
-                        <Text style={[s.actText, { color: isActive ? Colors.error : Colors.success }]}>{isActive ? 'Deactivate' : 'Activate'}</Text>
-                      </TouchableOpacity>
-                    </View>
-                    )}
-                    {assigningCustId === c.id && (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                        <TouchableOpacity
-                          style={[s.metalBtn, !c.assigned_salesperson && s.metalBtnActive]}
-                          onPress={async () => {
-                            try {
-                              const updated = await api.patch(`/customers/${c.id}`, { assigned_salesperson: '' });
-                              setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
-                              setAssigningCustId('');
-                            } catch (e: any) { showAlert('Error', e?.message || 'Could not update.'); }
-                          }}
-                        >
-                          <Text style={s.metalBtnText}>Unassigned</Text>
-                        </TouchableOpacity>
-                        {executives.filter(e => e.role === 'executive').map(e => (
-                          <TouchableOpacity
-                            key={e.id}
-                            data-testid={`assign-exec-${e.id}`}
-                            style={[s.metalBtn, c.assigned_salesperson === e.id && s.metalBtnActive]}
-                            onPress={async () => {
-                              try {
-                                const updated = await api.patch(`/customers/${c.id}`, { assigned_salesperson: e.id });
-                                setCustomers(prev => prev.map(x => x.id === c.id ? updated : x));
-                                setAssigningCustId('');
-                              } catch (err: any) { showAlert('Error', err?.message || 'Could not assign.'); }
-                            }}
-                          >
-                            <Text style={[s.metalBtnText, c.assigned_salesperson === e.id && s.metalBtnTextActive]}>{e.name}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-            </>
-          )}
-
           {/* ===== ACCOUNT DELETION LEDGER (Admin only): app/website cleanup vs provider erasure ===== */}
           {tab === 'deletions' && role === 'admin' && <DeletionRequests />}
 
           {/* ===== EXECUTIVES MANAGEMENT (Admin only) ===== */}
           {tab === 'executives' && (
             <>
-              <Text style={s.sectionTitle}>EXECUTIVE / TELECALLER MANAGEMENT</Text>
+              <Text style={s.sectionTitle}>STAFF MANAGEMENT · TELECALLERS, BILLING, UPLOAD EXECUTIVES</Text>
               
               {/* Add/Edit Executive Form */}
               <TouchableOpacity style={[s.saveBtn, { marginBottom: Spacing.md }]} onPress={() => { setShowExecForm(!showExecForm); setEditingExecId(''); setExecForm({ name: '', phone: '', code: '', role: 'executive' }); }}>
-                <Text style={s.saveBtnText}>{showExecForm ? 'CANCEL' : '+ ADD NEW EXECUTIVE'}</Text>
+                <Text style={s.saveBtnText}>{showExecForm ? 'CANCEL' : '+ ADD STAFF MEMBER'}</Text>
               </TouchableOpacity>
 
               {showExecForm && (
                 <View style={s.formCard}>
-                  <Text style={s.formTitle}>{editingExecId ? 'Edit Executive' : 'Add New Executive'}</Text>
+                  <Text style={s.formTitle}>{editingExecId ? 'Edit staff member' : 'Add staff member'}</Text>
                   <Text style={s.formLabel}>Name *</Text>
-                  <TextInput style={s.formInput} value={execForm.name} onChangeText={v => setExecForm(p => ({...p, name: v}))} placeholder="e.g. Riya Sharma" placeholderTextColor={Colors.textMuted} data-testid="exec-name-input" />
+                  <TextInput style={s.formInput} value={execForm.name} onChangeText={v => setExecForm(p => ({...p, name: v}))} placeholder="e.g. Riya Sharma" placeholderTextColor={Colors.textMuted} testID="exec-name-input" />
                   <Text style={s.formLabel}>Mobile Number *</Text>
                   {editingExecId ? (
                     <View style={[s.formInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
@@ -1303,70 +982,68 @@ export default function PanelScreen() {
                   ) : (
                     <PhoneField testID="exec-phone-input" country={execCountry} national={execForm.phone} onChange={(c, v) => { setExecCountry(c); setExecForm(p => ({ ...p, phone: v })); }} />
                   )}
-                  <Text style={s.formLabel}>Executive Code *</Text>
-                  <TextInput style={s.formInput} value={execForm.code} onChangeText={v => setExecForm(p => ({...p, code: v.toUpperCase()}))} placeholder="e.g. EXEC02" placeholderTextColor={Colors.textMuted} data-testid="exec-code-input" />
+                  <Text style={s.formLabel}>Staff Code *</Text>
+                  <TextInput style={s.formInput} value={execForm.code} onChangeText={v => setExecForm(p => ({...p, code: v.toUpperCase()}))} placeholder="e.g. EXEC02" placeholderTextColor={Colors.textMuted} testID="exec-code-input" />
                   <Text style={s.formLabel}>Role</Text>
                   <View style={s.formRow}>
-                    {['executive', 'billing_executive'].map(r => (
-                      <TouchableOpacity key={r} style={[s.metalBtn, execForm.role === r && s.metalBtnActive]} onPress={() => setExecForm(p => ({...p, role: r}))}>
-                        <Text style={[s.metalBtnText, execForm.role === r && s.metalBtnTextActive]}>{r === 'executive' ? 'Executive / Telecaller' : 'Billing Executive'}</Text>
+                    {STAFF_ROLE_OPTIONS.map(r => (
+                      <TouchableOpacity key={r.key} testID={`exec-role-${r.key}`} style={[s.metalBtn, (execForm.role === r.key || (r.key === 'executive' && execForm.role === 'telecaller')) && s.metalBtnActive]} onPress={() => setExecForm(p => ({...p, role: r.key}))}>
+                        <Text style={[s.metalBtnText, (execForm.role === r.key || (r.key === 'executive' && execForm.role === 'telecaller')) && s.metalBtnTextActive]}>{r.label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} data-testid="exec-save-btn" onPress={async () => {
+                  {execForm.role === 'upload_executive' && <Text style={s.emptyText} testID="exec-role-upload-note">Upload Executives get the Products and Content tools only (PDF/photo imports, catalogue, banners, pages) — no customers, queries, billing or notifications.</Text>}
+                  <TouchableOpacity style={[s.saveBtn, { marginTop: Spacing.md }]} testID="exec-save-btn" onPress={async () => {
                     const canonical = editingExecId ? execForm.phone : canonicalPhone(execForm.phone, execCountry);
                     if (!execForm.name.trim() || !canonical || !execForm.code.trim()) { showAlert('Error', 'Name, a valid phone number and Code are required'); return; }
                     try {
                       if (editingExecId) {
                         // The login number is changed only through the audited "Change login number" operation.
                         await api.put(`/executives/${editingExecId}`, { name: execForm.name, customer_code: execForm.code, role: execForm.role });
-                        showAlert('Success', 'Executive updated');
+                        showAlert('Success', 'Staff member updated');
                       } else {
                         await api.post('/executives', { name: execForm.name, phone: canonical, code: execForm.code, role: execForm.role });
-                        showAlert('Success', `Executive "${execForm.name}" created. They can now login with ${displayPhone(canonical)} and OTP.`);
+                        showAlert('Success', `"${execForm.name}" created. They can now login with ${displayPhone(canonical)} and OTP.`);
                       }
                       setShowExecForm(false); setEditingExecId('');
                       setExecForm({ name: '', phone: '', code: '', role: 'executive' });
                       loadTab('executives');
                     } catch (e: any) { showAlert('Error', e.message); }
                   }}>
-                    <Text style={s.saveBtnText}>{editingExecId ? 'UPDATE EXECUTIVE' : 'CREATE EXECUTIVE'}</Text>
+                    <Text style={s.saveBtnText}>{editingExecId ? 'UPDATE STAFF MEMBER' : 'CREATE STAFF MEMBER'}</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
-              {/* Executive List */}
-              {executives.length === 0 && !showExecForm && <Text style={s.emptyText}>No executives added yet. Tap above to add one.</Text>}
+              {/* Staff list */}
+              {executives.length === 0 && !showExecForm && <Text style={s.emptyText}>No staff added yet. Tap above to add one.</Text>}
               {executives.map(ex => (
-                <View key={ex.id} style={s.reqCard} data-testid={`exec-card-${ex.id}`}>
+                <View key={ex.id} style={s.reqCard} testID={`exec-card-${ex.id}`}>
                   <View style={s.reqTop}>
-                    <View style={[s.reqIcon, { backgroundColor: ex.role === 'billing_executive' ? '#FF980015' : '#A855F715' }]}>
-                      <Ionicons name="person-circle" size={22} color={ex.role === 'billing_executive' ? '#FF9800' : '#A855F7'} />
+                    <View style={[s.reqIcon, { backgroundColor: ex.role === 'billing_executive' ? '#FF980015' : ex.role === 'upload_executive' ? Colors.success + '15' : '#A855F715' }]}>
+                      <Ionicons name={ex.role === 'upload_executive' ? 'cloud-upload' : 'person-circle'} size={22} color={ex.role === 'billing_executive' ? '#FF9800' : ex.role === 'upload_executive' ? Colors.success : '#A855F7'} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={s.reqType}>{ex.name}</Text>
-                      <Text style={s.reqTime}>{displayPhone(ex.phone)} • {ex.customer_code} • {ex.role?.replace(/_/g, ' ')}</Text>
+                      <Text style={s.reqTime}>{displayPhone(ex.phone)} • {ex.customer_code} • {ROLE_LABELS[ex.role] || ex.role?.replace(/_/g, ' ')}</Text>
                     </View>
                     <View style={[s.badge, { backgroundColor: ex.status === 'active' ? Colors.success + '20' : Colors.error + '20' }]}>
-                      <Text style={[s.badgeText, { color: ex.status === 'active' ? Colors.success : Colors.error }]}>{ex.status}</Text>
+                      <Text style={[s.badgeText, { color: ex.status === 'active' ? Colors.success : Colors.error }]} testID={`exec-status-${ex.id}`}>{ex.status}</Text>
                     </View>
                   </View>
                   <View style={s.actionsRow}>
-                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]} onPress={() => {
+                    <TouchableOpacity testID={`exec-edit-${ex.id}`} style={[s.actBtn, { backgroundColor: Colors.gold + '15' }]} onPress={() => {
                       setEditingExecId(ex.id); setShowExecForm(true);
                       setExecForm({ name: ex.name, phone: ex.phone, code: ex.customer_code || '', role: ex.role });
                     }}>
                       <Ionicons name="create" size={12} color={Colors.gold} /><Text style={[s.actText, { color: Colors.gold }]}>Edit</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.error + '15' }]} onPress={() => {
-                      confirmAlert('Disable Executive', `Disable "${ex.name}"? They won't be able to login anymore.`, async () => { await api.delete(`/executives/${ex.id}`); loadTab('executives'); }, 'Disable');
-                    }}>
-                      <Ionicons name="close-circle" size={12} color={Colors.error} /><Text style={[s.actText, { color: Colors.error }]}>Disable</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[s.actBtn, { backgroundColor: Colors.info + '15' }]} onPress={() => openCall(ex.phone)}>
+                    <TouchableOpacity testID={`exec-call-${ex.id}`} style={[s.actBtn, { backgroundColor: Colors.info + '15' }]} onPress={() => openCall(ex.phone)}>
                       <Ionicons name="call" size={12} color={Colors.info} /><Text style={[s.actText, { color: Colors.info }]}>Call</Text>
                     </TouchableOpacity>
                   </View>
+                  {/* Disable (reversible) / Re-enable / Delete (erasure workflow) are distinct, server-enforced operations */}
+                  <AccountActions kind="staff" account={ex} onChanged={() => loadTab('executives')} />
                 </View>
               ))}
               {phoneChangeStaff && (
@@ -1395,7 +1072,8 @@ export default function PanelScreen() {
                   <View style={s.menuGrid}>
                     {[
                       { key: 'about', label: 'About Page', hint: 'Edit about content, benefits, locations', icon: 'information-circle', color: Colors.info },
-                      { key: 'ratelist', label: 'Rate List', hint: 'Manage quantity-based rate slabs', icon: 'list', color: '#E91E63' },
+                      // Rate slabs are a pricing (billing/admin) control, not content: not offered to Upload Executives.
+                      ...(role === 'admin' ? [{ key: 'ratelist', label: 'Rate List', hint: 'Manage quantity-based rate slabs', icon: 'list', color: '#E91E63' }] : []),
                       { key: 'schemes', label: 'Schemes', hint: 'Upload scheme posters & details', icon: 'ribbon', color: '#FF9800' },
                       { key: 'brands', label: 'Brands', hint: 'Manage brand logos', icon: 'star', color: '#9C27B0' },
                       { key: 'showroom', label: 'Showroom', hint: 'Floor-wise photos & descriptions', icon: 'images', color: '#00BCD4' },
@@ -1756,7 +1434,7 @@ export default function PanelScreen() {
           )}
 
           <View style={{ height: 40 }} />
-        </ScrollView>
+        </KeyboardAwareScreen>
       )}
     </SafeAreaView>
   );
@@ -1765,7 +1443,7 @@ export default function PanelScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   // Login
-  loginBox: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.xl },
+  loginBox: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.xl },
   loginTitle: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.text, marginTop: Spacing.md },
   loginSub: { fontSize: FontSize.sm, color: Colors.textSecondary, marginBottom: Spacing.xl },
   loginInput: { width: '100%', maxWidth: 320, backgroundColor: Colors.surface, borderRadius: 12, paddingHorizontal: Spacing.md, paddingVertical: 14, fontSize: FontSize.lg, color: Colors.text, borderWidth: 1, borderColor: Colors.border, marginBottom: Spacing.md, textAlign: 'center' },

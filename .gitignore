@@ -97,3 +97,6 @@ backend/.operator-venv/
 .env
 .env.*
 *.env
+
+# Yarn-only project (settled owner decision): npm lockfiles are never committed
+frontend/package-lock.json

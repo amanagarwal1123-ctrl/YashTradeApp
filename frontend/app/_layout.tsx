@@ -94,7 +94,7 @@ export default function RootLayout() {
             <Stack.Screen name="exhibition" options={{ presentation: 'modal' }} />
             <Stack.Screen name="notifications" options={{ presentation: 'modal' }} />
             <Stack.Screen name="admin-notifications" />
-            <Stack.Screen name="staff-reports" />
+            <Stack.Screen name="staff-requests" />
           </Stack>
           <ReviewEnvironmentBanner />
         </IconFontGate>

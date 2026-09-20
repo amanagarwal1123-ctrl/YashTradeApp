@@ -2655,74 +2655,9 @@ async def telecaller_summary(user=Depends(get_telecaller_user)):
     return {"total_customers": total, "by_status": by_status, "follow_ups_due": follow_ups_due, "actions_today": actions_today}
 
 # ===================== EXECUTIVE MANAGEMENT =====================
-
-@api_router.post("/executives")
-async def create_executive(req: ExecutiveCreate, user=Depends(get_admin_user)):
-    """Admin creates a new executive/telecaller user."""
-    phone = req.phone.strip()
-    if len(phone) < 10:
-        raise HTTPException(status_code=400, detail="Invalid phone number")
-    if req.role not in ("executive", "billing_executive"):
-        raise HTTPException(status_code=400, detail="Role must be executive or billing_executive")
-    existing = await db.users.find_one({"phone": phone}, {"_id": 0})
-    if existing:
-        if existing.get("role") in ("executive", "billing_executive"):
-            raise HTTPException(status_code=400, detail=f"An executive with phone {phone} already exists")
-        # Upgrade existing customer to executive
-        await db.users.update_one({"phone": phone}, {"$set": {
-            "name": req.name, "customer_code": req.code, "role": req.role,
-            "customer_type": req.role, "status": "active",
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }})
-        updated = await db.users.find_one({"phone": phone}, {"_id": 0})
-        return updated
-    exec_user = {
-        "id": str(uuid.uuid4()), "phone": phone, "name": req.name,
-        "city": "", "customer_code": req.code, "customer_type": req.role,
-        "role": req.role, "category_interests": [], "is_eligible_rewards": False,
-        "assigned_salesperson": "", "status": "active", "reward_points": 0,
-        "is_new": False, "created_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": datetime.now(timezone.utc).isoformat()
-    }
-    await db.users.insert_one(exec_user)
-    return {k: v for k, v in exec_user.items() if k != "_id"}
-
-@api_router.get("/executives")
-async def list_executives(user=Depends(get_admin_user)):
-    """List all executive and billing_executive users."""
-    execs = await db.users.find(
-        {"role": {"$in": ["executive", "billing_executive"]}, "status": {"$ne": "disabled"}},
-        {"_id": 0}
-    ).sort("name", 1).to_list(100)
-    return {"executives": execs}
-
-@api_router.put("/executives/{exec_id}")
-async def update_executive(exec_id: str, updates: Dict[str, Any], user=Depends(get_admin_user)):
-    """Admin updates executive details (name, code, role, status)."""
-    existing = await db.users.find_one({"id": exec_id}, {"_id": 0})
-    if not existing or existing.get("role") not in ("executive", "billing_executive"):
-        raise HTTPException(status_code=404, detail="Executive not found")
-    allowed = {"name", "customer_code", "role", "status", "city", "phone"}
-    filtered = {k: v for k, v in updates.items() if k in allowed and v is not None}
-    if "role" in filtered and filtered["role"] not in ("executive", "billing_executive"):
-        raise HTTPException(status_code=400, detail="Role must be executive or billing_executive")
-    if filtered:
-        filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
-        if "role" in filtered:
-            filtered["customer_type"] = filtered["role"]
-        if "status" in filtered:
-            filtered["account_status"] = filtered["status"]
-        await db.users.update_one({"id": exec_id}, {"$set": filtered})
-    return await db.users.find_one({"id": exec_id}, {"_id": 0})
-
-@api_router.delete("/executives/{exec_id}")
-async def disable_executive(exec_id: str, user=Depends(get_admin_user)):
-    """Disable an executive (soft delete)."""
-    existing = await db.users.find_one({"id": exec_id}, {"_id": 0})
-    if not existing or existing.get("role") not in ("executive", "billing_executive"):
-        raise HTTPException(status_code=404, detail="Executive not found")
-    await db.users.update_one({"id": exec_id}, {"$set": {"status": "disabled", "account_status": "disabled", "updated_at": datetime.now(timezone.utc).isoformat()}})
-    return {"message": f"Executive {existing.get('name', '')} disabled"}
+# The legacy /executives route family (create / list / update / disable) is served by the canonical staff directory in
+# shared/people.py (same rules as /integrations/staff: Upload Executive role, explicit customer promotion, reversible
+# disable with session/device revocation and query release, no hidden deletion). Only the performance report stays here.
 
 @api_router.get("/executives/performance")
 async def executive_performance(user=Depends(get_admin_user)):

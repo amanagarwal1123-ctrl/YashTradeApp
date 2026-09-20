@@ -1,127 +1,122 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AppState, KeyboardAvoidingView, Modal, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Linking, RefreshControl, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import { Colors } from '../../theme';
+import { enablePush, permissionState, pushSupported, PermissionState } from '../../push';
+import { KeyboardAwareScreen } from '../KeyboardScreen';
 import { Button, Busy, dateText, duration, Input, ui } from './Controls';
+import RequestDetail from './RequestDetail';
+import CompletionReports from './CompletionReports';
+import { ADMIN_VIEWS, HEAD_COLORS, VIEW_PRESETS, typeLabel } from './requestHelpers';
 
-const statuses = ['open', 'pending', 'in_progress', 'contacted', 'no_response', 'resolved', 'cancelled', 'all'];
-const today = () => new Date(Date.now()+330*60000).toISOString().slice(0,10);
-
+/**
+ * ONE central query workspace for telecallers, administrators and billing (R11/R14). Every unfinished customer query
+ * of every type and age is in All Pending (fresh-first, paginated over the full history); My Pending / My Completed are
+ * the personal views. Claim, head, follow-up, notes and Mark Complete live in the detail sheet (server-enforced
+ * ownership). Billing is read-only here. The list re-validates every 15 s, on focus and on app resume.
+ */
 export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => void; onCRM?: () => void }) {
   const { user, logout } = useAuth(); const router = useRouter();
-  const [data, setData] = useState<any>(null), [metrics, setMetrics] = useState<any>(null);
-  const [error, setError] = useState(''), [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState(''), [status, setStatus] = useState('open'), [view, setView] = useState('all');
-  const [page, setPage] = useState(1), [type, setType] = useState(''), [types, setTypes] = useState<string[]>([]);
-  const [advanced, setAdvanced] = useState(false), [sort, setSort] = useState('oldest');
-  const [start, setStart] = useState(today()), [end, setEnd] = useState(today());
-  const [createdFrom, setCreatedFrom] = useState(''), [createdTo, setCreatedTo] = useState('');
-  const [minAge, setMinAge] = useState(''), [maxAge, setMaxAge] = useState('');
-  const [assignee, setAssignee] = useState(''), [resolver, setResolver] = useState('');
-  const [periodResolver, setPeriodResolver] = useState('');
-  const [detail, setDetail] = useState<any>(null), [note, setNote] = useState(''), [busy, setBusy] = useState(false);
-  const [staff, setStaff] = useState<any[]>([]);
+  const { request: deepLinkId, section: initialSection } = useLocalSearchParams<{ request?: string; section?: string }>();
+  const [data, setData] = useState<any>(null), [error, setError] = useState(''), [loading, setLoading] = useState(false);
+  const [view, setView] = useState('all_pending'), [search, setSearch] = useState(''), [type, setType] = useState(''), [head, setHead] = useState('');
+  const [page, setPage] = useState(1), [types, setTypes] = useState<string[]>([]), [headLabels, setHeadLabels] = useState<Record<string, string>>({});
+  const [staff, setStaff] = useState<any[]>([]), [openId, setOpenId] = useState<string | null>(null);
+  const [section, setSection] = useState<'queue' | 'reports'>(initialSection === 'reports' ? 'reports' : 'queue'), [queue, setQueue] = useState<any>(null);
+  const [push, setPush] = useState<{ state: PermissionState; canAskAgain: boolean } | null>(null);
+  const requestSeq = useRef(0);
   const billing = user?.role === 'billing_executive';
+  const admin = user?.role === 'admin';
 
   const load = useCallback(async () => {
     if (!user || user.role === 'customer') return;
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ page: String(page), limit: '25', search, status, view, sort, request_type: type, assignee, resolver, created_from: createdFrom, created_to: createdTo });
-      if (minAge) qs.set('min_age_minutes', minAge); if (maxAge) qs.set('max_age_minutes', maxAge);
-      if(periodResolver) { qs.set('period_resolver',periodResolver); qs.set('period_start',start); qs.set('period_end',end); }
-      const [r, m] = await Promise.all([api.get(`/requests?${qs}`), billing ? null : api.get(`/requests/metrics/summary?${new URLSearchParams({ start, end, search, request_type: type })}`)]);
-      setData(r); setMetrics(m); setError('');
-    } catch (e: any) { setError(`Could not refresh. Displayed data may be stale. ${e.message}`); }
-    finally { setLoading(false); }
-  }, [user, page, search, status, view, sort, type, assignee, resolver, createdFrom, createdTo, minAge, maxAge, start, end, billing, periodResolver]);
+      const qs = new URLSearchParams({ page: String(page), limit: '25', view, search, request_type: type, head });
+      const r = await api.get(`/requests?${qs}`);
+      if (seq !== requestSeq.current) return; // a newer filter/page request superseded this response
+      setData(r); setError('');
+    } catch (e: any) { if (seq === requestSeq.current) setError(`Could not refresh; the list shown may be stale. ${e.message}`); }
+    finally { if (seq === requestSeq.current) setLoading(false); }
+  }, [user, page, view, search, type, head]);
 
   useFocusEffect(useCallback(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, [load]));
   useEffect(() => { const s = AppState.addEventListener('change', state => { if (state === 'active') load(); }); return () => s.remove(); }, [load]);
-  useEffect(() => { api.get('/requests/catalog').then(r => setTypes(r.types)).catch((e: any) => setError(e.message)); }, []);
-  useEffect(() => { if(user && user.role!=='customer')api.get('/requests/staff-options').then(r=>setStaff(r.users)).catch(e=>setError(e.message)); }, [user]);
-  useEffect(() => { setPage(1); }, [search, status, view, type, assignee, resolver, createdFrom, createdTo, minAge, maxAge]);
-  const open = async (id: string) => {
-    setBusy(true); setNote('');
-    try { setDetail(await api.get(`/requests/${id}/history`)); if (user?.role === 'admin') setStaff((await api.get('/integrations/staff?status=active')).users); }
-    catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  };
-  const mutate = async (body: any) => {
-    setBusy(true);
-    try { await api.patch(`/requests/${detail.request.id}`, { ...body, version: detail.request.version, idempotency_key: `${Date.now()}-${Math.random()}` }); await open(detail.request.id); await load(); }
-    catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  };
-  const request = detail?.request;
-  const own = user?.role === 'admin' || request?.assignee_id === user?.id;
-  if (!user || user.role === 'customer') return <SafeAreaView style={ui.screen}><Text testID="requests-access-denied" style={ui.error}>Staff sign-in required</Text><Button id="requests-login" title="Sign in" onPress={() => router.replace('/login')}/></SafeAreaView>;
+  useEffect(() => {
+    api.get('/requests/catalog').then(r => { setTypes(r.types); setHeadLabels(r.head_labels || {}); }).catch((e: any) => setError(e.message));
+    api.get('/requests/queue/status').then(setQueue).catch(() => {});
+    if (user && user.role !== 'customer') api.get('/requests/staff-options').then(r => setStaff(r.users)).catch(() => {});
+    if (pushSupported()) permissionState().then(setPush).catch(() => {});
+  }, [user?.id]);
+  useEffect(() => { setPage(1); }, [view, search, type, head]);
+  useEffect(() => { if (deepLinkId) setOpenId(String(deepLinkId)); }, [deepLinkId]);
+
+  if (!user || user.role === 'customer') return <SafeAreaView style={ui.screen}><Text testID="requests-access-denied" style={ui.error}>Staff sign-in required</Text><Button id="requests-login" title="Sign in" onPress={() => router.replace('/login')} /></SafeAreaView>;
+
+  const views = admin ? ADMIN_VIEWS : VIEW_PRESETS;
+  const counts = data?.counts || {};
+  const completedView = view.endsWith('completed');
 
   return <SafeAreaView style={ui.screen} edges={['top', 'bottom']}>
-    <View style={ui.header}>{onBack && <Button id="requests-back" title="Back" onPress={onBack}/>}<Text testID="requests-title" style={ui.title}>{billing ? 'Pending queries' : 'Requests'}</Text></View>
-    <KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={ui.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load}/>}>
-        <Text testID="requests-staff-name" style={ui.muted}>{user.name} · {user.role.replace('_', ' ')}</Text>
-        <View style={ui.row}>{onCRM && <Button id="requests-open-crm" title="Customer leads" onPress={onCRM} icon="people-outline"/>}<Button id="requests-refresh" title="Refresh" onPress={load} icon="refresh"/><Button id="requests-logout" title="Sign out" onPress={async () => { await logout(); router.replace('/login'); }}/></View>
+    <View style={ui.header}>{onBack && <Button id="requests-back" title="Back" icon="arrow-back" onPress={onBack} />}<Text testID="requests-title" style={ui.title}>{billing ? 'Central queries' : 'Requests'}</Text></View>
+    <KeyboardAwareScreen contentContainerStyle={ui.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={Colors.gold} />} testID="requests-scroll">
+        <Text testID="requests-staff-name" style={ui.muted}>{user.name} · {user.role.replace(/_/g, ' ')}</Text>
+        <View style={ui.row}>
+          {!billing && <Button id="requests-section-queue" title="Queue" icon="list-outline" active={section === 'queue'} onPress={() => setSection('queue')} />}
+          {!billing && <Button id="requests-section-reports" title="Completion reports" icon="bar-chart-outline" active={section === 'reports'} onPress={() => setSection('reports')} />}
+          {onCRM && <Button id="requests-open-crm" title="Customer leads" onPress={onCRM} icon="people-outline" />}
+          <Button id="requests-refresh" title="Refresh" onPress={load} icon="refresh" />
+          <Button id="requests-logout" title="Sign out" onPress={async () => { await logout(); router.replace('/login'); }} />
+        </View>
         {!!error && <Text testID="requests-error" style={ui.error}>{error}</Text>}
-        {metrics && <View style={ui.card}>
-          <Text testID="metrics-heading" style={ui.label}>REPORTING · ASIA/KOLKATA</Text>
-          <Input id="metrics-start" label="From YYYY-MM-DD" value={start} onChange={setStart}/><Input id="metrics-end" label="To YYYY-MM-DD" value={end} onChange={setEnd}/>
-          <Button id="metrics-today" title="Today" onPress={() => { setStart(today()); setEnd(today()); }}/>
-          <Text testID="received-cohort" style={ui.text}>Received {metrics.received_cohort.received} · Open {metrics.received_cohort.open} · Completed {metrics.received_cohort.resolved} · Cancelled {metrics.received_cohort.cancelled}</Text>
-          <Text testID="period-throughput" style={ui.text}>Period throughput: {metrics.period_throughput} distinct resolved queries</Text>
-          <Text testID="metrics-explanation" style={ui.muted}>Received cohort uses creation dates. Throughput uses resolution dates, including older queries. Status chips affect the list only.</Text>
-          {metrics.telecallers.map((r: any) => <View testID={`performance-${r.id}`} key={r.id} style={ui.card}>
-            <Text style={[ui.text, r.top_performer && ui.success]}>{r.name}{r.top_performer ? ' · Top resolver' : ''}</Text>
-            <Text testID={`performance-count-${r.id}`} style={ui.muted}>Resolved {r.resolved} / {r.team_resolved} team resolutions{ '\n' }Assigned cohort: {r.resolved_from_assigned} resolved / {r.assigned_workload} assigned · {r.open_workload} open{ '\n' }Active days {r.active_days} / {r.calendar_days} calendar days</Text>
-            <Button id={`performance-drilldown-${r.id}`} title="Show handled queries" onPress={() => { setPeriodResolver(r.id); setResolver(''); setStatus('all'); setPage(1); }}/>
-            {Object.entries(r.daily).map(([day, d]: any) => <View key={day}><Text testID={`daily-${r.id}-${day}`} style={ui.muted}>{day}: {d.resolved} completed · {d.work_events} work events</Text><Button id={`daily-drilldown-${r.id}-${day}`} title={`View completions on ${day}`} onPress={()=>{setStart(day);setEnd(day);setPeriodResolver(r.id);setResolver('');setStatus('all');setPage(1);}}/></View>)}
-          </View>)}
+
+        {push && push.state !== 'granted' && !billing && <View style={ui.card} testID="requests-push-card">
+          <Text style={ui.label}>NEW-QUERY ALERTS</Text>
+          <Text style={ui.muted}>Allow notifications so a new customer query reaches this phone immediately. Receiving an alert never claims the query — the first explicit "Take this query" does.</Text>
+          {push.state === 'blocked'
+            ? <Button id="requests-push-settings" title="Open Settings" icon="settings-outline" onPress={() => Linking.openSettings()} />
+            : <Button id="requests-push-enable" title="Allow notifications" icon="notifications-outline" onPress={async () => { const s = await enablePush(); setPush({ state: s, canAskAgain: s !== 'blocked' }); }} />}
         </View>}
-        <Input id="request-search" label="Search name, phone, shop or place" value={search} onChange={setSearch}/>
-        {!!periodResolver && <Button id="clear-performance-drilldown" title="Clear period-resolution drilldown" onPress={()=>setPeriodResolver('')}/>}
-        <View style={ui.row}>{['all', 'mine', 'unassigned'].map(v => <Button key={v} id={`request-view-${v}`} title={v} active={view === v} onPress={() => setView(v)}/>)}</View>
-        <View style={ui.row}>{statuses.map(s => <Button key={s} id={`request-status-${s}`} title={s === 'resolved' ? 'Completed' : s.replace('_',' ')} active={s === status} onPress={() => setStatus(s)}/>)}</View>
-        <Button id="request-filters-toggle" title={advanced ? 'Hide filters' : 'Type, dates, age & sorting'} onPress={() => setAdvanced(!advanced)} icon="options-outline"/>
-        {advanced && <View style={ui.card}>
-          <View style={ui.row}><Button id="request-type-all" title="All types" active={!type} onPress={() => setType('')}/>{types.map(t => <Button key={t} id={`request-type-${t}`} title={`${t.replace(/_/g,' ')} (${data?.open_counts_by_type?.[t] || 0})`} active={t === type} onPress={() => setType(t)}/>)}</View>
-          <Input id="request-created-from" label="Created from YYYY-MM-DD (optional)" value={createdFrom} onChange={setCreatedFrom}/><Input id="request-created-to" label="Created to YYYY-MM-DD (optional)" value={createdTo} onChange={setCreatedTo}/>
-          <Input id="request-min-age" label="Minimum pending minutes" value={minAge} onChange={setMinAge}/><Input id="request-max-age" label="Maximum pending minutes" value={maxAge} onChange={setMaxAge}/>
-          <Text testID="request-assignee-label" style={ui.label}>ASSIGNEE</Text><View style={ui.row}><Button id="request-assignee-all" title="All assignees" active={!assignee} onPress={()=>setAssignee('')}/>{staff.map(s=><Button key={s.id} id={`request-assignee-${s.id}`} title={s.name||'Unnamed staff member'} active={assignee===s.id} onPress={()=>{setView('all');setAssignee(s.id);}}/>)}</View>
-          <Text testID="request-resolver-label" style={ui.label}>RESOLVER</Text><View style={ui.row}><Button id="request-resolver-all" title="All resolvers" active={!resolver} onPress={()=>setResolver('')}/>{staff.map(s=><Button key={s.id} id={`request-resolver-${s.id}`} title={s.name||'Unnamed staff member'} active={resolver===s.id} onPress={()=>setResolver(s.id)}/>)}</View>
-          <View style={ui.row}>{['oldest','newest','longest_wait'].map(s => <Button id={`request-sort-${s}`} key={s} title={s.replace('_',' ')} active={s === sort} onPress={() => setSort(s)}/>)}</View>
-        </View>}
-        <Text testID="request-total" style={ui.label}>{data?.total ?? '—'} MATCHING QUERIES</Text>
-        {data?.requests.map((r: any) => <View testID={`request-row-${r.id}`} key={r.id} style={ui.card}>
-          <Text testID={`request-customer-${r.id}`} style={ui.text}>{r.customer_name || r.user_name || 'Customer'} · {r.customer_phone || r.user_phone}</Text>
-          <Text style={ui.muted}>{r.customer_shop_name || 'Shop not recorded'} · {r.customer_location || r.user_city}</Text>
-          <Text style={ui.label}>{r.request_type.replace(/_/g,' ')} · {r.status === 'resolved' ? 'Completed' : r.status}</Text>
-          <Text testID={`request-age-${r.id}`} style={ui.muted}>Created {dateText(r.created_at)}{ '\n' }{r.status === 'resolved' ? `Handling duration ${duration(r.handling_seconds)}` : r.status === 'cancelled' ? 'Cancelled' : `Waiting ${duration(r.pending_seconds)} · Original age ${duration(r.age_seconds)}`}</Text>
-          <Text testID={`request-attribution-${r.id}`} style={ui.muted}>Assigned: {r.assignee_name || 'Unassigned'} · Resolved by: {r.resolver_name || 'Not recorded'}</Text>
-          <Button id={`request-open-${r.id}`} title="Details & history" onPress={() => open(r.id)}/>
-        </View>)}
-        {data?.total === 0 && <Text testID="requests-empty" style={ui.muted}>No queries match these filters.</Text>}
-        <View style={ui.row}><Button id="requests-prev" title="Previous" disabled={page <= 1} onPress={() => setPage(page-1)}/><Text testID="requests-page" style={ui.text}>Page {page} / {Math.max(data?.pages || 1, 1)}</Text><Button id="requests-next" title="Next" disabled={!data || page >= data.pages} onPress={() => setPage(page+1)}/></View>
-        <Text testID="requests-last-updated" style={ui.muted}>Last refreshed {dateText(data?.server_time)} · Automatic refresh every 15 seconds</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
-    <Modal visible={!!detail} animationType="slide" onRequestClose={() => setDetail(null)}>
-      <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled">
-        <Button id="request-detail-close" title="Close details" onPress={() => setDetail(null)}/>
-        {request && <>
-          <Text testID="request-detail-title" style={ui.title}>{request.user_name || 'Query details'}</Text><Text style={ui.text}>{request.notes || 'No customer note'}</Text>
-          {!!error && <Text testID="request-detail-error" style={ui.error}>{error}</Text>}{busy && <Busy/>}
-          {!billing && !request.assignee_id && !['resolved','cancelled'].includes(request.status) && <Button id="request-claim" title="Claim this query" disabled={busy} onPress={() => mutate({ action: 'claim' })}/>}
-          {!billing && own && <View style={ui.card}>
-            <Input id="request-note" label="Internal note" value={note} onChange={setNote} multiline/>
-            <Button id="request-save-note" title="Save note" disabled={busy || !note.trim()} onPress={() => mutate({ notes: note })}/>
-            <View style={ui.row}>{(['resolved','cancelled'].includes(request.status) ? ['pending'] : ['in_progress','contacted','no_response','resolved','cancelled']).map(s => <Button key={s} id={`request-transition-${s}`} title={s === 'pending' ? 'Reopen' : s === 'resolved' ? 'Complete' : s.replace('_',' ')} disabled={busy} onPress={() => mutate({ status: s, action: s === 'pending' ? 'reopen' : 'update' })}/>)}</View>
-          </View>}
-          {user.role === 'admin' && <View style={ui.card}><Text style={ui.label}>EXPLICIT REASSIGNMENT</Text>{staff.filter(s => ['admin','telecaller'].includes(s.role)).map(s => <Button id={`request-assign-${s.id}`} key={s.id} title={`Assign to ${s.name}`} disabled={busy} onPress={() => mutate({ action: 'assign', assigned_to: s.id })}/>)}</View>}
-          <Text testID="request-history-heading" style={ui.label}>APPEND-ONLY HISTORY</Text>
-          {detail.history.map((e: any) => <View testID={`request-event-${e.id}`} key={e.id} style={ui.card}><Text style={ui.text}>{e.type.replace(/_/g,' ')} · {e.status || ''}</Text><Text style={ui.muted}>{e.actor_name || 'Legacy actor unknown'} · {dateText(e.timestamp)}</Text>{!!e.notes && <Text style={ui.text}>{e.notes}</Text>}</View>)}
+
+        {section === 'reports' && !billing ? <CompletionReports staff={staff} /> : <>
+          {queue && <Text testID="requests-queue-status" style={ui.muted}>Daily release at {queue.release_time} {queue.timezone}: every unfinished query returns to New at the top of this list · next {dateText(queue.next_boundary_utc)}{queue.worker_running ? '' : ' · release worker not running'}</Text>}
+          <View style={ui.row}>{views.map(v => <Button key={v.key} id={`request-view-${v.key}`} title={`${v.label}${v.key === 'all_pending' && counts.all_pending != null ? ` (${counts.all_pending})` : v.key === 'my_pending' && counts.my_pending != null ? ` (${counts.my_pending})` : ''}`} active={view === v.key} onPress={() => setView(v.key)} />)}</View>
+          <Input id="request-search" label="Search name, phone, shop, place, product or note" value={search} onChange={setSearch} />
+          <View style={ui.row}><Button id="request-type-all" title="All types" active={!type} onPress={() => setType('')} />{types.map(t => <Button key={t} id={`request-type-${t}`} title={`${typeLabel(t)}${data?.open_counts_by_type?.[t] ? ` (${data.open_counts_by_type[t]})` : ''}`} active={t === type} onPress={() => setType(t === type ? '' : t)} />)}</View>
+          {!completedView && <View style={ui.row}><Button id="request-head-all" title="All heads" active={!head} onPress={() => setHead('')} />{Object.keys(headLabels).map(h => <Button key={h} id={`request-head-filter-${h}`} title={`${headLabels[h]}${data?.open_counts_by_head?.[h] ? ` (${data.open_counts_by_head[h]})` : ''}`} active={h === head} onPress={() => setHead(h === head ? '' : h)} />)}</View>}
+
+          <Text testID="request-total" style={ui.label}>{data?.total ?? '—'} {completedView ? 'COMPLETED' : 'PENDING'} QUERIES · PAGE {page} / {Math.max(data?.pages || 1, 1)}</Text>
+          {loading && !data && <Busy />}
+          {data?.requests.map((r: any) => {
+            const mine = r.assignee_id && r.assignee_id === user.id;
+            const open = !['resolved', 'cancelled'].includes(r.status);
+            return <TouchableOpacity testID={`request-row-${r.id}`} key={r.id} style={[ui.card, mine && { borderColor: Colors.gold }]} onPress={() => setOpenId(r.id)} accessibilityRole="button" accessibilityLabel={`Open query from ${r.customer_name || 'customer'}`}>
+              <View style={[ui.row, { justifyContent: 'space-between' }]}>
+                <Text testID={`request-customer-${r.id}`} style={[ui.text, { flex: 1 }]}>{r.customer_name || r.user_name || 'Customer'}</Text>
+                <View style={[badge, { borderColor: open ? (HEAD_COLORS[r.head] || Colors.border) : Colors.success }]} testID={`request-head-${r.id}`}><Text style={ui.muted}>{open ? (r.head_label || r.head) : 'Completed'}</Text></View>
+              </View>
+              <Text style={ui.muted}>{r.customer_shop_name || 'Shop not recorded'} · {r.customer_location || r.user_city || 'Place not recorded'}</Text>
+              <Text style={ui.label}>{typeLabel(r.request_type)}{r.item_count ? ` · ${r.item_count} item${r.item_count === 1 ? '' : 's'}` : ''}</Text>
+              <Text testID={`request-age-${r.id}`} style={ui.muted}>Created {dateText(r.created_at)}{r.reset_count ? ` · released ×${r.reset_count}` : ''}{'\n'}{open ? `Waiting ${duration(r.pending_seconds)}` : `Completed ${dateText(r.resolved_at)} by ${r.resolver_name || 'staff'}`}</Text>
+              <View style={[ui.row, { justifyContent: 'space-between' }]}>
+                <Text testID={`request-attribution-${r.id}`} style={[ui.muted, mine && ui.success]}>{open ? (r.assignee_id ? (mine ? 'Taken by you' : `Taken by ${r.assignee_name || 'a telecaller'}`) : 'Unclaimed') : `Outcome: ${(r.outcome || 'other').replace(/_/g, ' ')}`}</Text>
+                {!!r.follow_up_at && <Text style={ui.muted}><Ionicons name="alarm-outline" size={12} color={Colors.warning} /> {dateText(r.follow_up_at)}</Text>}
+              </View>
+            </TouchableOpacity>;
+          })}
+          {data?.total === 0 && <Text testID="requests-empty" style={ui.muted}>{view === 'my_pending' ? 'You have no pending queries. Take one from All Pending.' : view === 'my_completed' ? 'No completed queries yet.' : 'No queries match these filters.'}</Text>}
+          <View style={ui.row}><Button id="requests-prev" title="Previous" disabled={page <= 1} onPress={() => setPage(page - 1)} /><Text testID="requests-page" style={ui.text}>Page {page} / {Math.max(data?.pages || 1, 1)}</Text><Button id="requests-next" title="Next" disabled={!data || page >= data.pages} onPress={() => setPage(page + 1)} /></View>
+          <Text testID="requests-last-updated" style={ui.muted}>Last refreshed {dateText(data?.server_time)} · automatic refresh every 15 seconds</Text>
         </>}
-      </ScrollView></KeyboardAvoidingView></SafeAreaView>
-    </Modal>
+    </KeyboardAwareScreen>
+    <RequestDetail requestId={openId} onClose={() => setOpenId(null)} onChanged={load} staff={staff}
+      onOpenCustomer={admin ? (cid) => { setOpenId(null); router.push({ pathname: '/customer-directory', params: { customer: cid } } as any); } : undefined} />
   </SafeAreaView>;
 }
+
+const badge = { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 } as const;

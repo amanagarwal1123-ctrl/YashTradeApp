@@ -141,13 +141,21 @@ async def test_telecaller_claim_race_and_resolver_ownership(api_client, isolated
     assert admin_note.status_code == 200
     assert admin_note.json().get("resolver_id") == "u_tele1"
 
-    reopened = await api_client.patch(
+    # Reopening a completed query is an audited administrator action: a reason is REQUIRED (422 without one).
+    unreasoned = await api_client.patch(
         "/api/requests/race-1",
         json={"status": "pending", "action": "reopen", "version": admin_note.json()["version"]},
         headers=_headers(admin),
     )
-    assert reopened.status_code == 200
+    assert unreasoned.status_code == 422 and unreasoned.json()["code"] == "REASON_REQUIRED", unreasoned.text
+    reopened = await api_client.patch(
+        "/api/requests/race-1",
+        json={"status": "pending", "action": "reopen", "version": admin_note.json()["version"], "reason": "customer called back"},
+        headers=_headers(admin),
+    )
+    assert reopened.status_code == 200, reopened.text
     assert reopened.json()["status"] == "pending"
+    assert reopened.json()["assignee_id"] in ("", None)  # released to the shared queue, not silently re-assigned
 
 
 @pytest.mark.asyncio

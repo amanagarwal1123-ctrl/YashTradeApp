@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Platform } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -99,7 +100,7 @@ export default function ReviewKeysScreen() {
         <Text style={st.headerTitle}>Store review access</Text>
         <TouchableOpacity testID="review-keys-refresh" onPress={load} style={st.backBtn}><Ionicons name="refresh" size={20} color={Colors.text} /></TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={st.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen contentContainerStyle={st.content}>
         <View style={[st.envBadge, ENVIRONMENT === 'production' ? st.envProd : st.envPreview]}>
           <Ionicons name={ENVIRONMENT === 'production' ? 'cloud-done-outline' : 'flask-outline'} size={14} color="#000" />
           <Text style={st.envText}>{ENVIRONMENT.toUpperCase()} · {BACKEND_URL.replace(/^https?:\/\//, '')}</Text>
@@ -206,7 +207,7 @@ export default function ReviewKeysScreen() {
           </>
         )}
         <View style={{ height: 40 }} />
-      </ScrollView>
+      </KeyboardAwareScreen>
     </SafeAreaView>
   );
 }

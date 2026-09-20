@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Image, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { AppState, Image, Platform, RefreshControl, Text, View } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { api, authenticatedFetch, getToken, resolveFileUrl } from '../src/api';
@@ -8,6 +9,8 @@ import { downloadSample, pickPDF, PickedPDF, resumeStore, uploadPDF } from '../s
 import { Button, Input, ui } from '../src/components/staff/Controls';
 import ProductFields from '../src/components/staff/ProductFields';
 import SquareCrop from '../src/components/staff/SquareCrop';
+// Content domain (R10): administrators and Upload Executives; the server enforces the same gate on every route.
+const CONTENT_ROLES = ['admin', 'upload_executive'];
 
 function ProtectedPreview({ row }: { row: any }) {
   const [uri,setUri]=useState('');
@@ -47,14 +50,14 @@ export default function PDFImport() {
   const [phase,setPhase]=useState(''),[bytes,setBytes]=useState(0),[error,setError]=useState(''),[busy,setBusy]=useState(false),[publish,setPublish]=useState(false),[partial,setPartial]=useState(false),[mode,setMode]=useState('template_v1');
   const [rowPage,setRowPage]=useState(1),[rowTotal,setRowTotal]=useState(0),[batchName,setBatchName]=useState('');
   const controller=useRef<AbortController|null>(null);
-  useEffect(()=>{if(user?.role!=='admin')return;Promise.all([api.get('/pdf-template/capabilities'),api.get('/batches'),resumeStore.get()]).then(([cap,b,resume])=>{setCaps(cap);setBatches(b.batches||[]);if(resume){setJobId(resume.id);setBatchId(resume.batchId);setMode(resume.mode);if(resume.uri)setFile({name:resume.name,size:resume.size,uri:resume.uri});}}).catch(e=>setError(e.message));},[user]);
+  useEffect(()=>{if(!CONTENT_ROLES.includes(user?.role||''))return;Promise.all([api.get('/pdf-template/capabilities'),api.get('/batches'),resumeStore.get()]).then(([cap,b,resume])=>{setCaps(cap);setBatches(b.batches||[]);if(resume){setJobId(resume.id);setBatchId(resume.batchId);setMode(resume.mode);if(resume.uri)setFile({name:resume.name,size:resume.size,uri:resume.uri});}}).catch(e=>setError(e.message));},[user]);
   const load=useCallback(async()=>{if(!jobId)return;try{const j=await api.get(`/pdf-upload/${jobId}/status`);setJob(j);setBytes(j.bytes_received);if(['review','committed'].includes(j.phase)){const p=await api.get(`/pdf-upload/${jobId}/preview?page=${rowPage}&limit=10`);setRows(p.rows);setRowTotal(p.total);}setError('');}catch(e:any){setError(`Import status may be stale. ${e.message}`);}},[jobId,rowPage]);
   useFocusEffect(useCallback(()=>{load();const timer=setInterval(load,3000);return()=>clearInterval(timer);},[load]));
   useEffect(()=>{const listener=AppState.addEventListener('change',s=>{if(s==='active')load();});return()=>listener.remove();},[load]);
   const upload=async()=>{if(!file||!batchId||!caps)return;setBusy(true);setError('');controller.current=new AbortController();try{const id=await uploadPDF(file,batchId,mode,caps.limits,controller.current.signal,(id,n,message)=>{if(id)setJobId(id);setBytes(n);setPhase(message);});setJobId(id);await load();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
   const action=async(path:string)=>{try{if(path==='pause')controller.current?.abort();await api.post(`/pdf-upload/${jobId}/${path}`);await load();}catch(e:any){setError(e.message);}};
-  if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="pdf-access-denied" style={ui.error}>Admin access required</Text><Button id="pdf-sign-in" title="Sign in" onPress={()=>router.replace('/login')}/></SafeAreaView>;
-  return <SafeAreaView style={ui.screen}><KeyboardAvoidingView style={ui.screen} behavior={Platform.OS==='ios'?'padding':undefined}><ScrollView contentContainerStyle={ui.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={false} onRefresh={load}/>}>
+  if(!CONTENT_ROLES.includes(user?.role||''))return <SafeAreaView style={ui.guard}><Text testID="pdf-access-denied" style={ui.error}>Admin or Upload Executive access required</Text><Button id="pdf-sign-in" title="Sign in" onPress={()=>router.replace('/login')}/></SafeAreaView>;
+  return <SafeAreaView style={ui.screen}><KeyboardAwareScreen contentContainerStyle={ui.content} refreshControl={<RefreshControl refreshing={false} onRefresh={load}/>}>
     <Button id="pdf-back" title="Back to products" onPress={()=>router.replace('/panel')}/><Text testID="pdf-title" style={ui.title}>Reviewed PDF import</Text><Text style={ui.muted}>Choose template → Upload → Analyze → Review → Confirm drafts. Nothing is customer-visible during analysis.</Text>
     {!!error&&<Text testID="pdf-error" style={ui.error}>{error}</Text>}
     <View style={ui.row}><Button id="pdf-author" title="Create a catalogue PDF" icon="create-outline" onPress={()=>router.push('/catalog-author')}/><Button id="pdf-download-sample" title="Download Sample PDF" icon="download-outline" onPress={()=>downloadSample().catch(e=>setError(e.message))}/><Button id="pdf-select" title="Select PDF" icon="document-outline" disabled={busy} onPress={async()=>{try{const picked=await pickPDF();if(picked)setFile(picked);}catch(e:any){setError(e.message);}}}/></View>
@@ -73,5 +76,5 @@ export default function PDFImport() {
     {rowTotal>10&&<View style={ui.row}><Button id="pdf-rows-prev" title="Previous products" disabled={rowPage<=1} onPress={()=>setRowPage(rowPage-1)}/><Button id="pdf-rows-next" title="Next products" disabled={rowPage*10>=rowTotal} onPress={()=>setRowPage(rowPage+1)}/></View>}
     {job?.phase==='review'&&<View style={ui.card}><Text style={ui.label}>FINAL CONFIRMATION</Text><Button id="pdf-publish-toggle" title={publish?'Publish selected products: YES':'Save hidden drafts (default)'} active={publish} onPress={()=>setPublish(!publish)}/><Button id="pdf-partial-toggle" title={partial?'Valid selected rows only: confirmed':'Require all selected rows valid'} active={partial} onPress={()=>setPartial(!partial)}/><Button id="pdf-confirm-import" title={publish?'Confirm import & publish':'Confirm import as hidden drafts'} disabled={busy} onPress={async()=>{setBusy(true);try{await api.post(`/pdf-upload/${jobId}/commit`,{version:job.version,confirm:true,publish,allow_partial:partial});await load();}catch(e:any){setError(e.message);}finally{setBusy(false);}}}/></View>}
     {job?.result&&<View testID="pdf-result" style={ui.card}><Text style={ui.text}>Created {job.result.created} · Updated {job.result.updated} · Skipped {job.result.skipped} · Failed {job.result.failed}</Text>{job.result.rows.map((r:any)=><Text key={r.row_id} testID={`pdf-result-${r.row_id}`} style={ui.muted}>{r.row_id.slice(0,8)} · {r.status} · {r.reason||r.product_id}</Text>)}</View>}
-  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
+  </KeyboardAwareScreen></SafeAreaView>;
 }

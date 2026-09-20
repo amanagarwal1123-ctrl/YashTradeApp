@@ -5,12 +5,14 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../src/api';
 import { useAuth } from '../src/context/AuthContext';
 import { Button, ui } from '../src/components/staff/Controls';
+// Content domain (R10): administrators and Upload Executives; the server enforces the same gate on every route.
+const CONTENT_ROLES = ['admin', 'upload_executive'];
 
 export default function MediaUsage() {
   const {user}=useAuth(),router=useRouter();const [data,setData]=useState<any>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const load=useCallback(async()=>{setBusy(true);try{setData(await api.get('/admin/media/usage'));setError('');}catch(e:any){setError(e.message);}finally{setBusy(false);}},[]);
-  useFocusEffect(useCallback(()=>{if(user?.role==='admin')load();},[user,load]));
-  if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="media-usage-denied" style={ui.error}>Admin access required</Text></SafeAreaView>;
+  useFocusEffect(useCallback(()=>{if(CONTENT_ROLES.includes(user?.role||''))load();},[user,load]));
+  if(!CONTENT_ROLES.includes(user?.role||''))return <SafeAreaView style={ui.guard}><Text testID="media-usage-denied" style={ui.error}>Admin or Upload Executive access required</Text></SafeAreaView>;
   return <SafeAreaView style={ui.screen}><ScrollView contentContainerStyle={ui.content}><Button id="media-usage-back" title="Back" onPress={()=>router.back()}/><Text testID="media-usage-title" style={ui.title}>Media usage</Text>
     {!!error&&<Text testID="media-usage-error" style={ui.error}>{error}</Text>}<Button id="media-usage-refresh" title="Refresh accounting" disabled={busy} onPress={load}/>
     {data&&<><View style={ui.card}><Text testID="media-tracked-bytes" style={ui.text}>{data.tracked.bytes.toLocaleString()} tracked bytes · {data.tracked.objects} objects</Text><Text testID="media-write-budget" style={ui.muted}>Application write budget: {data.write_budget_bytes.toLocaleString()} bytes / {data.write_object_limit} objects. This is NOT a provider quota or remaining-space guarantee.</Text>

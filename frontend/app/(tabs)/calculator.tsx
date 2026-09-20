@@ -1,12 +1,34 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Modal, FlatList } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, Modal, FlatList } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardToolbar } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 
 const ITEM_PRESETS = ['Silver Payal', 'Silver Chain', 'Silver Ring', 'Silver Article', 'Silver Gift Item', 'Silver Bowl', 'Silver Pooja Item', 'Silver Bracelet', 'Silver Anklet', 'Silver Coin', 'Silver Kadaa', 'Silver Toe Ring', 'Silver Necklace', 'Silver Earring', 'Silver Pendant', 'Silver Dinner Set', 'Gold Chain', 'Gold Necklace', 'Gold Ring', 'Gold Bangles', 'Diamond Ring', 'Diamond Pendant'];
 
-interface CalcItem { name: string; weight: string; rate: string; making: string; }
+interface CalcItem { id: string; name: string; weight: string; rate: string; making: string; }
+let itemSeq = 0;
+const newItem = (): CalcItem => ({ id: `item-${++itemSeq}`, name: '', weight: '', rate: '', making: '' });
+
+/** Keeps digits and at most one decimal point exactly as typed (no reformatting while editing, so the cursor and an
+ *  unfinished "123." survive every keystroke). */
+export const sanitizeDecimal = (text: string) => {
+  const cleaned = text.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  return firstDot === -1 ? cleaned : cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+};
+
+/** Module-level (stable identity): a re-render of the screen never remounts the field, so focus and the keyboard stay. */
+function InputField({ label, value, onChangeText, placeholder, testID, style }: { label?: string; value: string; onChangeText: (v: string) => void; placeholder?: string; testID?: string; style?: any }) {
+  return (
+    <View style={label ? styles.field : undefined}>
+      {label ? <Text style={styles.fieldLabel}>{label}</Text> : null}
+      <TextInput testID={testID} style={style || styles.fieldInput} value={value} onChangeText={v => onChangeText(sanitizeDecimal(v))} placeholder={placeholder}
+        placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" inputMode="decimal" returnKeyType="done" blurOnSubmit={false} />
+    </View>
+  );
+}
 
 function ItemSelector({ value, onChange, testID }: { value: string; onChange: (v: string) => void; testID?: string }) {
   const [show, setShow] = useState(false);
@@ -57,7 +79,8 @@ export default function CalculatorScreen() {
   const [making, setMaking] = useState('');
 
   // Multi items
-  const [items, setItems] = useState<CalcItem[]>([{ name: '', weight: '', rate: '', making: '' }]);
+  const [items, setItems] = useState<CalcItem[]>(() => [newItem()]);
+  const scrollRef = useRef<any>(null);
 
   const calc = (w: string, r: string, m: string) => {
     const wt = parseFloat(w) || 0;
@@ -76,30 +99,21 @@ export default function CalculatorScreen() {
   const multiGST = multiBase * (parseFloat(gstPercent) || 0) / 100;
   const multiTotal = multiBase + multiGST;
 
-  const addItem = () => setItems([...items, { name: '', weight: '', rate: '', making: '' }]);
-  const updateItem = (idx: number, field: keyof CalcItem, val: string) => {
-    const newItems = [...items];
-    newItems[idx] = { ...newItems[idx], [field]: val };
-    setItems(newItems);
-  };
-  const removeItem = (idx: number) => { if (items.length > 1) setItems(items.filter((_, i) => i !== idx)); };
+  const addItem = () => setItems(prev => [...prev, newItem()]);
+  // Rows are keyed by a stable id: editing, adding or deleting other rows never remounts a focused field.
+  const updateItem = (id: string, field: keyof CalcItem, val: string) =>
+    setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: val } : i));
+  const removeItem = (id: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.id !== id) : prev);
 
   const clearAll = () => {
     setItemName(''); setWeight(''); setRate(''); setMaking(''); setDiscount('0');
-    setItems([{ name: '', weight: '', rate: '', making: '' }]);
+    setItems([newItem()]);
   };
-
-  const InputField = ({ label, value, onChangeText, placeholder, testID }: any) => (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput testID={testID} style={styles.fieldInput} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" />
-    </View>
-  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false}>
+      <View style={{ flex: 1 }}>
+        <KeyboardAwareScrollView ref={scrollRef} showsVerticalScrollIndicator={false} bottomOffset={24} keyboardShouldPersistTaps="handled" testID="calculator-scroll">
           <View style={styles.header}>
             <Ionicons name="calculator" size={28} color={Colors.gold} />
             <Text style={styles.headerTitle}>Silver Calculator</Text>
@@ -133,22 +147,22 @@ export default function CalculatorScreen() {
                 {singleDisc > 0 && <View style={styles.resultRow}><Text style={styles.resultLabel}>Discount</Text><Text style={[styles.resultValue, { color: Colors.success }]}>-₹{singleDisc.toFixed(2)}</Text></View>}
                 <View style={styles.resultRow}><Text style={styles.resultLabel}>GST ({gstPercent}%)</Text><Text style={styles.resultValue}>₹{singleGST.toFixed(2)}</Text></View>
                 <View style={styles.divider} />
-                <View style={styles.resultRow}><Text style={styles.totalLabel}>TOTAL</Text><Text style={styles.totalValue}>₹{singleTotal.toFixed(2)}</Text></View>
+                <View style={styles.resultRow}><Text style={styles.totalLabel}>TOTAL</Text><Text testID="single-total" style={styles.totalValue}>₹{singleTotal.toFixed(2)}</Text></View>
               </View>
             </View>
           ) : (
             <View style={styles.calcCard}>
               {items.map((item, idx) => (
-                <View key={idx} style={styles.multiItemRow}>
+                <View key={item.id} style={styles.multiItemRow} testID={`calc-item-${idx}`}>
                   <View style={styles.multiItemHeader}>
                     <Text style={styles.multiItemTitle}>Item {idx + 1}</Text>
-                    {items.length > 1 && <TouchableOpacity onPress={() => removeItem(idx)}><Ionicons name="close-circle" size={20} color={Colors.error} /></TouchableOpacity>}
+                    {items.length > 1 && <TouchableOpacity testID={`calc-item-remove-${idx}`} accessibilityLabel={`Remove item ${idx + 1}`} onPress={() => removeItem(item.id)} style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}><Ionicons name="close-circle" size={20} color={Colors.error} /></TouchableOpacity>}
                   </View>
-                  <ItemSelector value={item.name} onChange={v => updateItem(idx, 'name', v)} />
+                  <ItemSelector value={item.name} onChange={v => updateItem(item.id, 'name', v)} />
                   <View style={styles.row}>
-                    <TextInput style={[styles.miniInput, { flex: 1 }]} placeholder="Weight (g)" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" value={item.weight} onChangeText={v => updateItem(idx, 'weight', v)} />
-                    <TextInput style={[styles.miniInput, { flex: 1 }]} placeholder="Rate ₹/g" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" value={item.rate} onChangeText={v => updateItem(idx, 'rate', v)} />
-                    <TextInput style={[styles.miniInput, { flex: 1 }]} placeholder="Making ₹" placeholderTextColor={Colors.textMuted} keyboardType="decimal-pad" value={item.making} onChangeText={v => updateItem(idx, 'making', v)} />
+                    <InputField testID={`calc-item-weight-${idx}`} style={[styles.miniInput, { flex: 1 }]} placeholder="Weight (g)" value={item.weight} onChangeText={v => updateItem(item.id, 'weight', v)} />
+                    <InputField testID={`calc-item-rate-${idx}`} style={[styles.miniInput, { flex: 1 }]} placeholder="Rate ₹/g" value={item.rate} onChangeText={v => updateItem(item.id, 'rate', v)} />
+                    <InputField testID={`calc-item-making-${idx}`} style={[styles.miniInput, { flex: 1 }]} placeholder="Making ₹" value={item.making} onChangeText={v => updateItem(item.id, 'making', v)} />
                   </View>
                   <Text style={styles.itemTotal}>₹{calc(item.weight, item.rate, item.making).toFixed(2)}</Text>
                 </View>
@@ -162,7 +176,7 @@ export default function CalculatorScreen() {
 
               <View style={styles.resultCard}>
                 {items.map((item, idx) => item.weight && item.rate ? (
-                  <View key={idx} style={styles.resultRow}>
+                  <View key={item.id} style={styles.resultRow}>
                     <Text style={styles.resultLabel} numberOfLines={1}>{item.name || `Item ${idx + 1}`}</Text>
                     <Text style={styles.resultValue}>₹{calc(item.weight, item.rate, item.making).toFixed(2)}</Text>
                   </View>
@@ -181,8 +195,10 @@ export default function CalculatorScreen() {
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+        {/* Accessible Done action: the native decimal keyboard has no Enter key on iOS */}
+        {Platform.OS !== 'web' && <KeyboardToolbar doneText="Done" />}
+      </View>
     </SafeAreaView>
   );
 }

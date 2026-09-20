@@ -69,21 +69,69 @@ async def test_inactive_user_cannot_start_login(api_client, seeded_users):
 
 
 @pytest.mark.asyncio
-async def test_refresh_rotation_and_reuse_revokes_family(api_client, login_helper):
+async def test_refresh_rotation_race_grace_replay_revocation_and_idle_expiry(api_client, login_helper, monkeypatch):
+    """Intended security behaviour of refresh rotation (R01-B):
+    1. two CONCURRENT presentations of the same refresh token (duplicate call from one device) -> exactly one rotation
+       succeeds, the other gets 409 REFRESH_IN_PROGRESS and NOTHING is revoked (a race is not theft);
+    2. presenting an already-rotated token again AFTER the 30 s grace window is replay/theft -> 401 REFRESH_INVALID
+       and the whole family (including the freshly issued credentials) is revoked;
+    3. a family that is not refreshed for SESSION_IDLE_DAYS expires (documented idle/security expiry), while active
+       use keeps sliding it past the old fixed 30-day boundary;
+    4. explicit logout revokes the family."""
+    import asyncio
+    from shared import auth as a
+    from shared import core as c
+
+    clock = {"now": datetime.now(timezone.utc)}
+    monkeypatch.setattr(c, "now", lambda: clock["now"])
+    refresh = lambda token: api_client.post("/api/auth/refresh", json={"refresh_token": token})
+    me = lambda token: api_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
     auth = await login_helper("9000000004")
-    old_refresh = auth["refresh_token"]
+    original = auth["refresh_token"]
 
-    rotated = await api_client.post("/api/auth/refresh", json={"refresh_token": old_refresh})
-    assert rotated.status_code == 200, rotated.text
-    new_token = rotated.json()["token"]
+    # 1. legitimate concurrent refresh: one winner, one 409, family alive
+    first, second = await asyncio.gather(refresh(original), refresh(original))
+    assert sorted([first.status_code, second.status_code]) == [200, 409], (first.text, second.text)
+    winner, loser = (first, second) if first.status_code == 200 else (second, first)
+    assert loser.json()["code"] == "REFRESH_IN_PROGRESS"
+    fresh_token, fresh_refresh = winner.json()["token"], winner.json()["refresh_token"]
+    assert (await me(fresh_token)).status_code == 200
+    assert winner.json()["session"]["idle_expiry_days"] == a.SESSION_IDLE_DAYS
 
-    # Reusing old refresh should fail and revoke family
-    reused = await api_client.post("/api/auth/refresh", json={"refresh_token": old_refresh})
-    assert reused.status_code == 401
+    # 2. replay of the rotated token outside the grace window is theft: 401 + family revoked
+    clock["now"] += timedelta(seconds=a.REFRESH_RACE_SECONDS + 1)
+    replay = await refresh(original)
+    assert replay.status_code == 401 and replay.json()["code"] == "REFRESH_INVALID", replay.text
+    assert (await me(fresh_token)).status_code == 401                      # access token of the revoked family
+    revoked = await refresh(fresh_refresh)                                 # even the unused fresh refresh credential
+    assert revoked.status_code == 401 and revoked.json()["code"] == "SESSION_REVOKED", revoked.text
 
-    # Access token from revoked family must fail
-    me = await api_client.get("/api/auth/me", headers={"Authorization": f"Bearer {new_token}"})
-    assert me.status_code == 401
+    # 3a. idle expiry: no refresh for SESSION_IDLE_DAYS -> the family is gone (401), nothing else is touched
+    idle = await login_helper("9000000004")
+    clock["now"] += timedelta(days=a.SESSION_IDLE_DAYS, seconds=1)
+    expired = await refresh(idle["refresh_token"])
+    assert expired.status_code == 401 and expired.json()["code"] == "REFRESH_INVALID", expired.text
+
+    # 3b. active use slides the expiry: three refreshes 20 days apart (60 days total) keep the device signed in
+    active = await login_helper("9000000004")
+    token, previous_family_expiry = active["refresh_token"], active["session"]["family_expires_at"]
+    for _ in range(3):
+        clock["now"] += timedelta(days=20)
+        rotated = await refresh(token)
+        assert rotated.status_code == 200, rotated.text
+        assert rotated.json()["session"]["family_expires_at"] > previous_family_expiry      # slid forward, not fixed
+        token, previous_family_expiry = rotated.json()["refresh_token"], rotated.json()["session"]["family_expires_at"]
+    # (access tokens minted under the fake future clock cannot be presented to /auth/me here: PyJWT rejects a future
+    # `iat` against the real wall clock - a test-harness limit, not product behaviour.)
+
+    # 4. explicit logout revokes the family: the refresh credential and the access token stop working
+    clock["now"] = datetime.now(timezone.utc)                        # wall-clock again so the access token's iat is valid
+    fresh = await login_helper("9000000004")
+    out = await api_client.post("/api/auth/logout", headers={"Authorization": f"Bearer {fresh['token']}"})
+    assert out.status_code == 200 and out.json()["logged_out"] is True
+    assert (await refresh(fresh["refresh_token"])).status_code == 401
+    assert (await me(fresh["token"])).status_code == 401
 
 
 @pytest.mark.asyncio

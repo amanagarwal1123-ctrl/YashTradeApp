@@ -10,6 +10,7 @@ import { cachedGet, swrGet } from '../../src/dataCache';
 import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { showAlert } from '../../src/utils/alert';
 import { useLang } from '../../src/context/LanguageContext';
+import { useDiscovery, VIEWABILITY } from '../../src/hooks/useDiscovery';
 
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; stock_status: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
 const CATEGORIES = ['All', 'payal', 'chain', 'articles', 'necklace', 'ring', 'bangles', 'bracelet', 'gifting', 'coins', 'kadaa', 'pendant', 'kids', 'toe_rings', 'earrings', 'mens', 'nose_ring', 'waist_belt'];
@@ -34,6 +35,11 @@ export default function FeedScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  // Feed cards that were actually on screen count as SEEN for the unseen-first Home refresh (same impression rules).
+  const { onViewable } = useDiscovery({});
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+    onViewable(viewableItems.filter((v: any) => v.isViewable && v.item?.id).map((v: any) => v.item.id));
+  }, [onViewable]);
   const [cartAdded, setCartAdded] = useState<string | null>(null);
 
   // Apply route params (e.g. Home "See All" with selected metal, story category links)
@@ -187,6 +193,8 @@ export default function FeedScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
+          viewabilityConfig={VIEWABILITY}
+          onViewableItemsChanged={onViewableItemsChanged}
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={7}

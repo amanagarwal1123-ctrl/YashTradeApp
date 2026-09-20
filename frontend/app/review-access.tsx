@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,8 +44,7 @@ export default function ReviewAccessScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.inner}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
+      <KeyboardAwareScreen style={styles.inner} contentContainerStyle={styles.scroll}>
           <TouchableOpacity testID="review-back-btn" onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={24} color={Colors.text} />
           </TouchableOpacity>
@@ -79,8 +79,7 @@ export default function ReviewAccessScreen() {
             {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>SIGN IN AS REVIEWER</Text>}
           </TouchableOpacity>
           <Text style={styles.hint}>Normal customers and staff sign in with their mobile number and SMS OTP.</Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
     </SafeAreaView>
   );
 }

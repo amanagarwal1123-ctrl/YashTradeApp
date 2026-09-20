@@ -9,6 +9,7 @@ import { api, getProductGallery, productThumb, sizedUrl, SessionChangedError } f
 import { swrGet } from '../../src/dataCache';
 import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { showAlert } from '../../src/utils/alert';
+import ZoomableImage from '../../src/components/ZoomableImage';
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -19,6 +20,8 @@ export default function ProductDetail() {
   const [loadError, setLoadError] = useState(false);
   const [currentImage, setCurrentImage] = useState(0);
   const [fullLoaded, setFullLoaded] = useState(false);
+  const [imageBox, setImageBox] = useState(() => Math.min(windowWidth, 600));
+  const [inlineZoomed, setInlineZoomed] = useState(false);
   const [wishlisted, setWishlisted] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
 
@@ -100,21 +103,16 @@ export default function ProductDetail() {
         {/* Zoomable Image */}
         <View style={styles.imageContainer}>
           {displayImageUri ? (
-            <View style={{ width: '100%', aspectRatio: 1 }}>
-              <ScrollView
-                maximumZoomScale={4}
-                minimumZoomScale={1}
-                bouncesZoom={true}
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ width: '100%', aspectRatio: 1 }}
-                pinchGestureEnabled={true}
-                style={{ width: '100%', aspectRatio: 1 }}
-              >
-                <Image source={{ uri: displayImageUri }} placeholder={previewUri ? { uri: previewUri } : IMAGE_PLACEHOLDER} placeholderContentFit="contain"
-                  contentFit="contain" transition={200} cachePolicy="memory-disk" style={styles.mainImage} onLoad={() => setFullLoaded(true)}
-                  testID="product-main-image" accessibilityLabel={product.title} />
-              </ScrollView>
+            <View style={{ width: '100%', aspectRatio: 1 }} onLayout={e => setImageBox(e.nativeEvent.layout.width)}>
+              {/* Inline cross-platform pinch zoom; a tap opens the shared full-screen viewer for this product */}
+              <ZoomableImage width={imageBox} height={imageBox} resetKey={`${product.id}:${currentImage}`} onZoomChange={setInlineZoomed} testID="product-zoom-area">
+                <TouchableOpacity activeOpacity={0.9} disabled={inlineZoomed} testID="product-open-viewer" accessibilityLabel="Open full-screen photo viewer"
+                  onPress={() => router.push({ pathname: '/image-viewer', params: { productId: product.id, startIndex: '0', ids: product.id, photo: String(currentImage) } })} style={{ width: '100%', height: '100%' }}>
+                  <Image source={{ uri: displayImageUri }} placeholder={previewUri ? { uri: previewUri } : IMAGE_PLACEHOLDER} placeholderContentFit="contain"
+                    contentFit="contain" transition={200} cachePolicy="memory-disk" style={styles.mainImage} onLoad={() => setFullLoaded(true)}
+                    testID="product-main-image" accessibilityLabel={product.title} />
+                </TouchableOpacity>
+              </ZoomableImage>
               {!fullLoaded && (
                 <View style={styles.loadingChip} pointerEvents="none" testID="product-image-loading">
                   <ActivityIndicator size="small" color={Colors.gold} />
@@ -122,8 +120,8 @@ export default function ProductDetail() {
                 </View>
               )}
               <View style={styles.zoomHint} pointerEvents="none">
-                <Ionicons name="search" size={14} color="rgba(255,255,255,0.8)" />
-                <Text style={styles.zoomHintText}>Pinch to zoom</Text>
+                <Ionicons name={inlineZoomed ? 'contract' : 'search'} size={14} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.zoomHintText}>{inlineZoomed ? 'Double-tap to reset' : 'Pinch to zoom · tap for full screen'}</Text>
               </View>
             </View>
           ) : (

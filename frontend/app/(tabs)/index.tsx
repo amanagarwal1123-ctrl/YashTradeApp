@@ -6,7 +6,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize } from '../../src/theme';
 import { api, productImage, SessionChangedError } from '../../src/api';
-import { cachedGet, swrGet } from '../../src/dataCache';
+import { swrGet } from '../../src/dataCache';
+import { useDiscovery, VIEWABILITY } from '../../src/hooks/useDiscovery';
 import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
@@ -18,11 +19,6 @@ interface Story { id: string; title: string; image_url: string; category: string
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
 
 type MetalTab = 'silver' | 'gold';
-type CatalogPage = { items: Product[]; page: number; pages: number; loading: boolean; loaded: boolean };
-const PAGE_SIZE = 20;
-const EMPTY_PAGE: CatalogPage = { items: [], page: 0, pages: 1, loading: false, loaded: false };
-const productsPath = (metal: MetalTab, page: number) => `/products?metal_type=${metal}&page=${page}&limit=${PAGE_SIZE}`;
-const mergeProducts = (previous: Product[], next: Product[]) => Array.from(new Map([...previous, ...next].map(p => [p.id, p])).values());
 
 const QuickAction = ({ icon, label, color, onPress, testID }: any) => (
   <TouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}>
@@ -40,35 +36,23 @@ export default function HomeScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const cardWidth = windowWidth - Spacing.lg * 2;
   const [stories, setStories] = useState<Story[]>([]);
-  const [catalog, setCatalog] = useState<Record<MetalTab, CatalogPage>>({ silver: EMPTY_PAGE, gold: EMPTY_PAGE });
   // Silver is the default on every fresh app launch (not persisted)
   const [metal, setMetal] = useState<MetalTab>('silver');
+  // Unseen-first discovery session per metal (R03): refresh = new shuffled session, pages stable, impressions reported.
+  const silver = useDiscovery({ metal_type: 'silver' });
+  const gold = useDiscovery({ metal_type: 'gold' });
+  const discovery = metal === 'gold' ? gold : silver;
   const [cartCount, setCartCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
   const T: Record<string, any> = {
-    en: { welcome: 'Welcome back,', highlights: 'HIGHLIGHTS', latest: 'LATEST COLLECTION', seeAll: 'See All', calc: 'Calculator', call: 'Request Call', video: 'Video Call', rewards: 'My Rewards', ai: 'AI Assistant', guide: 'Silver Guide', rateList: 'Rate List', schemes: 'Schemes', brands: 'Brands', showroom: 'Showroom', exhibition: 'Exhibition', silver: 'Silver', gold: 'Gold', emptySilver: 'No silver products available yet', emptyGold: 'No gold products available yet', loadFailed: 'Could not load data. Please check your connection.', retry: 'Retry', notifTitle: 'Notifications', notifEmpty: 'No new notifications yet.', addedCart: 'Added to Cart', addedCartMsg: 'Item has been added to your selection.', error: 'Error', cartFail: 'Could not add to cart. Please try again.', wishUpdated: 'Wishlist updated', wishFail: 'Could not update wishlist. Please try again.' },
-    hi: { welcome: 'वापस स्वागत है,', highlights: 'हाइलाइट्स', latest: 'नवीनतम संग्रह', seeAll: 'सभी देखें', calc: 'कैलकुलेटर', call: 'कॉल अनुरोध', video: 'वीडियो कॉल', rewards: 'मेरे रिवॉर्ड्स', ai: 'AI सहायक', guide: 'चांदी गाइड', rateList: 'रेट लिस्ट', schemes: 'स्कीम्स', brands: 'ब्रांड', showroom: 'शोरूम', exhibition: 'प्रदर्शनी', silver: 'चांदी', gold: 'सोना', emptySilver: 'अभी कोई चांदी के उत्पाद उपलब्ध नहीं', emptyGold: 'अभी कोई सोने के उत्पाद उपलब्ध नहीं', loadFailed: 'डेटा लोड नहीं हो सका। कृपया कनेक्शन जांचें।', retry: 'फिर से कोशिश करें', notifTitle: 'सूचनाएं', notifEmpty: 'अभी कोई नई सूचना नहीं है।', addedCart: 'कार्ट में जोड़ा गया', addedCartMsg: 'आइटम आपके चयन में जोड़ दिया गया है।', error: 'त्रुटि', cartFail: 'कार्ट में नहीं जोड़ा जा सका। फिर से कोशिश करें।', wishUpdated: 'विशलिस्ट अपडेट हुई', wishFail: 'विशलिस्ट अपडेट नहीं हो सकी। फिर से कोशिश करें।' },
-    pa: { welcome: 'ਵਾਪਸ ਸਵਾਗਤ ਹੈ,', highlights: 'ਹਾਈਲਾਈਟਸ', latest: 'ਨਵੀਨਤਮ ਸੰਗ੍ਰਹਿ', seeAll: 'ਸਭ ਵੇਖੋ', calc: 'ਕੈਲਕੁਲੇਟਰ', call: 'ਕਾਲ ਬੇਨਤੀ', video: 'ਵੀਡੀਓ ਕਾਲ', rewards: 'ਮੇਰੇ ਇਨਾਮ', ai: 'AI ਸਹਾਇਕ', guide: 'ਚਾਂਦੀ ਗਾਈਡ', rateList: 'ਰੇਟ ਲਿਸਟ', schemes: 'ਸਕੀਮਾਂ', brands: 'ਬ੍ਰਾਂਡ', showroom: 'ਸ਼ੋਅਰੂਮ', exhibition: 'ਪ੍ਰਦਰਸ਼ਨੀ', silver: 'ਚਾਂਦੀ', gold: 'ਸੋਨਾ', emptySilver: 'ਹਾਲੇ ਕੋਈ ਚਾਂਦੀ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', emptyGold: 'ਹਾਲੇ ਕੋਈ ਸੋਨੇ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', loadFailed: 'ਡਾਟਾ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ।', retry: 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ', notifTitle: 'ਸੂਚਨਾਵਾਂ', notifEmpty: 'ਹਾਲੇ ਕੋਈ ਨਵੀਂ ਸੂਚਨਾ ਨਹੀਂ ਹੈ।', addedCart: 'ਕਾਰਟ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ', addedCartMsg: 'ਆਈਟਮ ਤੁਹਾਡੀ ਚੋਣ ਵਿੱਚ ਜੋੜ ਦਿੱਤੀ ਗਈ ਹੈ।', error: 'ਗਲਤੀ', cartFail: 'ਕਾਰਟ ਵਿੱਚ ਨਹੀਂ ਜੋੜਿਆ ਜਾ ਸਕਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।', wishUpdated: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਹੋਈ', wishFail: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋ ਸਕੀ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।' },
+    en: { welcome: 'Welcome back,', highlights: 'HIGHLIGHTS', latest: 'LATEST COLLECTION', seeAll: 'See All', calc: 'Calculator', call: 'Request Call', video: 'Video Call', rewards: 'My Rewards', ai: 'AI Assistant', guide: 'Silver Guide', rateList: 'Rate List', schemes: 'Schemes', brands: 'Brands', showroom: 'Showroom', exhibition: 'Exhibition', silver: 'Silver', gold: 'Gold', emptySilver: 'No silver products available yet', emptyGold: 'No gold products available yet', loadFailed: 'Could not load data. Please check your connection.', retry: 'Retry', notifTitle: 'Notifications', notifEmpty: 'No new notifications yet.', addedCart: 'Added to Cart', addedCartMsg: 'Item has been added to your selection.', error: 'Error', cartFail: 'Could not add to cart. Please try again.', wishUpdated: 'Wishlist updated', wishFail: 'Could not update wishlist. Please try again.', unseenFirst: 'products you have not seen yet are shown first', allSeen: 'You have seen every product — showing a fresh shuffle', cachedNote: 'Offline: showing your last saved collection (not refreshed)' },
+    hi: { welcome: 'वापस स्वागत है,', highlights: 'हाइलाइट्स', latest: 'नवीनतम संग्रह', seeAll: 'सभी देखें', calc: 'कैलकुलेटर', call: 'कॉल अनुरोध', video: 'वीडियो कॉल', rewards: 'मेरे रिवॉर्ड्स', ai: 'AI सहायक', guide: 'चांदी गाइड', rateList: 'रेट लिस्ट', schemes: 'स्कीम्स', brands: 'ब्रांड', showroom: 'शोरूम', exhibition: 'प्रदर्शनी', silver: 'चांदी', gold: 'सोना', emptySilver: 'अभी कोई चांदी के उत्पाद उपलब्ध नहीं', emptyGold: 'अभी कोई सोने के उत्पाद उपलब्ध नहीं', loadFailed: 'डेटा लोड नहीं हो सका। कृपया कनेक्शन जांचें।', retry: 'फिर से कोशिश करें', notifTitle: 'सूचनाएं', notifEmpty: 'अभी कोई नई सूचना नहीं है।', addedCart: 'कार्ट में जोड़ा गया', addedCartMsg: 'आइटम आपके चयन में जोड़ दिया गया है।', error: 'त्रुटि', cartFail: 'कार्ट में नहीं जोड़ा जा सका। फिर से कोशिश करें।', wishUpdated: 'विशलिस्ट अपडेट हुई', wishFail: 'विशलिस्ट अपडेट नहीं हो सकी। फिर से कोशिश करें।', unseenFirst: 'जो उत्पाद आपने अभी नहीं देखे, वे पहले दिखाए गए हैं', allSeen: 'आपने सभी उत्पाद देख लिए — नया क्रम दिखाया गया है', cachedNote: 'ऑफ़लाइन: आपका पिछला सहेजा गया संग्रह (रिफ़्रेश नहीं हुआ)' },
+    pa: { welcome: 'ਵਾਪਸ ਸਵਾਗਤ ਹੈ,', highlights: 'ਹਾਈਲਾਈਟਸ', latest: 'ਨਵੀਨਤਮ ਸੰਗ੍ਰਹਿ', seeAll: 'ਸਭ ਵੇਖੋ', calc: 'ਕੈਲਕੁਲੇਟਰ', call: 'ਕਾਲ ਬੇਨਤੀ', video: 'ਵੀਡੀਓ ਕਾਲ', rewards: 'ਮੇਰੇ ਇਨਾਮ', ai: 'AI ਸਹਾਇਕ', guide: 'ਚਾਂਦੀ ਗਾਈਡ', rateList: 'ਰੇਟ ਲਿਸਟ', schemes: 'ਸਕੀਮਾਂ', brands: 'ਬ੍ਰਾਂਡ', showroom: 'ਸ਼ੋਅਰੂਮ', exhibition: 'ਪ੍ਰਦਰਸ਼ਨੀ', silver: 'ਚਾਂਦੀ', gold: 'ਸੋਨਾ', emptySilver: 'ਹਾਲੇ ਕੋਈ ਚਾਂਦੀ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', emptyGold: 'ਹਾਲੇ ਕੋਈ ਸੋਨੇ ਦੇ ਉਤਪਾਦ ਉਪਲਬਧ ਨਹੀਂ', loadFailed: 'ਡਾਟਾ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਕਨੈਕਸ਼ਨ ਚੈੱਕ ਕਰੋ।', retry: 'ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ', notifTitle: 'ਸੂਚਨਾਵਾਂ', notifEmpty: 'ਹਾਲੇ ਕੋਈ ਨਵੀਂ ਸੂਚਨਾ ਨਹੀਂ ਹੈ।', addedCart: 'ਕਾਰਟ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ', addedCartMsg: 'ਆਈਟਮ ਤੁਹਾਡੀ ਚੋਣ ਵਿੱਚ ਜੋੜ ਦਿੱਤੀ ਗਈ ਹੈ।', error: 'ਗਲਤੀ', cartFail: 'ਕਾਰਟ ਵਿੱਚ ਨਹੀਂ ਜੋੜਿਆ ਜਾ ਸਕਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।', wishUpdated: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਹੋਈ', wishFail: 'ਵਿਸ਼ਲਿਸਟ ਅੱਪਡੇਟ ਨਹੀਂ ਹੋ ਸਕੀ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।', unseenFirst: 'ਜੋ ਉਤਪਾਦ ਤੁਸੀਂ ਅਜੇ ਨਹੀਂ ਵੇਖੇ, ਉਹ ਪਹਿਲਾਂ ਦਿਖਾਏ ਗਏ ਹਨ', allSeen: 'ਤੁਸੀਂ ਸਾਰੇ ਉਤਪਾਦ ਵੇਖ ਲਏ — ਨਵਾਂ ਕ੍ਰਮ ਦਿਖਾਇਆ ਗਿਆ ਹੈ', cachedNote: 'ਆਫ਼ਲਾਈਨ: ਤੁਹਾਡਾ ਪਿਛਲਾ ਸੰਭਾਲਿਆ ਸੰਗ੍ਰਹਿ (ਰਿਫ੍ਰੈਸ਼ ਨਹੀਂ ਹੋਇਆ)' },
   };
   const t = T[language] || T.en;
-
-  /** Server-side pages of 20. Page 1 paints instantly from the persisted copy and is revalidated; `force` bypasses caches. */
-  const loadPage = useCallback(async (m: MetalTab, page: number, force = false) => {
-    setCatalog(prev => ({ ...prev, [m]: { ...prev[m], loading: true } }));
-    const apply = (res: any) => setCatalog(prev => ({ ...prev, [m]: {
-      items: page === 1 ? (res.products || []) : mergeProducts(prev[m].items, res.products || []),
-      page, pages: res.pages || 1, loading: false, loaded: true } }));
-    try {
-      if (page === 1) await swrGet(productsPath(m, 1), apply, { force });
-      else apply(await cachedGet(productsPath(m, page)));
-    } catch (e) {
-      setCatalog(prev => ({ ...prev, [m]: { ...prev[m], loading: false } }));
-      throw e;
-    }
-  }, []);
 
   const loadData = useCallback(async (force = false) => {
     try {
@@ -76,31 +60,29 @@ export default function HomeScreen() {
       const [, cartRes] = await Promise.all([
         swrGet('/stories', res => setStories(res.stories || []), { force }).catch(() => setStories([])),
         api.get('/cart/count').catch(() => ({ count: 0 })),
-        loadPage('silver', 1, force),
+        (metal === 'gold' ? gold : silver).refresh(),
       ]);
       setCartCount(cartRes.count || 0);
       refreshUser(); // profile completeness / website-conflict cards reflect the latest account state
     } catch (e) { if (!(e instanceof SessionChangedError)) { console.error(e); setLoadError(true); } }
     finally { setLoading(false); setRefreshing(false); }
-  }, [loadPage]);
+  }, [metal, silver.refresh, gold.refresh]);
 
   useEffect(() => { loadData(); }, []);
 
-  // Gold is fetched the first time it is shown (lazy), never up front with silver.
+  // Gold opens its own discovery session the first time it is shown (lazy), never up front with silver.
   useEffect(() => {
-    if (metal === 'gold' && !catalog.gold.loaded && !catalog.gold.loading) loadPage('gold', 1).catch(() => setLoadError(true));
+    if (metal === 'gold' && !gold.state.loaded && !gold.state.loading) gold.refresh().catch(() => setLoadError(true));
   }, [metal]);
 
-  const onRefresh = () => { setRefreshing(true); setCatalog(prev => ({ ...prev, gold: prev.gold.loaded ? { ...prev.gold, loaded: false } : prev.gold })); loadData(true); };
+  const onRefresh = () => { setRefreshing(true); loadData(true); };
 
-  const current = catalog[metal];
-  const displayProducts = current.items;
-
-  const loadMoreProducts = useCallback(() => {
-    const state = catalog[metal];
-    if (state.loading || !state.loaded || state.page >= state.pages) return;
-    loadPage(metal, state.page + 1).catch(() => {});
-  }, [metal, catalog, loadPage]);
+  const current = discovery.state;
+  const displayProducts = current.items as Product[];
+  const loadMoreProducts = discovery.loadMore;
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+    discovery.onViewable(viewableItems.filter((v: any) => v.isViewable && v.item?.id).map((v: any) => v.item.id));
+  }, [discovery.onViewable]);
 
   const handleStoryPress = (story: Story) => {
     if (story.link_type === 'category' && story.link_id) {
@@ -132,8 +114,11 @@ export default function HomeScreen() {
   const renderProduct = useCallback(({ item: p }: { item: Product }) => (
     <TouchableOpacity testID={`product-card-${p.id}`} style={styles.productCard} onPress={() => router.push({ pathname: '/product/[id]', params: { id: p.id } })} activeOpacity={0.8}>
       {/* Sized card variant (never the full-resolution original), cached on the device, neutral placeholder while loading */}
-      <Image source={{ uri: productImage(p, cardWidth) }} placeholder={IMAGE_PLACEHOLDER} placeholderContentFit="cover" contentFit="cover"
-        transition={150} cachePolicy="memory-disk" recyclingKey={p.id} style={styles.productImage} accessibilityLabel={p.title} />
+      <TouchableOpacity testID={`product-photo-${p.id}`} accessibilityLabel={`Open photo of ${p.title}`} activeOpacity={0.9}
+        onPress={() => router.push({ pathname: '/image-viewer', params: { productId: p.id, ids: p.id } })}>
+        <Image source={{ uri: productImage(p, cardWidth) }} placeholder={IMAGE_PLACEHOLDER} placeholderContentFit="cover" contentFit="cover"
+          transition={150} cachePolicy="memory-disk" recyclingKey={p.id} style={styles.productImage} accessibilityLabel={p.title} />
+      </TouchableOpacity>
       <View style={styles.productInfo}>
         <View style={styles.productBadges}>
           <View style={[styles.badge, { backgroundColor: p.metal_type === 'gold' ? '#D4AF3720' : p.metal_type === 'diamond' ? '#3B82F620' : '#E0E0E020' }]}>
@@ -171,7 +156,7 @@ export default function HomeScreen() {
             <Ionicons name="cart-outline" size={22} color={Colors.text} />
             {cartCount > 0 && <View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View>}
           </TouchableOpacity>
-          <TouchableOpacity testID="notifications-btn" style={styles.headerIcon} onPress={() => showAlert(t.notifTitle, t.notifEmpty)}>
+          <TouchableOpacity testID="notifications-btn" style={styles.headerIcon} onPress={() => router.push('/notifications')} accessibilityLabel={t.notifTitle}>
             <Ionicons name="notifications-outline" size={22} color={Colors.text} />
           </TouchableOpacity>
         </View>
@@ -232,6 +217,10 @@ export default function HomeScreen() {
             );
           })}
         </View>
+        {current.mode === 'discovery' && current.loaded && (
+          <Text style={styles.discoveryNote} testID="home-discovery-note">{current.exhausted ? t.allSeen : `${current.unseen} ${t.unseenFirst}`}</Text>
+        )}
+        {current.mode === 'cached' && <Text style={[styles.discoveryNote, { color: Colors.warning }]} testID="home-cached-note">{t.cachedNote}</Text>}
         {loadError && (
           <View style={styles.errorBox} testID="home-error">
             <Ionicons name="cloud-offline-outline" size={18} color={Colors.error} />
@@ -243,7 +232,7 @@ export default function HomeScreen() {
         )}
       </View>
     </>
-  ), [stories, cartCount, user, t, metal, loadError]);
+  ), [stories, cartCount, user, t, metal, loadError, current.mode, current.loaded, current.exhausted, current.unseen]);
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
 
@@ -258,6 +247,8 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
         onEndReached={loadMoreProducts}
         onEndReachedThreshold={0.5}
+        viewabilityConfig={VIEWABILITY}
+        onViewableItemsChanged={onViewableItemsChanged}
         initialNumToRender={6}
         maxToRenderPerBatch={6}
         windowSize={5}
@@ -303,6 +294,7 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   sectionTitle: { fontSize: FontSize.xs, color: Colors.textSecondary, letterSpacing: 2, fontWeight: '700' },
   seeAll: { fontSize: FontSize.sm, color: Colors.gold, fontWeight: '600' },
+  discoveryNote: { fontSize: FontSize.xs, color: Colors.textMuted, marginBottom: Spacing.sm },
   storiesRow: { gap: 16, paddingVertical: Spacing.sm },
   storyItem: { alignItems: 'center', width: 72 },
   storyRing: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: Colors.gold, padding: 2, marginBottom: 6 },

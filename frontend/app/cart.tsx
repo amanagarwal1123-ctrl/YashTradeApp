@@ -96,7 +96,9 @@ export default function CartScreen() {
             const p = item.product || {};
             return (
               <View key={item.id} style={styles.card} testID={`cart-item-${item.id}`}>
-                <Image source={{ uri: productImage(p, 90) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
+                <TouchableOpacity testID={`cart-photo-${p.id}`} accessibilityLabel={`Open photo of ${p.title}`} onPress={() => router.push({ pathname: '/image-viewer', params: { productId: p.id, ids: p.id } })}>
+                  <Image source={{ uri: productImage(p, 90) }} placeholder={IMAGE_PLACEHOLDER} contentFit="cover" transition={120} cachePolicy="memory-disk" style={styles.cardImage} />
+                </TouchableOpacity>
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardTitle} numberOfLines={2}>{p.title || 'Product'}</Text>
                   <Text style={styles.cardMeta}>{p.metal_type} {p.category ? `• ${p.category}` : ''}</Text>

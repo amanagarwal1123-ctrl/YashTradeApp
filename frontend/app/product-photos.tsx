@@ -7,12 +7,14 @@ import { api, authenticatedFetch, getProductGallery, resolveFileUrl, responseJso
 import { useAuth } from '../src/context/AuthContext';
 import { Button, ui } from '../src/components/staff/Controls';
 import ProtectedMedia from '../src/components/staff/ProtectedMedia';
+// Content domain (R10): administrators and Upload Executives; the server enforces the same gate on every route.
+const CONTENT_ROLES = ['admin', 'upload_executive'];
 
 export default function ProductPhotos(){
   const {id}=useLocalSearchParams<{id:string}>();const {user}=useAuth();const router=useRouter();
   const [product,setProduct]=useState<any>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const load=useCallback(async()=>{try{setProduct(await api.get(`/products/${id}`));}catch(e:any){setError(e.message);}},[id]);
-  useFocusEffect(useCallback(()=>{if(user?.role==='admin')load();},[user,load]));
+  useFocusEffect(useCallback(()=>{if(CONTENT_ROLES.includes(user?.role||''))load();},[user,load]));
   const update=async(images:string[])=>{await api.put(`/products/${id}`,{images,version:product.version||0});await load();};
   const select=async()=>{setBusy(true);setError('');try{
     const picked=await DocumentPicker.getDocumentAsync({type:['image/jpeg','image/png','image/webp','image/gif'],copyToCacheDirectory:true,base64:false});
@@ -21,7 +23,7 @@ export default function ProductPhotos(){
     const upload=await responseJson(await authenticatedFetch('/products/upload-image',{method:'POST',body:data}));
     await update([...(product.images||[]),upload.url]);
   }catch(e:any){setError(e.message);}finally{setBusy(false);}};
-  if(user?.role!=='admin')return <SafeAreaView style={ui.guard}><Text testID="product-photos-denied" style={ui.error}>Admin access required</Text></SafeAreaView>;
+  if(!CONTENT_ROLES.includes(user?.role||''))return <SafeAreaView style={ui.guard}><Text testID="product-photos-denied" style={ui.error}>Admin or Upload Executive access required</Text></SafeAreaView>;
   return <SafeAreaView style={ui.screen}><ScrollView contentContainerStyle={ui.content}><Button id="product-photos-back" title="Back" onPress={()=>router.back()}/><Text testID="product-photos-title" style={ui.title}>Product photographs</Text>{!!error&&<Text testID="product-photos-error" style={ui.error}>{error}</Text>}
     <Text style={ui.muted}>Permanent photos, up to 8 MB each. The original catalog scan cannot be removed here. Concurrent changes require a refresh.</Text>
     {product&&<><Text style={ui.text}>{product.title}</Text><Button id="product-photo-upload" title="Add permanent photograph" icon="image-outline" disabled={busy} onPress={select}/><Button id="product-photo-refresh" title="Refresh product" onPress={load}/>
