@@ -19,6 +19,7 @@
     }
   },
   "scripts": "Inline screenshot_tool scripts (Python Playwright); the steps are fully described in the evidence fields above and mirror /app/test_reports/iter39_scripts/iter39_all.py (sign-in helper, response hooks) with the list scrolled via page.mouse.wheel over the FlatList instead of window.scrollBy.",
+  "artefacts_on_disk": "Reconciled 21 Sep 2026 12:55 UTC: of the four screenshot files named in the evidence above only /app/test_reports/iter39_c3_report_after_recomplete_main_agent.jpeg was persisted; iter39_c3_report_after_reopen_fix.jpeg, iter39_c3_recomplete_main_agent.jpeg and iter39_c6_session2_main_agent.jpeg were viewed inline in the screenshot tool and NOT saved. The evidence for this iteration is the recorded network/DOM log in the evidence fields (status codes, bodies, testIDs, counts), not the missing images.",
   "success_rate": {"frontend": "4 PASS / 0 FAIL"},
   "seed_data_creation": "Review-scope request 10eb9a164bef65aebda6d7de749a8e86 reopened and re-completed (ledger: 3 rows, newest active); 3 product impressions for review-customer-0001 (recreated profile). No production data touched."
 }

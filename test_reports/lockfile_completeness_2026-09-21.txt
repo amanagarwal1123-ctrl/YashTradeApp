@@ -1,0 +1,17 @@
+# Lockfile completeness check - 2026-09-21 12:54:27 UTC - working tree (HEAD 13c19e5 does NOT contain this yarn.lock)
+direct dependencies in package.json: 58; without lockfile record: 0 []
+yarn.lock size: 366997 bytes; sha256: 77ca409d6fe1613384dd15adc7a9b061a2ed326a9aea2280b078996f57c72d20
+expo-device: package.json=~8.0.10 lockfile=8.0.10 node_modules=8.0.10
+expo-notifications: package.json=~0.32.17 lockfile=0.32.17 node_modules=0.32.17
+expo-rich-notifications: package.json=^0.1.0 lockfile=0.1.0 node_modules=0.1.0
+react-native-keyboard-controller: package.json=~1.18.0 lockfile=1.18.6 node_modules=1.18.6
+git status (tracked, modified, uncommitted):
+ M frontend/.env.example
+ M frontend/yarn.lock
+git diff --numstat vs HEAD:
+144	2	frontend/yarn.lock
+HEAD yarn.lock records for the four packages:
+  expo-device: 0
+  expo-notifications: 0
+  expo-rich-notifications: 0
+  react-native-keyboard-controller: 0

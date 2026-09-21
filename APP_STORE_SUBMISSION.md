@@ -10,13 +10,13 @@ This file is the iOS counterpart of `GOOGLE_PLAY_DATA_SAFETY.md` (Play) and reus
 
 ## 0. Release states (kept separate — never merged)
 
-| State | Value (20 Sep 2026) |
+| State | Value (21 Sep 2026, closeout) |
 | --- | --- |
-| Code Complete (app + backend, R00–R17) | IN PROGRESS — see `IMPLEMENTATION_ACCEPTANCE_MATRIX.md` |
-| Tests Passed | backend pytest `tests/shared` 173 passed / 5 skipped; Jest 17 suites / 103 tests; `tsc --noEmit` clean (this run, preview container) |
-| Native Verified | **NOT VERIFIED** — no iOS simulator/device, no Android emulator/device, no signing credentials in this container |
+| Code Complete (app + backend, R00–R17) | **COMPLETE in the working tree** for R00–R17 and the review findings F01–F09 / G01–G04 (incl. G01c, G04b) — per-surface states in `IMPLEMENTATION_ACCEPTANCE_MATRIX.md`. Website (R16-A) BLOCKED (no repository access). `frontend/yarn.lock` (four native dependencies, L01) and `frontend/.env.example` are modified but not yet in any commit — the owner's Save to GitHub must include them (verify on GitHub) |
+| Tests Passed | **21 Sep 2026**: backend pytest `tests/shared` **194 passed / 5 skipped / 0 failed** (`test_reports/pytest/recheck_c3da84e_2026-09-21.xml`; skips = Playwright-based UI cases, Playwright not importable in this Python env); Jest **24 suites / 147 tests / 0 failed** (`test_reports/jest_recheck_c3da84e_2026-09-21.txt`); `yarn install --frozen-lockfile` exit 0; browser journeys on the isolated review scope 8/8 after iteration 39-B; live-API E2E C1–C8 6/6 (iteration 38). Codex independent verification of the last fixes: 10/10 focused checks (owner-reported) |
+| Native Verified | **NOT VERIFIED** — no iOS simulator/device, no Android emulator/device, no signing credentials in this container. All browser evidence is Expo-web evidence; R02 zoom, R06 keyboard, R07 OTP autofill, R09 push (text + image) need a store build on a device |
 | Website Deployed | **BLOCKED** — no website repository/project access in this environment (`git remote -v` empty; no website env names present) |
-| Build Uploaded | NOT DONE — owner: Emergent **Publish** → store builds |
+| Build Uploaded | NOT DONE — owner: Save to GitHub → confirm the lockfile is in the commit → Emergent **Publish** → store builds |
 | Submitted for Review | NOT DONE |
 | Store Live | NOT DONE |
 
@@ -174,7 +174,7 @@ may show real customer names/phones.
 
 | Step | Owner / tool | Status |
 | --- | --- | --- |
-| Save to GitHub (creates the source commit of this work) | owner (Emergent UI) | NOT DONE — local commits only in this container |
+| Save to GitHub (creates the source commit of this work) | owner (Emergent UI) | NOT DONE — the agent makes no Git commits (owner rule). The platform's snapshot commits up to `13c19e5` omitted the modified `frontend/yarn.lock` and `frontend/.env.example`; after saving, confirm on GitHub that `frontend/yarn.lock` contains `expo-notifications@~0.32.17:` — a store build from a lockfile without the four native packages (expo-device, expo-notifications, expo-rich-notifications, react-native-keyboard-controller) is not reproducible |
 | Republish backend (`shared-v2-operations-2026-09-20` must appear in `/api/health` `build`) | owner (Publish) | NOT DONE |
 | Deployment Secrets: `EXPO_PUSH_ACCESS_TOKEN` (Expo access token for the push API; without it `/api/health` `flows.push_notifications` reports the provider as unauthenticated-mode), `STAFF_SERVICE_KEY`, `BUILD_COMMIT`, frontend `EXPO_PUBLIC_BACKEND_URL` | owner | NOT DONE / unknown |
 | iOS push credentials (APNs key uploaded to the Expo project used by Publish) | owner | BLOCKED (credential) — required for ANY remote push on iOS, image or not |
@@ -197,4 +197,5 @@ may show real customer names/phones.
 10. Optional hardening before the store build: `android.blockedPermissions: ["android.permission.SYSTEM_ALERT_WINDOW"]`.
 
 Everything above that is marked OWNER/BLOCKED needs an external account, credential, device or decision; it is not a
-code gap. This document is updated at the end of the run with final test counts and commit hashes (see §0).
+code gap. Final test counts are in §0 (21 Sep 2026). Commit hashes are not recorded by the agent: the source commit is
+created by the owner's Save to GitHub and must be pinned by the owner (`BUILD_COMMIT` Secret) after that step.
