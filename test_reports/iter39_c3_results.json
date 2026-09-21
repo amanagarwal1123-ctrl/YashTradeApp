@@ -1,0 +1,50 @@
+{
+  "C3_t2_complete": {
+    "status": "PASS",
+    "details": {
+      "rid": "10eb9a164bef65aebda6d7de749a8e86",
+      "head_text": "Completed",
+      "patch_events": [
+        {
+          "rid": "10eb9a164bef65aebda6d7de749a8e86",
+          "status": 200,
+          "body": {
+            "action": "claim",
+            "version": 0,
+            "idempotency_key": "10eb9a164bef65aebda6d7de749a8e86-1789993092592-0.2213051902286045"
+          }
+        },
+        {
+          "rid": "10eb9a164bef65aebda6d7de749a8e86",
+          "status": 200,
+          "body": {
+            "action": "complete",
+            "outcome": "converted",
+            "notes": "",
+            "version": 1,
+            "idempotency_key": "10eb9a164bef65aebda6d7de749a8e86-1789993093514-0.41441952470018895"
+          }
+        }
+      ]
+    }
+  },
+  "C3_admin_reopen": {
+    "status": "FAIL",
+    "details": {
+      "rid": "10eb9a164bef65aebda6d7de749a8e86",
+      "N1": 8,
+      "N2": 8,
+      "row_visible_report": true,
+      "reopen_ok": true
+    }
+  },
+  "C3_recomplete": {
+    "status": "PASS",
+    "details": {
+      "rid": "10eb9a164bef65aebda6d7de749a8e86",
+      "N1": 8,
+      "N3": 8,
+      "recomplete_patch_ok": true
+    }
+  }
+}

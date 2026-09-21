@@ -567,18 +567,39 @@ async def eligible_messages(job):
     return keep, skipped
 
 
+async def _ticket_entry(message, ticket):
+    """Stored per message handed to the provider. `token` lets a retry recognise the message as already handed over."""
+    entry = {"ticket_id": ticket.get("id"), "status": ticket.get("status"), "token": message["to"], "token_tail": message["to"][-6:], "user_id": message["_user_id"]}
+    if ticket.get("status") != "ok":
+        detail = (ticket.get("details") or {}).get("error", "")
+        entry["error"] = detail or (ticket.get("message") or "")[:120]
+        if detail == "DeviceNotRegistered":
+            await _invalidate(message["to"], "DeviceNotRegistered")
+    return entry
+
+
+def _ticket_counts(stored):
+    accepted = sum(1 for t in stored if t.get("status") == "ok")
+    return accepted, len(stored) - accepted, sum(1 for t in stored if t.get("error") == "DeviceNotRegistered")
+
+
 async def process_job(job):
-    messages, skipped = await eligible_messages(job)
-    if not messages:
-        await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": "sent", "sent_at": c.stamp(), "tickets": [], "skipped": skipped,
-            "accepted": 0, "errors_count": 0, "invalid_tokens": 0, "skipped_count": len(skipped), "lease_until": None}, "$inc": {"attempts": 1}})
-        await _campaign_progress(job, 0, 0, 0, len(skipped))
-        return "sent"
+    """A job may hold more messages than the provider takes per request (several devices per user); it is sent as
+    provider-sized sub-requests. Each sub-request's tickets are stored durably the moment the provider answered
+    (G04b): a later sub-request failure returns ONLY the unsent remainder to `pending`, and the retry re-validates
+    and sends that remainder alone - an accepted sub-request is never sent a second time. (A network failure AFTER
+    remote acceptance stays ambiguous without provider idempotency; that case is retried, not silently dropped.)"""
+    stored = list(job.get("tickets") or [])
+    handed_over = {t["token"] for t in stored if t.get("token")}
+    remaining = {**job, "messages": [m for m in job["messages"] if m["to"] not in handed_over]}
+    messages, skipped = await eligible_messages(remaining)
     try:
-        tickets = []
         for start in range(0, len(messages), BATCH):   # the provider accepts at most BATCH messages per request
-            tickets.extend(await transport(_strip(messages[start:start + BATCH])))
-    except Exception as exc:  # provider/network failure: retry with backoff, never drop the batch silently
+            group = messages[start:start + BATCH]
+            tickets = await transport(_strip(group))
+            stored.extend([await _ticket_entry(message, ticket) for message, ticket in zip(group, tickets)])
+            await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"tickets": stored}})   # durable before the next sub-request
+    except Exception as exc:  # provider/network failure: retry the remainder with backoff, never drop the batch silently
         attempts = job["attempts"] + 1
         status = "failed" if attempts >= MAX_ATTEMPTS else "pending"
         await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": status, "attempts": attempts,
@@ -588,23 +609,12 @@ async def process_job(job):
         if status == "failed":
             worker_state["failed_batches"] += 1
         return status
-    accepted, invalid, errors, stored = 0, 0, 0, []
-    for message, ticket in zip(messages, tickets):
-        entry = {"ticket_id": ticket.get("id"), "status": ticket.get("status"), "token_tail": message["to"][-6:], "user_id": message["_user_id"]}
-        if ticket.get("status") == "ok":
-            accepted += 1
-        else:
-            errors += 1
-            detail = (ticket.get("details") or {}).get("error", "")
-            entry["error"] = detail or (ticket.get("message") or "")[:120]
-            if detail == "DeviceNotRegistered":
-                invalid += 1
-                await _invalidate(message["to"], "DeviceNotRegistered")
-        stored.append(entry)
+    accepted, errors, invalid = _ticket_counts(stored)
     await c.db.notification_outbox.update_one({"id": job["id"]}, {"$set": {"status": "sent", "sent_at": c.stamp(), "tickets": stored, "skipped": skipped,
         "accepted": accepted, "errors_count": errors, "invalid_tokens": invalid, "skipped_count": len(skipped), "lease_until": None}, "$inc": {"attempts": 1}})
     await _campaign_progress(job, accepted, errors, invalid, len(skipped))
-    worker_state["sent_batches"] += 1
+    if stored:
+        worker_state["sent_batches"] += 1
     return "sent"
 
 

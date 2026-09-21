@@ -211,3 +211,68 @@ describe('session isolation at asynchronous boundaries (G01)', () => {
     expect(getToken()).toBe('jwt-A2'); expect(mockSecure.auth_token).toBe('jwt-A2'); expect(mockSecure.refresh_token).toBe('rA2');
   });
 });
+
+/** G01c (recheck of c3da84e): a response delivers its headers before its complete body. The body is bound to the
+ *  generation the request started in - a body that completes after the account changed is rejected, whether it is a
+ *  profile, an error detail or an upload result, so no consumer can apply the previous account's data to the new one. */
+describe('response bodies that complete after the account changed (G01c)', () => {
+  /** A response whose status/headers are available immediately but whose JSON body is released later. */
+  const heldBody = (status: number) => {
+    let release!: (body: any) => void;
+    const response: Response = { status, ok: status >= 200 && status < 300, json: () => new Promise(resolve => { release = resolve; }) } as any;
+    return { response, release: (body: any) => release(body) };
+  };
+
+  it('F: account A\'s profile body that completes after B signed in is rejected instead of resolving as A\'s profile', async () => {
+    setToken('jwt-A'); mockSecure.refresh_token = 'rA'; mockSecure.auth_token = 'jwt-A';
+    const body = heldBody(200);
+    fetchQueue.push(async () => body.response);                                          // headers: 200 for A
+    const call = api.get('/auth/me');
+    await flush(); await flush();
+    await signIn('jwt-B', 'rB');                                                          // A ends, B signs in
+    body.release({ id: 'A', private_field: 'A-profile' });                                // A's body completes now
+    await expect(call).rejects.toBeInstanceOf(SessionChangedError);
+    expect(getToken()).toBe('jwt-B'); expect(mockSecure.auth_token).toBe('jwt-B'); expect(mockSecure.refresh_token).toBe('rB');
+  });
+
+  it('G: a late ERROR body of the previous account is rejected as a session change, not surfaced as B\'s error', async () => {
+    setToken('jwt-A'); mockSecure.refresh_token = 'rA';
+    const body = heldBody(422);
+    fetchQueue.push(async () => body.response);
+    const call = api.post('/requests', { request_type: 'callback' });
+    await flush(); await flush();
+    await signOut();
+    body.release({ detail: 'Choose a request type', code: 'INVALID_REQUEST' });
+    await expect(call).rejects.toBeInstanceOf(SessionChangedError);
+    expect(getToken()).toBeNull();
+  });
+
+  it('H: an upload result that completes after the account changed is rejected too', async () => {
+    setToken('jwt-A'); mockSecure.refresh_token = 'rA';
+    const body = heldBody(200);
+    fetchQueue.push(async () => body.response);
+    const call = api.uploadSingle('/products/upload-image', { name: 'a.jpg' } as any);
+    await flush(); await flush();
+    await signIn('jwt-B', 'rB');
+    body.release({ storage_path: 'products/a.jpg' });
+    await expect(call).rejects.toBeInstanceOf(SessionChangedError);
+    expect(getToken()).toBe('jwt-B');
+  });
+
+  it('control: within one session a slow body still resolves normally, and a server error is still reported', async () => {
+    setToken('jwt-A'); mockSecure.refresh_token = 'rA';
+    const ok = heldBody(200);
+    fetchQueue.push(async () => ok.response);
+    const call = api.get('/auth/me');
+    await flush(); await flush();
+    ok.release({ id: 'A' });
+    await expect(call).resolves.toEqual({ id: 'A' });
+    const bad = heldBody(404);
+    fetchQueue.push(async () => bad.response);
+    const failing = api.get('/requests/missing');
+    await flush(); await flush();
+    bad.release({ detail: 'Request not found', code: 'REQUEST_NOT_FOUND' });
+    await expect(failing).rejects.toMatchObject({ message: 'Request not found', status: 404, code: 'REQUEST_NOT_FOUND' });
+    expect(getToken()).toBe('jwt-A');
+  });
+});

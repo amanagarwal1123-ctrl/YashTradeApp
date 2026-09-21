@@ -1,0 +1,86 @@
+{
+  "C7_admin_composer": {
+    "status": "PASS",
+    "details": {
+      "panel_otp_gate_visible": false,
+      "filters_status": 200,
+      "products_status": 200,
+      "audience_status": 200,
+      "audience_count_text": "6 users \u00b7 0 with a phone that can receive alerts \u00b7 0 devices\nExcluded: disabled/deleted accounts, marketing opt-outs, unlinked or invalid device tokens. Everyone in the audience gets the in-app history entry.",
+      "save_status": 200,
+      "put_status": 200,
+      "send_status": 200,
+      "send_response": {
+        "campaign_id": "01e35c9dd7b635fb3a9eaf6d",
+        "status": "sent",
+        "users": 6,
+        "devices": 0,
+        "batches": 0,
+        "existing_batches": 0,
+        "note": "Queued for the push provider; provider acceptance and receipts are recorded per batch, they are not proof of display"
+      },
+      "detail_status": 200,
+      "campaign_id": "01e35c9dd7b635fb3a9eaf6d",
+      "history_row_visible": true
+    }
+  },
+  "C7_customer_inbox": {
+    "status": "PASS",
+    "details": {
+      "inbox_status": 200,
+      "row_found": true,
+      "campaign_title": "Recheck C7 1789992658"
+    }
+  },
+  "C3_exception": {
+    "status": "FAIL",
+    "details": {
+      "reason": "Page.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"[data-testid=request-claim]\")\n"
+    }
+  },
+  "C5": {
+    "status": "PASS",
+    "details": {
+      "disable_status": 200,
+      "exec_status_after_disable": "inactive",
+      "t2_saw_401": true,
+      "t2_login_visible": true,
+      "enable_status": 200,
+      "exec_status_after_enable": "active",
+      "t2_reenable_signin_ok": true
+    }
+  },
+  "C4": {
+    "status": "PASS",
+    "details": {
+      "delete_request_status": 200,
+      "delete_confirm_status": 200,
+      "login_visible_after_delete": true,
+      "profile_recreated": true,
+      "home_banner_after_recreate": true
+    }
+  },
+  "C6": {
+    "status": "PASS",
+    "details": {
+      "s1_status": 200,
+      "s1_id": "095c4883de416635cdb5508f",
+      "U1": 9,
+      "Se1": 0,
+      "impression_posts": 0,
+      "posted_unique_ids": 0,
+      "all_ids_in_s1": false,
+      "no_dup": true,
+      "session_ids_consistent": true,
+      "K_newly_posted": 0,
+      "home_discovery_note_txt": "9 products you have not seen yet are shown first",
+      "s2_status": 200,
+      "s2_id": "bcba66fd7f644cb8f1378dfd",
+      "U2": 9,
+      "Se2": 0,
+      "expected_Se2_eq_Se1_plus_K": 0,
+      "expected_U2_eq_U1_minus_K": 9,
+      "posted_ids_now_seen_before_in_s2": true
+    }
+  }
+}

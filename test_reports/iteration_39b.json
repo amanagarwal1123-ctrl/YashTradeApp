@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 39-B (main agent, 21 Sep 2026, screenshot_tool Playwright, viewport 390x844, isolated store-review scope, reviewer keys read from /tmp/yash-private/e2e-review-keys.json in code only). Closes the two PARTIAL rows of iteration_39.json: (1) C3 admin reopen -> completion report decrement, after the CompletionReports fix (useFocusEffect reload + 'Today' on an unchanged range reloads); (2) C6 discovery impressions end to end - the FlatList viewability callback DOES fire on Expo web when the list itself is scrolled (mouse wheel over the list); iteration 39's zero impressions came from scrolling the window instead of the list. No page.goto/reload after sign-in (multi-context via browser.new_context for the admin recount). Production owner untouched; no SMS; review-scope writes only.",
+  "per_check_table": {
+    "C3_admin_reopen_report_decrement_after_fix": {
+      "result": "PASS",
+      "evidence": "store-review-admin: panel-tab-reports -> report-total '8 completed queries in 1 calendar day' (GET /api/requests/reports/completions 200 total_completed=8; report-today re-fetched: 200, 8). requests-back -> panel-tab-requests -> request-view-completed -> request-row-10eb9a164bef65aebda6d7de749a8e86 (attribution 'Outcome: ...') -> request-admin-card -> request-admin-reason 'customer called back (recheck fix)' -> request-reopen -> window.confirm accepted -> PATCH /api/requests/10eb9a164bef65aebda6d7de749a8e86 200 body {action:'reopen', status:'pending', reason, version:6, idempotency_key}. request-detail-close -> requests-back -> panel-tab-reports: report-total '7 completed queries in 1 calendar day' ALREADY on open (focus reload: GET 200 total_completed=7) and again after report-today (GET 200, 7). N1=8 -> N2=7. Screenshot iter39_c3_report_after_reopen_fix.jpeg."
+    },
+    "C3_recomplete_after_reopen": {
+      "result": "PASS",
+      "evidence": "store-review-telecaller-2 (/telecaller -> requests workspace): request-row-10eb9a164bef65aebda6d7de749a8e86 -> request-claim -> PATCH action='claim' 200 -> request-work-card -> request-outcome-converted -> request-complete -> window.confirm accepted -> PATCH /api/requests/{rid} action='complete' 200 -> request-detail-head 'Completed'; completion ledger shows 3 rows (two 'superseded (reopened)', newest active). Second context store-review-admin: panel-tab-reports -> report-total '8 completed queries in 1 calendar day' (GET 200 total_completed=8) = N1. Screenshots iter39_c3_recomplete_main_agent.jpeg, iter39_c3_report_after_recomplete_main_agent.jpeg."
+    },
+    "C6_discovery_impressions_session_1": {
+      "result": "PASS",
+      "evidence": "store-review-customer (fresh recreated profile, no impressions): POST /api/discovery/sessions 200 -> S1=1c7fd1d232df5acf949bcb69 unseen=9 seen=0, all 9 products discovery.seen_before=false; home-discovery-note '9 products you have not seen yet are shown first'. Initially the first card was only ~52% visible (top 630 of 844) -> after 2.5 s dwell NO impression (60% threshold respected). Mouse wheel over the list 4 x 300 px with 1.6 s pauses -> cards 0005/0010/0004 >= 60% visible >= 1.2 s -> POST /api/discovery/impressions 200 {product_ids:['review-product-0005','review-product-0010'], session_id:S1} then 200 {product_ids:['review-product-0004'], session_id:S1}: every id belongs to S1's list, no id posted twice (client dedup), session_id == S1."
+    },
+    "C6_discovery_impressions_session_2": {
+      "result": "PASS",
+      "evidence": "Sign out (profile logout) and reviewer sign-in again -> POST /api/discovery/sessions 200 -> S2=e555c0c934d468d16d36da0d != S1, unseen=6, seen=3 (= 0 + 3 posted), exhausted=false; order: 6 unseen products first (0012, 0002, 0011, 0006, 0003, 0001 all seen_before=false) then the 3 seen ones last (0005, 0010, 0004 seen_before=true); home-discovery-note '6 products you have not seen yet are shown first'. Screenshot iter39_c6_session2_main_agent.jpeg."
+    }
+  },
+  "scripts": "Inline screenshot_tool scripts (Python Playwright); the steps are fully described in the evidence fields above and mirror /app/test_reports/iter39_scripts/iter39_all.py (sign-in helper, response hooks) with the list scrolled via page.mouse.wheel over the FlatList instead of window.scrollBy.",
+  "success_rate": {"frontend": "4 PASS / 0 FAIL"},
+  "seed_data_creation": "Review-scope request 10eb9a164bef65aebda6d7de749a8e86 reopened and re-completed (ledger: 3 rows, newest active); 3 product impressions for review-customer-0001 (recreated profile). No production data touched."
+}

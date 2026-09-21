@@ -111,8 +111,12 @@ export async function authenticatedFetch(path: string, options: RequestInit = {}
   return response;
 }
 
-export async function responseJson(res: Response) {
+/** Parses a response body under the generation the request started in (defaults to the generation current when the
+ * headers were handled). Headers can arrive before the body is complete (G01c): a body that finishes after the account
+ * changed - a profile, an error detail, an upload result - is rejected here, before any consumer can apply it. */
+export async function responseJson(res: Response, epoch = sessionEpoch) {
   const data = await res.json().catch(() => ({ detail: 'Unable to read server response' }));
+  if (epoch !== sessionEpoch) throw new SessionChangedError();
   if (!res.ok) {
     const error: any = new Error(typeof data.detail === 'string' ? data.detail : data.detail?.detail || `Request failed (${res.status})`);
     error.status = res.status; error.code = data.code; error.body = data; error.transient = isTransientStatus(res.status); throw error;
@@ -123,8 +127,7 @@ export async function responseJson(res: Response) {
 async function request(path: string, method = 'GET', body?: any) {
   const epoch = sessionEpoch;
   const response = await authenticatedFetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }, true, epoch);
-  if (epoch !== sessionEpoch) throw new SessionChangedError();
-  return responseJson(response);
+  return responseJson(response, epoch);
 }
 let uploadController: AbortController | null = null;
 export const cancelUpload = () => uploadController?.abort();
@@ -135,15 +138,17 @@ export const api = {
   put: (path: string, body?: any) => request(path, 'PUT', body), patch: (path: string, body?: any) => request(path, 'PATCH', body),
   delete: (path: string) => request(path, 'DELETE'),
   uploadSingle: async (path: string, file: File) => {
+    const epoch = sessionEpoch;
     const body = new FormData(); body.append('file', file);
-    return responseJson(await authenticatedFetch(path, { method: 'POST', body }));
+    return responseJson(await authenticatedFetch(path, { method: 'POST', body }, true, epoch), epoch);
   },
   uploadFiles: async (path: string, files: File[], progress?: (done: number, total: number) => void) => {
+    const epoch = sessionEpoch;
     uploadController = new AbortController(); const results = [];
     try {
       for (let i = 0; i < files.length; i += 3) {
         const body = new FormData(); files.slice(i, i+3).forEach(f => body.append('files', f));
-        results.push(await responseJson(await authenticatedFetch(path, { method: 'POST', body, signal: uploadController.signal })));
+        results.push(await responseJson(await authenticatedFetch(path, { method: 'POST', body, signal: uploadController.signal }, true, epoch), epoch));
         progress?.(Math.min(i+3, files.length), files.length);
       }
       return results;

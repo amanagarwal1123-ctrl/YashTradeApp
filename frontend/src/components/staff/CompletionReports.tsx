@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { api } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Busy, dateText, Input, ui } from './Controls';
@@ -24,16 +25,19 @@ export default function CompletionReports({ staff }: { staff: any[] }) {
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [start, end, telecaller, page]);
-  useEffect(() => { load(); }, [load]);
+  // Reloaded whenever the range/page changes AND whenever the screen regains focus (a reopen or completion made on
+  // another screen is reflected without re-picking the range); "Today" on an unchanged range is an explicit refresh.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { setPage(1); }, [start, end, telecaller]);
 
   const shift = (days: number) => { const d = new Date(`${start}T00:00:00+05:30`); d.setDate(d.getDate() + days); const v = istDate(d); setStart(v); setEnd(v); };
+  const today = () => { const v = istDate(); if (start === v && end === v) load(); else { setStart(v); setEnd(v); } };
 
   return <View style={{ gap: 16 }} testID="completion-reports">
     <Text style={ui.label}>COMPLETED QUERIES · ASIA/KOLKATA · START AND END DATES INCLUSIVE</Text>
     <View style={ui.row}>
       <Button id="report-prev-day" title="◀ Day" onPress={() => shift(-1)} />
-      <Button id="report-today" title="Today" onPress={() => { setStart(istDate()); setEnd(istDate()); }} />
+      <Button id="report-today" title="Today" onPress={today} />
       <Button id="report-next-day" title="Day ▶" onPress={() => shift(1)} />
       <Button id="report-week" title="Last 7 days" onPress={() => { const d = new Date(); d.setDate(d.getDate() - 6); setStart(istDate(d)); setEnd(istDate()); }} />
       <Button id="report-month" title="Last 30 days" onPress={() => { const d = new Date(); d.setDate(d.getDate() - 29); setStart(istDate(d)); setEnd(istDate()); }} />

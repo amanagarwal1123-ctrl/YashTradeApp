@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { api, setToken, storeCredentials, getToken, endSession, currentSession, onSessionLost } from '../api';
+import { api, setToken, storeCredentials, getToken, endSession, currentSession, onSessionLost, SessionChangedError } from '../api';
 import { clearCaches, setCacheIdentity, cacheIdentity } from '../dataCache';
 import { syncPushIfGranted, unlinkPush } from '../push';
 
@@ -93,21 +93,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // administrator revocation): drop state, caches and the device's notification association.
     onSessionLost(() => { endSession(); setCacheIdentity(null); clearCaches(); tokenStore.remove(); snapshotStore.remove(); unlinkPush(); setUser(null); setOffline(false); });
     (async () => {
+      // Every continuation below belongs to the generation that started it (G01c): once another account signed in (or
+      // the session ended) meanwhile, a late result - success or failure - must neither update the state nor clear the
+      // credentials of the account that owns the state now.
+      const epoch = currentSession();
+      const stale = () => epoch !== currentSession();
       try {
         const token = await tokenStore.get();
+        if (stale()) return;
         if (token) {
           setToken(token);
           try {
             const me = await api.get('/auth/me');
+            if (stale()) return;
             setCacheIdentity(me);
             setUser(me);
             await snapshotStore.set(me);
             setOffline(false);
             syncPushIfGranted();
           } catch (e: any) {
+            if (e instanceof SessionChangedError || stale()) return;
             if (sessionEnded(e)) throw e;
             // Network timeout / 5xx: not proof the session is invalid. Keep the credentials, restore the snapshot.
             const snap = await snapshotStore.get();
+            if (stale()) return;
             if (snap) { setCacheIdentity(snap); setUser(snap); }
             setOffline(true);
           }
@@ -115,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         await tokenStore.remove();
         await snapshotStore.remove();
+        if (stale()) return;
         setToken(null);
         await clearCaches();
       } finally {
@@ -130,8 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const epoch = currentSession();
     setCacheIdentity(null);
     await clearCaches();
-    await storeCredentials(epoch, token, refreshToken || null);
+    if (!(await storeCredentials(epoch, token, refreshToken || null))) throw new SessionChangedError();
     const me = await api.get('/auth/me');
+    if (epoch !== currentSession()) throw new SessionChangedError();   // a newer sign-in / sign-out owns the state
     if (!KNOWN_ROLES.includes(me.role)) throw new Error('Unknown account role');
     setCacheIdentity(me);
     setUser(me);
@@ -154,8 +165,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshUser = async () => {
+    const epoch = currentSession();
     try {
       const me = await api.get('/auth/me');
+      if (epoch !== currentSession()) return;                 // the profile of a previous account never becomes B's state
       const before = cacheIdentity();
       setCacheIdentity(me);
       if (before !== 'anon' && cacheIdentity() !== before) await clearCaches(); // role / permission change
@@ -163,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await snapshotStore.set(me);
       setOffline(false);
     } catch (e: any) {
+      if (e instanceof SessionChangedError || epoch !== currentSession()) return;
       if (!sessionEnded(e)) setOffline(true);
     }
   };

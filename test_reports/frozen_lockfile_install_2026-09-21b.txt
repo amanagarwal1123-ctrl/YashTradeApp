@@ -1,0 +1,24 @@
+yarn install v1.22.22
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin > @typescript-eslint/type-utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin > @typescript-eslint/utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree > @typescript-eslint/project-service@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree > @typescript-eslint/tsconfig-utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "test-renderer > react-reconciler@0.33.0" has incorrect peer dependency "react@^19.2.0".
+[4/4] Building fresh packages...
+warning Ignored scripts due to flag.
+Done in 34.82s.
+exit=0
+
+# L01 reconciliation (21 Sep 2026, recheck c3da84e): direct dependencies that had NO lockfile record at c3da84e now have one,
+# and the frozen install above (exit 0, scripts ignored because node_modules is pre-built in this container) resolves them:
+expo-device: package.json=~8.0.10 lockfile="8.0.10" node_modules=8.0.10
+expo-notifications: package.json=~0.32.17 lockfile="0.32.17" node_modules=0.32.17
+expo-rich-notifications: package.json=^0.1.0 lockfile="0.1.0" node_modules=0.1.0
+react-native-keyboard-controller: package.json=~1.18.0 lockfile="1.18.6" node_modules=1.18.6
+# Lockfile diff vs c3da84e: adds the 4 packages + their transitive dependencies (@ide/backoff, badgin, expo-application, libphonenumber-js, ua-parser-js, util, assert, is-*/which-typed-array, object-is, is-nan, generator-function, inherits key merge); no existing package resolution changed. A native build (EAS/Emergent publish) remains the only proof of a working native bundle - not run here.

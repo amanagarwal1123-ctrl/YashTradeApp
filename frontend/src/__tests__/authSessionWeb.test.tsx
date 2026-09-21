@@ -83,4 +83,37 @@ describe('AuthProvider on web (memory-only session)', () => {
     await waitFor(() => expect(second.getByText('signed-out')).toBeTruthy());
     expect(mockGet).not.toHaveBeenCalled();
   });
+
+  /** G01c: a profile response of the previous account that completes after another account signed in must not become
+   *  the new account's state, and must not be treated as the new account being offline. */
+  it('a late /auth/me result of account A never updates the state once account B signed in', async () => {
+    const A = { id: 'u-a', role: 'customer', phone: '9100000001', name: 'A' }, B = { id: 'u-b', role: 'customer', phone: '9100000002', name: 'B' };
+    mockGet.mockResolvedValueOnce(A);
+    const tree = await mount();
+    await waitFor(() => expect(tree.getByText('signed-out')).toBeTruthy());
+    await act(async () => { await captured!.login('jwt-a', A as any); });
+    await waitFor(() => expect(tree.getByText('user:u-a')).toBeTruthy());
+    let releaseA!: (v: any) => void;
+    mockGet.mockReturnValueOnce(new Promise(resolve => { releaseA = resolve; }));       // A's refresh: response body pending
+    let refresh!: Promise<void>;
+    act(() => { refresh = captured!.refreshUser(); });
+    mockGet.mockResolvedValueOnce(B);
+    await act(async () => { await captured!.login('jwt-b', B as any); });                // B signs in meanwhile
+    await waitFor(() => expect(tree.getByText('user:u-b')).toBeTruthy());
+    await act(async () => { releaseA({ ...A, private_field: 'A-profile' }); await refresh; });   // A's body completes now
+    expect(tree.getByText('user:u-b')).toBeTruthy();
+    expect(captured!.user?.id).toBe('u-b');
+    expect(captured!.offline).toBe(false);
+    expect(getToken()).toBe('jwt-b');
+    // and a late FAILURE of A's refresh does not mark B offline or sign B out
+    let failA!: (e: any) => void;
+    mockGet.mockReturnValueOnce(new Promise((_, reject) => { failA = reject; }));
+    act(() => { refresh = captured!.refreshUser(); });
+    mockGet.mockResolvedValueOnce({ ...B, name: 'B again' });
+    await act(async () => { await captured!.login('jwt-b2', B as any); });
+    await act(async () => { failA(Object.assign(new Error('Network unavailable'), { transient: true })); await refresh; });
+    expect(captured!.user?.name).toBe('B again');
+    expect(captured!.offline).toBe(false);
+    expect(getToken()).toBe('jwt-b2');
+  });
 });
