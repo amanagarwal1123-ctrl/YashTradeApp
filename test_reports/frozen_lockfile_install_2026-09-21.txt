@@ -1,0 +1,16 @@
+yarn install v1.22.22
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin > @typescript-eslint/type-utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/eslint-plugin > @typescript-eslint/utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree > @typescript-eslint/project-service@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "eslint-config-expo > @typescript-eslint/parser > @typescript-eslint/typescript-estree > @typescript-eslint/tsconfig-utils@8.37.0" has incorrect peer dependency "typescript@>=4.8.4 <5.9.0".
+warning "test-renderer > react-reconciler@0.33.0" has incorrect peer dependency "react@^19.2.0".
+[4/4] Building fresh packages...
+warning Ignored scripts due to flag.
+Done in 26.13s.
+exit=0

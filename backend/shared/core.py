@@ -556,6 +556,9 @@ async def indexes():
     await db.requests.create_index([("status", 1), ("queue_sort_at", -1), ("created_at", -1), ("id", 1)])
     await db.requests.create_index([("assignee_id", 1), ("status", 1), ("queue_sort_at", -1)])
     await db.requests.create_index([("status", 1), ("created_at", 1), ("reset_cycle", 1)])
+    # Completion ledger recovery (G02): indexed durable intents + the cursor walk over resolved requests.
+    await db.requests.create_index("ledger_pending.at", sparse=True)
+    await db.requests.create_index([("status", 1), ("resolved_at", 1), ("id", 1)])
     await db.request_completions.create_index([("request_id", 1), ("completed_at", -1)])
     await db.request_completions.create_index([("actor_id", 1), ("completed_at", -1)])
     await db.request_completions.create_index("key", unique=True)
@@ -567,12 +570,18 @@ async def indexes():
     await db.notifications.create_index("expires_at", expireAfterSeconds=0)
     await db.notification_outbox.create_index("key", unique=True)
     await db.notification_outbox.create_index([("status", 1), ("next_attempt_at", 1)])
+    await db.notification_outbox.create_index("campaign_id", sparse=True)
     await db.notification_campaigns.create_index([("created_at", -1), ("id", 1)])
+    # Durable fan-out events (G04): frozen audience + completion state per event key; campaigns in flight are leased.
+    await db.notification_events.create_index("id", unique=True)
+    await db.notification_events.create_index([("state", 1), ("updated_at", 1)])
+    await db.notification_campaigns.create_index([("status", 1), ("fanout.lease_until", 1)])
     # Discovery: what each signed-in user has actually seen, and the bounded per-refresh ordering sessions.
     await db.product_impressions.create_index([("user_id", 1), ("product_id", 1)], unique=True)
     await db.product_impressions.create_index([("user_id", 1), ("seen_at", -1)])
     await db.discovery_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.discovery_sessions.create_index([("user_id", 1), ("created_at", -1)])
+    await db.discovery_cursors.create_index([("user_id", 1), ("filter_key", 1)], unique=True)
     await db.products.create_index([("batch_id", 1), ("created_at", -1)])
     await db.products.create_index([("created_at", -1), ("id", 1)])
     await db.products.create_index([("metal_type", 1), ("category", 1), ("created_at", -1), ("id", 1)])

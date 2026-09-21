@@ -388,7 +388,7 @@ async def completion_report(date: str = "", start: str = "", end: str = "", tele
     1-366 days). Counts come from the immutable completion ledger: a retried completion is one record, a completion that
     was later reopened is excluded (`superseded`), a re-completion after reopening is a new record."""
     lower, upper, days = date_bounds(start or date, end or date)
-    await reconcile_completion_ledger(since_iso=lower)   # F03: counts never miss a completion whose ledger write was interrupted
+    await reconcile_completion_ledger()   # F03/G02: counts never miss a completion or reopen whose ledger write was interrupted
     query = {"completed_at": {"$gte": lower, "$lt": upper}, "superseded_at": None}
     if user["role"] == "telecaller":
         telecaller = user["id"]
@@ -420,7 +420,7 @@ async def detail(rid: str, user=Depends(c.operations)):
         c.fail(404, "REQUEST_NOT_FOUND", "Request not found")
     from .queue_reset import release_if_due
     await release_if_due(raw)   # F04: the screen never shows yesterday's claimant as the current owner after 03:00
-    await ensure_completion_ledger(raw)
+    await settle_completion_ledger(raw)
     rows = await c.db.requests.aggregate([{"$match": {"id": rid}}] + enrich_pipeline()).to_list(1)
     doc = rows[0]
     names = {u["id"]: u.get("name", "") async for u in c.db.users.find({"id": {"$in": [x for x in (doc.get("assignee_id"), doc.get("resolver_id")) if x]}}, {"_id": 0, "id": 1, "name": 1})}
@@ -471,10 +471,13 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
         c.fail(404, "REQUEST_NOT_FOUND", "Request not found")
     from .queue_reset import release_if_due
     old = await release_if_due(old)   # F04: an assignment from before today's 03:00 boundary is released before any edit
+    if old.get("ledger_pending"):
+        # G02: an interrupted ledger write of an EARLIER mutation (completion row / reopen supersession) is settled before
+        # this mutation adds its own intent - a re-completion after a half-done reopen can never leave the old row counted.
+        await settle_completion_ledger(old)
     key = c.digest(user["id"] + ":" + req.idempotency_key) if req.idempotency_key else None
     if key and key in old.get("mutation_keys", []):
-        await ensure_completion_ledger(old)   # a retried completion whose ledger write was interrupted is repaired here
-        return view_doc(old)
+        return view_doc(old)   # retried mutation: its ledger intent (if any) was settled above
     version = old.get("version", 0)
     if req.version is not None and req.version != version:
         c.fail(409, "VERSION_CONFLICT", "Request changed; refresh before updating")
@@ -511,7 +514,7 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
     elif req.action == "reopen":
         c.fail(409, "NOT_TERMINAL", "Only completed or cancelled queries can be reopened")
     if before in TERMINAL and req.action == "complete":
-        await ensure_completion_ledger(old)   # F03: a missing ledger row (partial write) is recovered by any retry
+        await settle_completion_ledger(old)   # F03: a missing ledger row (partial write) is recovered by any retry
         return {**view_doc(old), "already_completed": True}  # idempotent retry: no second event, no second ledger row
     if req.action == "complete" and not assignee and user["role"] != "admin":
         c.fail(403, "CLAIM_REQUIRED", "Take the query before completing it")
@@ -565,42 +568,44 @@ async def mutate(rid: str, req: Mutation, user=Depends(c.query_workers)):
         changes["first_response_at"] = ts
     predicate = {"id": rid, "version": version if "version" in old else {"$exists": False}}
     update = {"$set": changes, "$inc": {"version": 1}, "$push": {"events": {"$each": events}}}
+    # G02: the ledger step that follows this write is recorded WITH it as a durable intent (`ledger_pending`), so an
+    # interruption between the two writes is recoverable from an indexed marker by any retry, the detail view, the
+    # report or the worker - never by luck of a bounded scan. The intent is removed once the ledger write succeeded.
+    intent = None
     if after == "resolved" and before != after:
         update["$inc"]["completion_count"] = 1
+        intent = {"action": "complete", "sequence": int(old.get("completion_count") or 0) + 1, "at": ts}
+    if req.action == "reopen":
+        # The completion being reopened must have its own row before it can be superseded (a legacy or interrupted
+        # completion); this runs BEFORE the request changes, so a failure here leaves the request untouched.
+        await settle_completion_ledger(old)
+        intent = {"action": "supersede", "sequence": int(old.get("completion_count") or 1), "at": ts, "actor_id": user["id"], "reason": req.reason}
+    if intent:
+        update["$push"]["ledger_pending"] = intent
     if key:
         update["$addToSet"] = {"mutation_keys": key}
     doc = await c.db.requests.find_one_and_update(predicate, update, projection={"_id": 0}, return_document=ReturnDocument.AFTER)
     if not doc:
         c.fail(409, "VERSION_CONFLICT", "Another staff member updated the request; refresh and retry")
-    if after == "resolved" and before != after:
-        await record_completion(doc, user, ts)
-    if req.action == "reopen":
-        # Scoped to the completion being reopened (sequence read under this version): a delayed reopen can never
-        # supersede a LATER completion, and the reopened completion's row is written first if it was missing.
-        await ensure_completion_ledger(old)
-        await c.db.request_completions.update_many({"request_id": rid, "superseded_at": None, "sequence": {"$lte": int(old.get("completion_count") or 1)}},
-            {"$set": {"superseded_at": ts, "superseded_by": user["id"], "reopen_reason": req.reason}})
+    if intent:
+        await settle_completion_ledger(doc)   # completion row inserted / reopened completion superseded, then the intent is cleared
     return view_doc(doc)
 
 
-async def record_completion(doc, user, ts):
-    """Immutable completion ledger row (one per completion; keyed by the request's completion sequence so a replayed
-    write cannot add a second row). Attribution is snapshotted so reports survive later staff changes."""
-    await ensure_completion_ledger({**doc, "completed_by_id": user["id"], "completed_by_name": user.get("name", ""),
-                                    "completed_by_role": user["role"], "resolved_at": ts})
-
-
-async def ensure_completion_ledger(doc):
-    """The resolved request document is the source of truth (resolver, time, sequence, outcome); the ledger row is
-    derived from it and inserted if missing (F03). Safe to call on every retry / report / startup: the unique key
-    `<request id>:<completion sequence>` makes it idempotent. Returns True when a row was added."""
+async def insert_completion_row(doc):
+    """Immutable completion ledger row derived from the resolved request document (the source of truth: resolver,
+    time, sequence, outcome). Idempotent through the unique key `<request id>:<completion sequence>`; attribution is
+    snapshotted so reports survive later staff changes. Returns True when a row was added."""
     from pymongo.errors import DuplicateKeyError
     if status(doc.get("status")) != "resolved" or not doc.get("completed_by_id") or not doc.get("resolved_at"):
         return False
     seq = int(doc.get("completion_count") or 1)
+    key = f"{doc['id']}:{seq}"
+    if await c.db.request_completions.find_one({"key": key}, {"_id": 0, "id": 1}):
+        return False
     ts = doc["resolved_at"]
     try:
-        await c.db.request_completions.insert_one({"id": secrets.token_hex(12), "key": f"{doc['id']}:{seq}", "request_id": doc["id"], "sequence": seq,
+        await c.db.request_completions.insert_one({"id": secrets.token_hex(12), "key": key, "request_id": doc["id"], "sequence": seq,
             "actor_id": doc["completed_by_id"], "actor_name": doc.get("completed_by_name", ""), "actor_role": doc.get("completed_by_role", "telecaller"),
             "completed_at": ts, "completed_date_ist": datetime.fromisoformat(ts).astimezone(IST).date().isoformat(), "request_type": doc.get("request_type"),
             "customer_id": doc.get("user_id") or doc.get("customer_id"), "customer_name": doc.get("user_name") or doc.get("customer_name", ""),
@@ -611,15 +616,74 @@ async def ensure_completion_ledger(doc):
         return False
 
 
-async def reconcile_completion_ledger(since_iso=None, limit=500):
-    """Repairs missing ledger rows for resolved requests (crash between the request update and the ledger write)."""
-    query = {"status": "resolved", "completed_by_id": {"$nin": [None, ""]}, "resolved_at": {"$ne": None}}
-    if since_iso:
-        query["resolved_at"] = {"$gte": since_iso}
+async def supersede_completion_rows(rid, intent):
+    """Marks the rows of the reopened completion sequence (and any earlier ones still counted) superseded. Bounded by
+    the sequence read at reopen time, so a delayed or recovered reopen can never supersede a LATER re-completion."""
+    result = await c.db.request_completions.update_many({"request_id": rid, "superseded_at": None, "sequence": {"$lte": int(intent["sequence"])}},
+        {"$set": {"superseded_at": intent["at"], "superseded_by": intent.get("actor_id"), "reopen_reason": intent.get("reason", "")}})
+    return result.modified_count
+
+
+async def settle_completion_ledger(doc):
+    """Applies every durable ledger intent stored on a request (G02) - a completion whose row insert was interrupted,
+    a reopen whose supersession was interrupted - then clears the settled intents; a resolved request without intents
+    (written by an earlier build) gets its missing row as before (F03). Idempotent: safe on every retry, detail view,
+    report and worker pass. Returns the number of ledger rows written or superseded."""
+    changed = 0
+    for intent in list(doc.get("ledger_pending") or []):
+        if intent.get("action") == "supersede":
+            changed += await supersede_completion_rows(doc["id"], intent)
+        elif intent.get("action") == "complete" and int(doc.get("completion_count") or 1) == int(intent.get("sequence") or 0):
+            changed += int(await insert_completion_row(doc))
+        # (a `complete` intent of an earlier sequence was settled by the reopen that followed it: nothing left to do)
+        await c.db.requests.update_one({"id": doc["id"]}, {"$pull": {"ledger_pending": {"action": intent.get("action"), "at": intent.get("at")}}})
+    if not doc.get("ledger_pending"):
+        changed += int(await insert_completion_row(doc))
+    return changed
+
+
+async def reconcile_completion_ledger(limit=500, max_batches=20):
+    """Ledger recovery with guaranteed forward progress (G02). (1) Durable intents (`ledger_pending`, indexed) are
+    settled oldest first; every settled intent leaves the set, so a bounded batch never re-inspects already repaired
+    records. (2) Requests resolved by builds without intents are swept with a durable cursor over (resolved_at, id)
+    that advances on every call and wraps around at the end, so a missing row older than the first batch is reached by
+    a later call instead of being starved behind records that already have rows. Returns the number of repairs."""
     repaired = 0
-    async for doc in c.db.requests.find(query, {"_id": 0}).sort("resolved_at", -1).limit(limit):
-        if not await c.db.request_completions.find_one({"key": f"{doc['id']}:{int(doc.get('completion_count') or 1)}"}, {"_id": 0, "id": 1}):
-            repaired += int(await ensure_completion_ledger(doc))
+    for _ in range(max_batches):
+        docs = await c.db.requests.find({"ledger_pending.at": {"$exists": True}}, {"_id": 0}).sort([("ledger_pending.0.at", 1), ("id", 1)]).limit(limit).to_list(limit)
+        if not docs:
+            break
+        for doc in docs:
+            repaired += await settle_completion_ledger(doc)
+        if len(docs) < limit:
+            break
+    return repaired + await sweep_completion_ledger(limit)
+
+
+SWEEP_CURSOR = "completion_ledger_sweep"
+
+
+async def sweep_completion_ledger(limit=500):
+    """One bounded step of the durable cursor walk over ALL resolved requests (ascending resolved_at, id): the missing
+    rows of this batch are inserted, the cursor moves to the last examined record, and wraps to the beginning once the
+    walk reached the end (`cycles` counts completed walks)."""
+    state = await c.db.maintenance_cursors.find_one({"_id": SWEEP_CURSOR}) or {}
+    query = {"status": "resolved", "completed_by_id": {"$nin": [None, ""]}, "resolved_at": {"$ne": None}}
+    after = state.get("after")
+    if after:
+        query["$or"] = [{"resolved_at": {"$gt": after["resolved_at"]}}, {"resolved_at": after["resolved_at"], "id": {"$gt": after["id"]}}]
+    docs = await c.db.requests.find(query, {"_id": 0}).sort([("resolved_at", 1), ("id", 1)]).limit(limit).to_list(limit)
+    keys = {f"{d['id']}:{int(d.get('completion_count') or 1)}" for d in docs}
+    present = {r["key"] async for r in c.db.request_completions.find({"key": {"$in": list(keys)}}, {"_id": 0, "key": 1})} if keys else set()
+    repaired = 0
+    for doc in docs:
+        if f"{doc['id']}:{int(doc.get('completion_count') or 1)}" not in present:
+            repaired += int(await insert_completion_row(doc))
+    progress = {"updated_at": c.stamp(), "last_batch": len(docs), "last_repaired": repaired}
+    if len(docs) < limit:   # reached the end: the next call starts a new walk from the oldest record
+        await c.db.maintenance_cursors.update_one({"_id": SWEEP_CURSOR}, {"$set": {**progress, "after": None, "cycle_completed_at": progress["updated_at"]}, "$inc": {"cycles": 1}}, upsert=True)
+    else:
+        await c.db.maintenance_cursors.update_one({"_id": SWEEP_CURSOR}, {"$set": {**progress, "after": {"resolved_at": docs[-1]["resolved_at"], "id": docs[-1]["id"]}}}, upsert=True)
     return repaired
 
 

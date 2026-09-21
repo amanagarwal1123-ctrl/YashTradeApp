@@ -618,7 +618,8 @@ async def reconcile_outbox_acknowledgements():
 PERSONAL_COLLECTIONS = (("cart", "user_id"), ("wishlists", "user_id"), ("telecaller_activity", "customer_id"),
                         ("analytics_events", "user_id"), ("analytics", "user_id"), ("reward_transactions", "user_id"),
                         ("refresh_tokens", "user_id"), ("ai_reports", "user_id"), ("push_devices", "user_id"),
-                        ("notifications", "user_id"), ("product_impressions", "user_id"), ("discovery_sessions", "user_id"))
+                        ("notifications", "user_id"), ("product_impressions", "user_id"), ("discovery_sessions", "user_id"),
+                        ("discovery_cursors", "user_id"))
 
 
 EXTERNAL_DETAIL = {
@@ -683,6 +684,8 @@ async def cleanup_deletion(uid, number, ref):
     # (the outbox worker re-validates recipients before every send as well).
     await c.db.notification_outbox.update_many({"status": {"$in": ["pending", "failed"]}, "messages._user_id": uid},
                                                [{"$set": {"messages": {"$filter": {"input": "$messages", "as": "m", "cond": {"$ne": ["$$m._user_id", uid]}}}}}])
+    # A fan-out still in progress never reaches the erased account either (its frozen audience snapshot loses the id).
+    await c.db.notification_events.update_many({"recipients": uid}, {"$pull": {"recipients": uid}})
     # Preserve anonymous operational totals, not personal/free-text trade snapshots.
     async for q in c.db.requests.find({"user_id": uid}, {"_id": 0}):
         events = [{k: v for k, v in e.items() if k not in {"notes", "old", "new", "actor_name"}}

@@ -89,21 +89,23 @@ async def test_f03_completion_ledger_survives_a_crash_between_the_two_writes(api
     rid = (await api_client.post("/api/requests", json={"request_type": "callback"}, headers=cust)).json()["id"]
     assert (await api_client.post(f"/api/requests/{rid}/claim", headers=t1)).status_code == 200
 
-    async def boom(doc, user, ts):
+    async def boom(doc):
         raise RuntimeError("ledger store unavailable")
     # Fault injection is scoped to its own MonkeyPatch so restoring it never touches the isolated-db / transport patches.
     with pytest.MonkeyPatch.context() as fault:
-        fault.setattr(queries, "record_completion", boom)
+        fault.setattr(queries, "insert_completion_row", boom)
         with pytest.raises(RuntimeError):
             await api_client.post(f"/api/requests/{rid}/complete", json={"outcome": "converted", "idempotency_key": "done-1"}, headers=t1)
     doc = await db.requests.find_one({"id": rid}, {"_id": 0})
     assert doc["status"] == "resolved" and doc["completed_by_id"] == "u_tele1" and doc["completed_by_role"] == "telecaller"
+    assert doc["ledger_pending"][0]["action"] == "complete" and doc["ledger_pending"][0]["sequence"] == 1   # durable intent (G02)
     assert await db.request_completions.count_documents({"request_id": rid}) == 0          # the partial write the review reproduced
     # same-key retry repairs the ledger (and adds nothing else)
     again = await api_client.post(f"/api/requests/{rid}/complete", json={"outcome": "converted", "idempotency_key": "done-1"}, headers=t1)
     assert again.status_code == 200
     rows = await db.request_completions.find({"request_id": rid}, {"_id": 0}).to_list(None)
     assert len(rows) == 1 and rows[0]["actor_id"] == "u_tele1" and rows[0]["completed_at"] == doc["resolved_at"] and rows[0]["outcome"] == "converted"
+    assert (await db.requests.find_one({"id": rid}, {"_id": 0}))["ledger_pending"] == []                    # intent settled
     # a new-key retry and the report never add a second row; the report counts it exactly once
     assert (await api_client.post(f"/api/requests/{rid}/complete", json={"idempotency_key": "done-2"}, headers=t1)).json()["already_completed"] is True
     today = c.now().astimezone(queries.IST).date().isoformat()
@@ -113,7 +115,7 @@ async def test_f03_completion_ledger_survives_a_crash_between_the_two_writes(api
     rid2 = (await api_client.post("/api/requests", json={"request_type": "ask_price"}, headers=cust)).json()["id"]
     await api_client.post(f"/api/requests/{rid2}/claim", headers=t1)
     with pytest.MonkeyPatch.context() as fault:
-        fault.setattr(queries, "record_completion", boom)
+        fault.setattr(queries, "insert_completion_row", boom)
         with pytest.raises(RuntimeError):
             await api_client.post(f"/api/requests/{rid2}/complete", json={}, headers=t1)
     assert await queries.reconcile_completion_ledger() == 1

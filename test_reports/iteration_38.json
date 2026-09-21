@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 38 - API-level E2E for C1-C8 executed against live preview backend using isolated store-review scope. 6/6 pytest cases PASS (test_iteration38_review_e2e.py). Browser reviewer sign-in path (Login -> Help -> App review access -> reviewer form) verified end-to-end for store-review-customer and STORE-REVIEW ENVIRONMENT gold banner confirmed on Home. Browser-only journeys for C1-C7 (in-app taps for notification -> RequestDetail, admin reassign UI, complete/reopen UI, customer delete UI, staff disable cascade in tele2 tab, discovery impression window, admin notifications composer) were NOT re-executed here due to scope size; API-side invariants for each were asserted directly. Reviewer keys read only from /tmp/yash-private/e2e-review-keys.json in code, never printed/logged. Health 503 not_ready is EXPECTED (STAFF_SERVICE_KEY placeholder) per iter37 note.",
+  "per_check_table": {
+    "C1_claim_race": {"result": "PASS", "evidence": "POST /api/requests (request_type=call) -> 200; tele1 claim 200 (assignee_id=review-telecaller-0001); tele2 claim 409 ALREADY_ASSIGNED"},
+    "C2_admin_reassignment": {"result": "PASS", "evidence": "PATCH /api/requests/{RID} action=assign assigned_to=review-telecaller-0002 reason=iteration 38 reassignment -> 200; GET detail confirms assignee_id=review-telecaller-0002"},
+    "C3_complete_reopen_complete_G02": {"result": "PASS", "evidence": "tele2 POST /api/requests/{RID}/complete outcome=converted -> 200; GET reports/completions?day=today total counted; admin PATCH action=reopen -> 200 (total decremented by 1, G02 semantics); tele2 reclaim + complete2 -> total returns to N; GET request detail shows 2 completions rows, first with superseded_at set, second active"},
+    "C4_customer_delete_j10": {"result": "NOT ATTEMPTED", "evidence": "Customer account deletion for review-customer-0005 not exercised in this run (destructive step-up flow requires interactive OTP disclosure on same session; iter36-J10 covered API path). Recommend browser-driven run per script section since safety mandates confirming step-up UI on preview only."},
+    "C5_staff_disable_enable": {"result": "PASS", "evidence": "DELETE /api/executives/review-telecaller-0002 -> 200; tele2 old bearer GET /api/auth/me -> 401 (forced sign-out); PATCH /api/integrations/staff/review-telecaller-0002 account_status=active -> 200 re-enable succeeds; new POST /api/auth/review/login for tele2 -> 200 (verified in test_c8/refresh path)"},
+    "C6_discovery_session": {"result": "PASS", "evidence": "POST /api/discovery/sessions -> 200 with session_id + products[] present; full impressions dedup (seen_before propagation across sessions) not asserted via API here - browser evidence would be needed for the visibility window/impressions POST"},
+    "C7_g04_campaign_fanout": {"result": "NOT ATTEMPTED", "evidence": "Admin notifications campaign UI + POST /api/admin/notifications/campaigns/{cid}/send flow not exercised in this run (would require multi-step admin composer navigation; iter34/36 previously exercised admin notifications API surface). No accepted push devices in review scope; would rely on inbox row check"},
+    "C8_g01_session_isolation": {"result": "PASS", "evidence": "Distinct reviewer logins yield distinct bearer tokens and distinct /api/auth/me identity (review-customer-0001 vs review-telecaller-0001). Reviewer sign-in path via Login->Help->App review access confirmed in browser with STORE-REVIEW ENVIRONMENT gold banner (screenshot iter38_c8_customer_signed_in.jpeg)"}
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/live_preview/test_iteration38_review_e2e.py",
+    "/app/test_reports/pytest/iteration_38_live.xml",
+    "/app/test_reports/iter38_c8_customer_signed_in.jpeg"
+  ],
+  "action_items": [
+    "C4 and C7 browser+API journeys still need explicit E2E evidence in this iteration (deletion step-up + campaign fan-out UI). Main agent to run those two browser flows with the reviewer-scope safety fixture; API contracts confirmed by iter36 for J10 and iter34 for admin notifications.",
+    "C6 discovery impressions dedup (seen_before across sessions) still needs a browser run with the 1.2s visibility window; only the session creation and shape were asserted at API level here."
+  ],
+  "critical_code_review_comments": [
+    "PATCH /api/requests/{rid} enforces Mutation model with extra='forbid' - the review request instructions used names like assignee_id/type; correct API contract is assigned_to (Mutation.assigned_to) and request_type (NewRequest.request_type). Existing iter36 tests already use these; no code defect.",
+    "Health returns 503 not_ready due to STAFF_SERVICE_KEY placeholder - documented as expected in the review request and iter37-B report; not a defect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/live_preview/test_iteration38_review_e2e.py"
+  ],
+  "success_rate": {"backend": "100% (6/6 pytest cases)", "frontend": "1/1 sign-in smoke passed (banner + navigation verified for customer reviewer)"},
+  "seed_data_creation": "Ephemeral request created via POST /api/requests as store-review-customer during C1 (id kept only within test); the request advanced through claim -> reassign -> complete -> reopen -> complete lifecycle in C2/C3 and remains resolved in the isolated review__requests collection. No production data touched. No SMS sent. No owner-console write actions.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "C1/C2/C3/C5/C6-session/C8 have PASS evidence at API level (test_iteration38_review_e2e.py). C4 (J10 delete + cascade), C6 impressions dedup and C7 (G04 campaign) still lack this-iteration browser evidence and need dedicated Playwright runs against the isolated store-review scope; reviewer keys are in /tmp/yash-private/e2e-review-keys.json (never print/log). Reviewer sign-in path: /login -> login-help-link -> help-review-access-link -> reviewer-id-input + reviewer-key-input -> review-login-btn. Never touch production owner or trigger owner-console write actions.",
+  "rca_of_issue": ""
+}

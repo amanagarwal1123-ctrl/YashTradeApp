@@ -6,9 +6,11 @@ export const BACKEND_URL = Constants.expoConfig?.extra?.backendUrl || process.en
 export const API_BASE = `${BACKEND_URL}/api`;
 let authToken: string | null = null;
 let webRefresh: string | null = null;
-let refreshing: Promise<void> | null = null;
-// Session epoch: bumped whenever the signed-in identity changes (login, logout, deletion, revoked session). A response
-// that started under an older epoch is discarded, so a slow request can never restore the previous account's data.
+// Session generation: bumped whenever the signed-in identity changes (login, logout, deletion, revoked session). Every
+// request, refresh attempt and credential write is bound to the generation it started under and re-checked after EVERY
+// asynchronous step (F01 / G01): a slow response of the previous account is discarded before any refresh or retry, so
+// it can never be re-sent with the new account's credentials, and its late success or failure can neither restore the
+// previous account's credentials nor sign the current account out.
 let sessionEpoch = 0;
 export const currentSession = () => sessionEpoch;
 export const endSession = () => { sessionEpoch += 1; };
@@ -17,11 +19,24 @@ export class SessionChangedError extends Error {
 }
 export const setToken = (token: string | null) => { authToken = token; };
 export const getToken = () => authToken;
-export const setRefreshToken = async (token: string | null) => {
-  if (Platform.OS === 'web') { webRefresh = token; return; }
-  if (token) await SecureStore.setItemAsync('refresh_token', token);
-  else await SecureStore.deleteItemAsync('refresh_token');
-};
+
+// Credential persistence is SERIALIZED and generation-bound. An operation runs only when its turn comes AND its
+// generation is still the current one: two generations' storage reads/writes never interleave, and a stale write that
+// was queued before the account changed is dropped instead of overwriting the account that signed in meanwhile.
+// Resolves false when the operation was dropped.
+let credentialQueue: Promise<unknown> = Promise.resolve();
+export function storeCredentials(epoch: number, token: string | null, refresh: string | null): Promise<boolean> {
+  const run = credentialQueue.then(async () => {
+    if (epoch !== sessionEpoch) return false;
+    authToken = token;
+    if (Platform.OS === 'web') { webRefresh = refresh; return true; }   // web sessions are memory-only
+    await (token ? SecureStore.setItemAsync('auth_token', token) : SecureStore.deleteItemAsync('auth_token'));
+    await (refresh ? SecureStore.setItemAsync('refresh_token', refresh) : SecureStore.deleteItemAsync('refresh_token'));
+    return true;
+  });
+  credentialQueue = run.catch(() => undefined);
+  return run;
+}
 
 let sessionLost: (() => void) | null = null;
 /** Registered by the auth provider: runs ONLY when the server confirms the session is gone (401/403 on refresh, no
@@ -32,51 +47,66 @@ export class TransientError extends Error {
 }
 const isTransientStatus = (status: number) => status >= 500 || status === 408 || status === 429;
 
-async function refreshSession() {
-  // The refresh is bound to the session generation and the credential it started with (F01): if the session changes
-  // while the HTTP request is pending (logout, another account signed in, revocation), its result - success OR failure -
-  // is obsolete and must neither persist credentials nor sign the CURRENT session out.
-  const epoch = sessionEpoch;
+async function refreshSession(epoch: number) {
+  // Bound to the generation of the request that needed it: after every await the generation is re-checked, so a
+  // refresh that outlives its session (logout, another account signed in, revocation) is abandoned - it never persists
+  // credentials, never signs the CURRENT session out, and its callers never retry under the new account.
+  const changed = () => epoch !== sessionEpoch;
+  if (changed()) throw new SessionChangedError();
   const refresh = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
-  if (!refresh) { if (epoch === sessionEpoch) sessionLost?.(); throw new Error('Please sign in again'); }
+  if (changed()) throw new SessionChangedError();   // the read may have captured the previous account's credential
+  if (!refresh) { sessionLost?.(); throw new Error('Please sign in again'); }
   let response: Response;
   try {
     response = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
   } catch {
+    if (changed()) throw new SessionChangedError();
     throw new TransientError('You are offline; your session is kept and will reconnect');
   }
-  const stillCurrent = async () => {
-    if (epoch !== sessionEpoch) return false;
-    const now = Platform.OS === 'web' ? webRefresh : await SecureStore.getItemAsync('refresh_token');
-    return now === refresh; // the credential this refresh rotated is still the device's credential
-  };
+  if (changed()) throw new SessionChangedError();
   if (response.status === 409) return; // concurrent refresh already rotated the credentials on this device: keep going
   if (isTransientStatus(response.status)) throw new TransientError('Server unavailable; your session is kept');
   if (!response.ok) {
-    if (!(await stillCurrent())) throw new SessionChangedError();
-    await setRefreshToken(null); setToken(null); sessionLost?.(); throw new Error('Session expired; please sign in again');
+    // The server confirmed THIS generation's credential is gone: clear it (dropped if the account changed meanwhile)
+    // and end this generation only.
+    if (!(await storeCredentials(epoch, null, null)) || changed()) throw new SessionChangedError();
+    sessionLost?.();
+    throw new Error('Session expired; please sign in again');
   }
   const data = await response.json();
-  if (!(await stillCurrent())) throw new SessionChangedError();
-  setToken(data.token); await setRefreshToken(data.refresh_token);
-  if (Platform.OS !== 'web') await SecureStore.setItemAsync('auth_token', data.token);
+  if (!(await storeCredentials(epoch, data.token, data.refresh_token))) throw new SessionChangedError();
+}
+
+// One refresh in flight per session generation: a request of the CURRENT generation never waits on (or fails with) a
+// refresh that an earlier generation started.
+let refreshing: { epoch: number; promise: Promise<void> } | null = null;
+function sharedRefresh(epoch: number) {
+  if (!refreshing || refreshing.epoch !== epoch) {
+    const promise = refreshSession(epoch).finally(() => { if (refreshing?.promise === promise) refreshing = null; });
+    refreshing = { epoch, promise };
+  }
+  return refreshing.promise;
 }
 
 export const REFRESH_EXEMPT = ['/auth/send-otp', '/auth/verify-otp', '/auth/refresh', '/auth/review/login'];
 
-export async function authenticatedFetch(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
+export async function authenticatedFetch(path: string, options: RequestInit = {}, retry = true, epoch = sessionEpoch): Promise<Response> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string> || {}) };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   } catch {
+    if (epoch !== sessionEpoch) throw new SessionChangedError();
     throw new TransientError('Network unavailable');
   }
+  // A response that arrives after the account changed is discarded HERE - before any refresh or retry - so the
+  // previous account's request (and its body) is never repeated with the new account's authorization.
+  if (epoch !== sessionEpoch) throw new SessionChangedError();
   if (response.status === 401 && authToken && retry && !REFRESH_EXEMPT.includes(path)) {
-    if (!refreshing) refreshing = refreshSession().finally(() => { refreshing = null; });
-    await refreshing;
-    return authenticatedFetch(path, options, false);
+    await sharedRefresh(epoch);
+    if (epoch !== sessionEpoch) throw new SessionChangedError();
+    return authenticatedFetch(path, options, false, epoch);
   }
   return response;
 }
@@ -92,7 +122,7 @@ export async function responseJson(res: Response) {
 
 async function request(path: string, method = 'GET', body?: any) {
   const epoch = sessionEpoch;
-  const response = await authenticatedFetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await authenticatedFetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }, true, epoch);
   if (epoch !== sessionEpoch) throw new SessionChangedError();
   return responseJson(response);
 }

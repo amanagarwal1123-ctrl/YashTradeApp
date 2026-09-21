@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { api, setToken, setRefreshToken, getToken, endSession, onSessionLost } from '../api';
+import { api, setToken, storeCredentials, getToken, endSession, currentSession, onSessionLost } from '../api';
 import { clearCaches, setCacheIdentity, cacheIdentity } from '../dataCache';
 import { syncPushIfGranted, unlinkPush } from '../push';
 
 // Secure token storage: SecureStore on devices. On web the session is memory-only (never persisted): the
 // module-level token survives a navigator reset that remounts this provider, but not a page reload.
+// Writes go through `storeCredentials` (api.ts): serialized and bound to the session generation, so a late refresh of
+// a previous account can never overwrite or clear the credentials of the account that signed in meanwhile (G01).
 const tokenStore = {
   get: async (): Promise<string | null> => {
     if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return getToken(); }
@@ -21,10 +23,9 @@ const tokenStore = {
     }
     return legacy;
   },
-  set: (v: string) => Platform.OS === 'web' ? Promise.resolve() : SecureStore.setItemAsync('auth_token', v),
+  /** Clears memory + secure storage for the CURRENT generation (a stale clear is dropped) and the legacy location. */
   remove: async () => {
-    if (Platform.OS === 'web') { await AsyncStorage.removeItem('auth_token'); return; }
-    await SecureStore.deleteItemAsync('auth_token');
+    await storeCredentials(currentSession(), null, null);
     await AsyncStorage.removeItem('auth_token');
   },
 };
@@ -126,11 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (token: string, userData: User, refreshToken?: string) => {
     // A new identity starts: nothing from a previous account (memory, disk or an in-flight response) may carry over.
     endSession();
+    const epoch = currentSession();
     setCacheIdentity(null);
     await clearCaches();
-    await tokenStore.set(token);
-    setToken(token);
-    await setRefreshToken(refreshToken || null);
+    await storeCredentials(epoch, token, refreshToken || null);
     const me = await api.get('/auth/me');
     if (!KNOWN_ROLES.includes(me.role)) throw new Error('Unknown account role');
     setCacheIdentity(me);
@@ -145,10 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const pushToken = await unlinkPush();
     try { await api.post('/auth/logout', pushToken ? { push_token: pushToken } : undefined); } catch { /* Local tokens are still removed if offline. */ }
     endSession();
-    await setRefreshToken(null);
     await tokenStore.remove();
     await snapshotStore.remove();
-    setToken(null);
     setCacheIdentity(null);
     await clearCaches();
     setUser(null);
