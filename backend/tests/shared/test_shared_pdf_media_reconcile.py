@@ -28,7 +28,7 @@ def _mean_abs_diff(a: Image.Image, b: Image.Image) -> float:
 
 @pytest.mark.asyncio
 async def test_upload_image_rejects_non_image(api_client, login_helper):
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
     data = b"not-an-image"
     files = {"file": ("bad.txt", io.BytesIO(data), "text/plain")}
     r = await api_client.post("/api/products/upload-image", files=files, headers={"Authorization": f"Bearer {admin}"})
@@ -93,9 +93,10 @@ def test_pdf_cropbox_rejected_and_blank_layout_rejected(tmp_path: Path):
         analyze_page(str(blank_pdf), 0, "template_v1")
 
 
-def test_reconcile_identity_dry_run_contract_owner_admin():
-    app_rows = [{"id": "app-owner", "phone": "9999813334", "role": "customer", "account_status": "active"}]
-    web_rows = [{"collection": "staff_users", "record_id": "web-1", "phone": "9999813334", "role": "admin"}]
+def test_reconcile_identity_dry_run_contract_owner_admin(monkeypatch):
+    monkeypatch.setenv("OWNER_ADMIN_PHONE", "9000000000")   # synthetic owner for the isolated dry-run
+    app_rows = [{"id": "app-owner", "phone": "9000000000", "role": "customer", "account_status": "active"}]
+    web_rows = [{"collection": "staff_users", "record_id": "web-1", "phone": "9000000000", "role": "admin"}]
     out = report(app_rows, web_rows, approved_mapping={})
     assert out["dry_run"] is True
     assert out["production_modified"] is False

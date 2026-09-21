@@ -32,7 +32,7 @@ async def test_startup_leaves_older_rows_untouched_and_reports_them(api_client, 
     info = await db.sms_log.index_information()
     assert not any("expireAfterSeconds" in spec for spec in info.values())
 
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     report = (await api_client.get("/api/admin/maintenance", headers=bearer(admin))).json()
     assert report["pending"] is True
     assert report["sms_log_retention"]["ttl_index"] is False and report["sms_log_retention"]["rows_without_expiry"] == 2

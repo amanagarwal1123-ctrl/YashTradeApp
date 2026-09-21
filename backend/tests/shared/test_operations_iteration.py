@@ -19,7 +19,10 @@ async def auth_headers(login_helper, phone):
 # ---- R08 --------------------------------------------------------------------------------------------------------------
 
 async def test_otp_cooldown_is_15_seconds_server_driven_and_atomic(api_client, isolated_db, seeded_users, monkeypatch):
-    clock = {"now": datetime(2026, 9, 20, 10, 0, 0, tzinfo=timezone.utc)}
+    # A fake clock in the REAL past makes every challenge TTL-eligible at once (otp_challenges.expires_at carries a TTL
+    # index): Mongo's minute sweep could delete a just-issued challenge between two parallel taps and turn this
+    # atomicity test flaky. Start one hour ahead of real time instead; every assertion is relative to the clock.
+    clock = {"now": datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=1)}
     monkeypatch.setattr(c, "now", lambda: clock["now"])
     payload = {"phone": "9000000004", "purpose": "login", "channel": "mobile"}
     first = await api_client.post("/api/auth/send-otp", json=payload)
@@ -108,7 +111,7 @@ def test_mcx_unit_conversions_are_deterministic():
 
 
 async def test_mcx_display_units_round_trip_and_calculated_physical(api_client, isolated_db, seeded_users, login_helper):
-    admin, _ = await auth_headers(login_helper, "9999813334")
+    admin, _ = await auth_headers(login_helper, "9000000000")
     latest = (await api_client.get("/api/rates/latest")).json()
     assert latest["units"]["mcx_display"] == {"silver": "INR/kg", "gold": "INR/10g"} and latest["mcx_units_verified"] is False
     assert latest["silver_mcx_display_rate"] == 99000.0 and latest["gold_mcx_display_rate"] == 49000.0   # seeded 99 INR/g, 4900 INR/g
@@ -173,7 +176,7 @@ async def test_campaigns_audience_permissions_and_durable_delivery(api_client, i
             r = await api_client.post("/api/notifications/devices", json={"token": t, "platform": "android"}, headers=h)
             assert r.status_code == 200, r.text
     assert (await api_client.post("/api/notifications/devices", json={"token": "junk-token-value", "platform": "ios"}, headers=sessions["u_cust1"])).status_code == 422
-    admin, _ = await auth_headers(login_helper, "9999813334")
+    admin, _ = await auth_headers(login_helper, "9000000000")
     # non-admins are denied everything under /admin/notifications
     for h in (sessions["u_cust1"], sessions["u_tele1"]):
         assert (await api_client.get("/api/admin/notifications/filters", headers=h)).status_code == 403
@@ -259,7 +262,7 @@ async def test_campaigns_audience_permissions_and_durable_delivery(api_client, i
 
 async def test_upload_executive_matrix(api_client, isolated_db, seeded_users, login_helper):
     db = isolated_db["db"]
-    admin, _ = await auth_headers(login_helper, "9999813334")
+    admin, _ = await auth_headers(login_helper, "9000000000")
     created = await api_client.post("/api/integrations/staff", json={"phone": "9000000010", "name": "Uploader", "role": "upload_executive"}, headers=admin)
     assert created.status_code == 200 and created.json()["user"]["role"] == "upload_executive"
     up, body = await auth_headers(login_helper, "9000000010")
@@ -303,7 +306,7 @@ async def test_upload_executive_matrix(api_client, isolated_db, seeded_users, lo
 
 async def test_disable_vs_delete_for_staff_and_customers(api_client, isolated_db, seeded_users, login_helper):
     db = isolated_db["db"]
-    admin, _ = await auth_headers(login_helper, "9999813334")
+    admin, _ = await auth_headers(login_helper, "9000000000")
     t1, t1_body = await auth_headers(login_helper, "9000000001")
     await api_client.post("/api/notifications/devices", json={"token": "ExponentPushToken[t1xxxxxxxxxxxxx]", "platform": "android"}, headers=t1)
     # legacy DELETE alias still DISABLES and says so
@@ -322,7 +325,7 @@ async def test_disable_vs_delete_for_staff_and_customers(api_client, isolated_db
     payload = {"reason": "left the company last week", "confirm_user_id": "u_tele1", "confirm_phone_last4": "0001"}
     wrong = await api_client.post("/api/integrations/staff/u_tele1/delete", json={**payload, "confirm_phone_last4": "9999"}, headers=admin)
     assert wrong.status_code == 409 and wrong.json()["code"] == "CONFIRMATION_REQUIRED"
-    owner = await api_client.post("/api/integrations/staff/u_admin/delete", json={"reason": "should never work", "confirm_user_id": "u_admin", "confirm_phone_last4": "3334"}, headers=admin)
+    owner = await api_client.post("/api/integrations/staff/u_admin/delete", json={"reason": "should never work", "confirm_user_id": "u_admin", "confirm_phone_last4": "0000"}, headers=admin)
     assert owner.status_code == 409 and owner.json()["code"] in {"OWNER_ADMIN_PROTECTED", "SELF_DELETION_DENIED", "LAST_ADMIN"}
     # give the telecaller an open claimed query first
     await db.products.insert_one({"id": "p1", "title": "Ring", "metal_type": "silver", "visibility": "visible", "is_deleted": False, "created_at": c.stamp()})
@@ -370,7 +373,7 @@ async def test_legacy_executives_routes_delegate_to_the_canonical_staff_director
     Upload Executive creatable, explicit promotion for customer numbers (never a silent upgrade), disabled accounts stay
     listed with their status so they can be re-enabled, disable revokes sessions and detaches devices."""
     db = isolated_db["db"]
-    admin, _ = await auth_headers(login_helper, "9999813334")
+    admin, _ = await auth_headers(login_helper, "9000000000")
     created = await api_client.post("/api/executives", json={"name": "Uma Upload", "phone": "9000000077", "code": "UP01", "role": "upload_executive"}, headers=admin)
     assert created.status_code == 200, created.text
     assert created.json()["role"] == "upload_executive" and created.json()["created"] is True

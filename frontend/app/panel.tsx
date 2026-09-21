@@ -182,8 +182,8 @@ export default function PanelScreen() {
   };
 
   // === DATA LOADING ===
-  const loadTab = useCallback(async (t: PanelTab) => {
-    setLoading(true);
+  const loadTab = useCallback(async (t: PanelTab, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       switch (t) {
         case 'dashboard': setDashData(await api.get('/analytics/dashboard')); break;
@@ -199,7 +199,7 @@ export default function PanelScreen() {
         case 'executives': { const r = await api.get('/executives'); setExecutives(r.executives || []); break; }
       }
     } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { if (role) { setProductSubView('menu'); loadTab(tab); } }, [tab, role]);
@@ -1052,13 +1052,9 @@ export default function PanelScreen() {
                     </TouchableOpacity>
                   </View>
                   {/* Disable (reversible) / Re-enable / Delete (erasure workflow) are distinct, server-enforced operations */}
-                  <AccountActions kind="staff" account={ex} onChanged={() => loadTab('executives')} />
+                  <AccountActions kind="staff" account={ex} onChanged={() => loadTab('executives', true)} />
                 </View>
               ))}
-              {phoneChangeStaff && (
-                <StaffPhoneChange staff={phoneChangeStaff} onClose={() => setPhoneChangeStaff(null)}
-                  onChanged={() => { setShowExecForm(false); setEditingExecId(''); loadTab('executives'); }} />
-              )}
             </>
           )}
 
@@ -1444,6 +1440,11 @@ export default function PanelScreen() {
 
           <View style={{ height: 40 }} />
         </KeyboardAwareScreen>
+      )}
+      {/* Rendered outside the tab body so the outcome message survives the staff-list reload that follows a commit. */}
+      {phoneChangeStaff && (
+        <StaffPhoneChange staff={phoneChangeStaff} onClose={() => setPhoneChangeStaff(null)}
+          onChanged={() => { setShowExecForm(false); setEditingExecId(''); loadTab('executives', true); }} />
       )}
     </SafeAreaView>
   );

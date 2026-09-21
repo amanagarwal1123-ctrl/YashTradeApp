@@ -29,7 +29,7 @@ def _auth(token: str):
 
 
 async def _admin_token(login_helper):
-    return (await login_helper("9999813334"))["token"]
+    return (await login_helper("9000000000"))["token"]
 
 
 async def _seed_media_asset(isolated_db, path: str, owner_id: str = "u_admin"):
@@ -835,8 +835,8 @@ async def test_pdf_authoring_validations_and_owner_photo_gate(api_client, isolat
     await isolated_db["db"].users.insert_one(
         {
             "id": "u_admin2",
-            "phone": "9999813335",
-            "phone_normalized": "9999813335",
+            "phone": "9000000010",
+            "phone_normalized": "9000000010",
             "name": "Second Admin",
             "role": "admin",
             "account_status": "active",
@@ -850,7 +850,7 @@ async def test_pdf_authoring_validations_and_owner_photo_gate(api_client, isolat
             "location": "Delhi",
         }
     )
-    token2 = (await login_helper("9999813335"))["token"]
+    token2 = (await login_helper("9000000010"))["token"]
     foreign = await api_client.post("/api/pdf-template/export", headers=_auth(token2), json={"products": [valid]})
     assert foreign.status_code == 422
 
@@ -902,8 +902,8 @@ async def test_private_source_preview_and_import_file_block(api_client, isolated
     await isolated_db["db"].users.insert_one(
         {
             "id": "u_admin2",
-            "phone": "9999813335",
-            "phone_normalized": "9999813335",
+            "phone": "9000000010",
+            "phone_normalized": "9000000010",
             "name": "Second Admin",
             "role": "admin",
             "account_status": "active",
@@ -917,7 +917,7 @@ async def test_private_source_preview_and_import_file_block(api_client, isolated
             "location": "Delhi",
         }
     )
-    token2 = (await login_helper("9999813335"))["token"]
+    token2 = (await login_helper("9000000010"))["token"]
     forbidden_admin = await api_client.get(f"/api/pdf-upload/{jid}/pages/1/image?metadata=true", headers=_auth(token2))
     assert forbidden_admin.status_code == 403
 

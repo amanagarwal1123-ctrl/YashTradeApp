@@ -70,7 +70,7 @@ def test_placeholder_values_are_unconfigured_in_the_running_backend(placeholder_
     login = httpx.post(f"{base}/auth/review/login", json={"reviewer_id": "store-review-admin", "access_key": "x" * 40}, timeout=10)
     assert login.status_code == 503 and login.json()["code"] == "REVIEW_UNAVAILABLE"
     # The placeholder is not a usable staff credential either.
-    staff = httpx.post(f"{base}/auth/send-otp", json={"phone": "9999813334", "channel": "portal", "purpose": "login"},
+    staff = httpx.post(f"{base}/auth/send-otp", json={"phone": "9000000000", "channel": "portal", "purpose": "login"},
                        headers={"X-Staff-Service-Key": PLACEHOLDER}, timeout=10)
     assert staff.status_code == 503 and staff.json()["code"] == "CONFIGURATION_REQUIRED"
     names = MongoClient(os.environ["MONGO_URL"]).list_database_names()

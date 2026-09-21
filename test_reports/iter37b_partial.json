@@ -1,0 +1,47 @@
+{
+  "B1": {},
+  "B5": {
+    "product_cards_visible": true,
+    "media_total": 0,
+    "media_non200_count": 0,
+    "media_non200_sample": [],
+    "banner_requests": [],
+    "viewer": {
+      "zoom_before": "Not zoomed",
+      "zoom_after": "Zoomed in"
+    },
+    "back_on_home": true
+  },
+  "B6": {
+    "sessions": [],
+    "impressions": [],
+    "note_text": "You have seen every product \u2014 showing a fresh shuffle"
+  },
+  "B7": {},
+  "B8": {},
+  "B9": {
+    "orig_silver": "MCX 97200 INR/kg (= 97.2 INR/g) \u00b7 physical entered manually",
+    "orig_gold": "MCX 77900 INR/10g (= 7790 INR/g) \u00b7 physical entered manually",
+    "silver_after_100000": "MCX 100000 INR/kg (= 100 INR/g) \u00b7 physical entered manually",
+    "gold_after_75000": "MCX 75000 INR/10g (= 7500 INR/g) \u00b7 physical entered manually",
+    "restored_silver": "MCX 97200 INR/kg (= 97.2 INR/g) \u00b7 physical entered manually",
+    "restored_gold": "MCX 77900 INR/10g (= 7790 INR/g) \u00b7 physical entered manually"
+  },
+  "B10": {
+    "notes_active_tid": "notes-input",
+    "notes_bbox": {
+      "x": 24,
+      "y": 604,
+      "width": 342,
+      "height": 100
+    },
+    "viewport": {
+      "h": 844
+    },
+    "submit_reachable": true
+  },
+  "sign_in": {
+    "customer": true,
+    "admin": true
+  }
+}

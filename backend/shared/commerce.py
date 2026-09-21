@@ -174,19 +174,31 @@ async def media(path: str, authorization: str | None = Header(None), w: int | No
     # Private uploads and previews never inherit public catalog access.
     product = await c.db.products.find_one({"is_deleted": {"$ne": True}, "$or": [{"storage_path": path}, {"thumbnail_path": path},
         {"original_source_storage_path": path}, {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1, "visibility": 1})
+    public = bool(product) and product.get("visibility") != "hidden"
+    banner = None if public else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
+    public = public or bool(banner)
+    serve_scope = c.scope()
+    if not public and not product and not authorization and not c.in_review() and c.review_available():
+        # Image tags carry no bearer, so an anonymous miss in production is retried against the isolated store-review
+        # copy: ONLY a visible synthetic product photo or an active review banner is served from there (the same public
+        # rule as production; hidden/deleted/unadopted import media stay behind the reviewer's own authenticated routes).
+        with c.scoped(c.REVIEW):
+            rv_product = await c.db.products.find_one({"is_deleted": {"$ne": True}, "visibility": {"$ne": "hidden"},
+                "$or": [{"storage_path": path}, {"thumbnail_path": path}, {"images": f"/api/files/{path}"}]}, {"_id": 0, "id": 1})
+            rv_banner = None if rv_product else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
+        if rv_product or rv_banner:
+            product, public, serve_scope = rv_product or product, True, c.REVIEW
     # Source chunks and import previews stay behind the owner-bound job routes until a committed product adopts one as
     # its permanent photo; from then on the ordinary product visibility rules apply.
     if not product and path.startswith("yash-trade/imports/"):
         c.fail(404, "MEDIA_NOT_FOUND", "Use the private owner-authorized import endpoint")
-    public = bool(product) and product.get("visibility") != "hidden"
-    banner = None if public else await c.db.banners.find_one({"image_url": f"/api/files/{path}", "is_active": True}, {"_id": 0, "id": 1})
-    public = public or bool(banner)
     if not public:
         user = await c.current_user(authorization)
         if user["role"] not in {"admin", "upload_executive"}:
             c.fail(403, "MEDIA_PRIVATE", "This media is private")
     try:
-        data, content_type = await cached_get(path, bool(public), w)
+        with c.scoped(serve_scope):
+            data, content_type = await cached_get(path, bool(public), w)
     except Exception:
         c.fail(404, "MEDIA_NOT_FOUND", "Image could not be loaded")
     etag = etag_of(data)

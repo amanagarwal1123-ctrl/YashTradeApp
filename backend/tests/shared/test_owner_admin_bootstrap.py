@@ -13,7 +13,7 @@ from shared import core as c
 from shared import owner_admin, people
 
 pytestmark = pytest.mark.asyncio
-OWNER = "9999813334"
+OWNER = "9000000000"
 STAFF_HEADERS = {"X-Staff-Service-Key": "staff-service-key-1234567890-abcdef"}
 
 
@@ -44,7 +44,7 @@ async def test_missing_owner_record_is_created_as_admin_and_signs_in_on_both_sur
     db = isolated_db["db"]
     monkeypatch.setenv("OWNER_ADMIN_PHONE", OWNER)
     assert await owner_admin.ensure_owner_admin() is True
-    assert owner_admin.status()["action"] == "created" and owner_admin.status()["phone_suffix"] == "3334"
+    assert owner_admin.status()["action"] == "created" and owner_admin.status()["phone_suffix"] == "0000"
     docs = await db.users.find({"$or": [{"phone_normalized": OWNER}, {"phone": OWNER}]}, {"_id": 0}).to_list(5)
     assert len(docs) == 1
     owner = docs[0]
@@ -54,7 +54,7 @@ async def test_missing_owner_record_is_created_as_admin_and_signs_in_on_both_sur
     # Health reports the database fact, never a login.
     health = (await api_client.get("/api/health")).json()
     assert health["flows"]["owner_admin"]["ready"] is True and health["flows"]["owner_admin"]["state"] == "created"
-    assert health["flows"]["owner_admin"]["phone_suffix"] == "3334" and health["configuration"]["OWNER_ADMIN_PHONE"] is True
+    assert health["flows"]["owner_admin"]["phone_suffix"] == "0000" and health["configuration"]["OWNER_ADMIN_PHONE"] is True
     assert health["account_role_verified"] is False and health["capabilities"]["owner_admin_bootstrap"] == 1
     # Restart: nothing changes (same id, no second event, no session bump).
     assert await owner_admin.ensure_owner_admin() is True and owner_admin.status()["action"] == "already_admin"
@@ -113,7 +113,7 @@ async def test_bootstrap_refuses_conflicts_inactive_deleted_and_invalid_configur
     db = isolated_db["db"]
     monkeypatch.setenv("OWNER_ADMIN_PHONE", OWNER)
     # Two records carry the phone (one legacy formatting without phone_normalized): refuse, change nothing.
-    legacy = {**customer("u_legacy", "+91 99998 13334"), "phone_normalized": None}
+    legacy = {**customer("u_legacy", "+91 90000 00000"), "phone_normalized": None}
     del legacy["phone_normalized"]
     await db.users.insert_many([customer("u_first", OWNER), legacy])
     before = [d async for d in db.users.find({}, {"_id": 0}).sort("id", 1)]
@@ -121,7 +121,7 @@ async def test_bootstrap_refuses_conflicts_inactive_deleted_and_invalid_configur
     assert [d async for d in db.users.find({}, {"_id": 0}).sort("id", 1)] == before
     health = await api_client.get("/api/health")
     assert health.status_code == 503 and health.json()["flows"]["owner_admin"] == {
-        "ready": False, "issues": ["OWNER_ADMIN_IDENTITY_CONFLICT"], "state": None, "phone_suffix": "3334",
+        "ready": False, "issues": ["OWNER_ADMIN_IDENTITY_CONFLICT"], "state": None, "phone_suffix": "0000",
         "detail": "2 records carry the owner phone; nothing changed"}
     # An inactive record is never promoted or reactivated.
     await db.users.delete_many({})
@@ -144,7 +144,7 @@ async def test_bootstrap_refuses_conflicts_inactive_deleted_and_invalid_configur
     body = (await api_client.get("/api/health")).json()
     assert body["flows"]["owner_admin"]["issues"] == ["OWNER_ADMIN_PHONE"] and body["configuration"]["OWNER_ADMIN_PHONE"] is False
     # +91 / spaced spellings normalise to the same national number.
-    monkeypatch.setenv("OWNER_ADMIN_PHONE", "+91 99998-13334")
+    monkeypatch.setenv("OWNER_ADMIN_PHONE", "+91 90000-00000")
     assert owner_admin.configured_phone() == OWNER
     # Never inside the store-review scope.
     with c.scoped(c.REVIEW):

@@ -68,7 +68,7 @@ def backend_process(auth_mongod):
     env = {**os.environ, "MONGO_URL": auth_mongod["app_uri"], "DB_NAME": auth_mongod["main"], "REVIEW_ACCESS_ENABLED": "true",
            "JWT_SECRET": "prefixed-jwt-secret-1234567890-abcdefghij", "STAFF_SERVICE_KEY": "prefixed-staff-key-1234567890-abcdefghij",
            "ENROLLMENT_INTEGRATION_KEY": "prefixed-enrol-key-1234567890-abcdefghij", "MSG91_AUTHKEY": "test-authkey",
-           "MSG91_TEMPLATE_ID": "test-template", "OWNER_ADMIN_PHONE": "9999813334"}
+           "MSG91_TEMPLATE_ID": "test-template", "OWNER_ADMIN_PHONE": "9000000000"}
     env.pop("REVIEW_DB_NAME", None)
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                             cwd=BACKEND, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -113,13 +113,13 @@ def test_restricted_user_serves_reviewer_sign_in_from_prefixed_collections_witho
         assert proc.returncode == 0, proc.stderr[-500:]
         import json
         out = json.loads(proc.stdout)
-        assert out["outcome"] == "ok" and out["all_four_roles_verified"] is True and out["storage"] == "prefixed_collections"
+        assert out["outcome"] == "ok" and out["all_accounts_verified"] is True and out["storage"] == "prefixed_collections"
         assert all(r["repeat_login"] is True and r["session_closed"] is True for r in out["verification"].values())
     finally:
         if note.exists():
             note.unlink()
             note.parent.rmdir()
-    assert httpx.get(f"{base}/health", timeout=10).json()["flows"]["review"]["accounts_enabled"] == 4
+    assert httpx.get(f"{base}/health", timeout=10).json()["flows"]["review"]["accounts_enabled"] == 6
     # Physical layout: ONLY the main database exists; every review collection is prefixed; unprefixed ones hold no review rows.
     root = MongoClient(auth_mongod["root_uri"])
     assert not any(n.startswith("prefixed_") and n != auth_mongod["main"] for n in root.list_database_names())
@@ -129,11 +129,11 @@ def test_restricted_user_serves_reviewer_sign_in_from_prefixed_collections_witho
     main = root[auth_mongod["main"]]
     assert main.review_accounts.count_documents({}) == 0 and main.users.count_documents({"review_environment": True}) == 0
     assert main.products.count_documents({}) == 0 and main["review__products"].count_documents({}) == 12
-    assert main["review__review_accounts"].count_documents({}) == 4
+    assert main["review__review_accounts"].count_documents({}) == 6
     assert all(row["secret_hash"].startswith("$2b$") for row in main["review__review_accounts"].find({}))
     # The owner record created by the bootstrap lives ONLY in the unprefixed users collection.
-    assert main.users.count_documents({"phone_normalized": "9999813334", "role": "admin"}) == 1
-    assert main["review__users"].count_documents({"phone_normalized": "9999813334"}) == 0
+    assert main.users.count_documents({"phone_normalized": "9000000000", "role": "admin"}) == 1
+    assert main["review__users"].count_documents({"phone_normalized": "9000000000"}) == 0
 
 
 pytestmark_async = pytest.mark.asyncio

@@ -36,7 +36,7 @@ async def test_f02_queued_messages_are_revalidated_before_dispatch(api_client, i
     message is re-checked immediately before the send: unlinked device, device now owned by another account, disabled
     account, marketing opt-out and role change after queueing are all excluded and accounted for."""
     db = isolated_db["db"]
-    admin = await auth(login_helper, "9999813334")
+    admin = await auth(login_helper, "9000000000")
     tokens = {"u_cust1": "ExponentPushToken[f02aaaaaaaaaaaaa]", "u_cust2": "ExponentPushToken[f02bbbbbbbbbbbbb]", "u_tele1": "ExponentPushToken[f02ccccccccccccc]",
               "u_tele2": "ExponentPushToken[f02ddddddddddddd]"}
     sessions = {}
@@ -48,14 +48,15 @@ async def test_f02_queued_messages_are_revalidated_before_dispatch(api_client, i
     await notifications.fan_out("f02-query", "operational", ["u_tele1", "u_tele2"], "New query", "body", "/staff-requests?request=x", request_id="req-x")
     assert await db.notification_outbox.count_documents({"status": "pending"}) == 2
     # ... and the world changes before the worker runs:
-    # cust1 signs out (device unlinked) and the same phone is used by a new account u_other (device re-registered)
-    other = await auth(login_helper, "9000000006")
+    # cust1 signs out (device unlinked) and the same phone is picked up by a NEW active account u_other (device re-registered)
+    await db.users.insert_one({k: v for k, v in seeded_users["u_cust2"].items() if k != "_id"} | {"id": "u_other", "phone": "9000000007", "phone_normalized": "9000000007", "name": "Other Person"})
+    other = await auth(login_helper, "9000000007")
     await api_client.post("/api/notifications/devices/unlink", json={"token": tokens["u_cust1"]}, headers=sessions["u_cust1"])
     await api_client.post("/api/notifications/devices", json={"token": tokens["u_cust1"], "platform": "android"}, headers=other)
     # cust2 opts out of marketing
     await api_client.put("/api/notifications/preferences", json={"marketing": False}, headers=sessions["u_cust2"])
-    # tele1 is disabled, tele2 is converted to a customer role
-    assert (await api_client.patch("/api/integrations/staff/u_tele1", json={"status": "inactive"}, headers=admin)).status_code == 200
+    # tele1's account becomes unusable WITHOUT its device being detached (direct status change), tele2 loses the role
+    await db.users.update_one({"id": "u_tele1"}, {"$set": {"account_status": "inactive", "status": "inactive"}})
     await db.users.update_one({"id": "u_tele2"}, {"$set": {"role": "customer"}})
     await db.push_devices.update_one({"token": tokens["u_tele2"]}, {"$set": {"enabled": True}})   # device still linked: only the role changed
     await notifications.tick()
@@ -64,9 +65,12 @@ async def test_f02_queued_messages_are_revalidated_before_dispatch(api_client, i
     assert jobs["f02-marketing:0"]["status"] == "sent" and jobs["f02-marketing:0"]["accepted"] == 0
     assert sorted(s["reason"] for s in jobs["f02-marketing:0"]["skipped"]) == ["device_reassigned", "marketing_opt_out"]
     assert sorted(s["reason"] for s in jobs["f02-query:0"]["skipped"]) == ["account_unusable", "role_changed"]
+    # the administrator's disable action itself also detaches the staff member's devices (belt and braces)
+    assert (await api_client.patch("/api/integrations/staff/u_tele1", json={"status": "inactive"}, headers=admin)).status_code == 200
+    assert (await db.push_devices.find_one({"token": tokens["u_tele1"]}))["enabled"] is False
     # the opted-out customer's unread marketing row is withdrawn from the inbox as well; the new account got nothing
     assert await db.notifications.count_documents({"user_id": "u_cust2", "kind": "marketing"}) == 0
-    assert await db.notifications.count_documents({"user_id": other and (await db.users.find_one({"phone_normalized": "9000000006"}))["id"]}) == 0
+    assert await db.notifications.count_documents({"user_id": "u_other"}) == 0
     # a still-eligible recipient in the same batch IS sent: re-queue for cust1's new device owner and an active telecaller
     await db.users.update_one({"id": "u_tele2"}, {"$set": {"role": "telecaller"}})
     await notifications.fan_out("f02-query2", "operational", ["u_tele2"], "New query", "body", "/staff-requests?request=y", request_id="req-y")
@@ -76,21 +80,22 @@ async def test_f02_queued_messages_are_revalidated_before_dispatch(api_client, i
 
 # ---- F03 --------------------------------------------------------------------------------------------------------------
 
-async def test_f03_completion_ledger_survives_a_crash_between_the_two_writes(api_client, isolated_db, seeded_users, login_helper, monkeypatch):
+async def test_f03_completion_ledger_survives_a_crash_between_the_two_writes(api_client, isolated_db, seeded_users, login_helper):
     """Review: the request was marked resolved but the ledger insert failed; retries (same or new key) returned early
     and the staff report lost the record forever. Now the resolved request document is the source of truth and any
     retry, the report itself and the detail view re-derive the missing ledger row exactly once."""
     db = isolated_db["db"]
-    admin, t1, cust = await auth(login_helper, "9999813334"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
+    admin, t1, cust = await auth(login_helper, "9000000000"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
     rid = (await api_client.post("/api/requests", json={"request_type": "callback"}, headers=cust)).json()["id"]
     assert (await api_client.post(f"/api/requests/{rid}/claim", headers=t1)).status_code == 200
 
     async def boom(doc, user, ts):
         raise RuntimeError("ledger store unavailable")
-    monkeypatch.setattr(queries, "record_completion", boom)
-    with pytest.raises(RuntimeError):
-        await api_client.post(f"/api/requests/{rid}/complete", json={"outcome": "converted", "idempotency_key": "done-1"}, headers=t1)
-    monkeypatch.undo()
+    # Fault injection is scoped to its own MonkeyPatch so restoring it never touches the isolated-db / transport patches.
+    with pytest.MonkeyPatch.context() as fault:
+        fault.setattr(queries, "record_completion", boom)
+        with pytest.raises(RuntimeError):
+            await api_client.post(f"/api/requests/{rid}/complete", json={"outcome": "converted", "idempotency_key": "done-1"}, headers=t1)
     doc = await db.requests.find_one({"id": rid}, {"_id": 0})
     assert doc["status"] == "resolved" and doc["completed_by_id"] == "u_tele1" and doc["completed_by_role"] == "telecaller"
     assert await db.request_completions.count_documents({"request_id": rid}) == 0          # the partial write the review reproduced
@@ -107,10 +112,10 @@ async def test_f03_completion_ledger_survives_a_crash_between_the_two_writes(api
     # crash variant with NO retry from the telecaller: the report / startup reconcile repairs it
     rid2 = (await api_client.post("/api/requests", json={"request_type": "ask_price"}, headers=cust)).json()["id"]
     await api_client.post(f"/api/requests/{rid2}/claim", headers=t1)
-    monkeypatch.setattr(queries, "record_completion", boom)
-    with pytest.raises(RuntimeError):
-        await api_client.post(f"/api/requests/{rid2}/complete", json={}, headers=t1)
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as fault:
+        fault.setattr(queries, "record_completion", boom)
+        with pytest.raises(RuntimeError):
+            await api_client.post(f"/api/requests/{rid2}/complete", json={}, headers=t1)
     assert await queries.reconcile_completion_ledger() == 1
     assert await queries.reconcile_completion_ledger() == 0
     assert (await api_client.get(f"/api/requests/reports/completions?date={today}", headers=admin)).json()["total_completed"] == 2
@@ -135,9 +140,10 @@ async def test_f04_post_boundary_edit_cannot_keep_yesterdays_claim(api_client, i
     itself releases an expired assignment before the edit - the old claimant cannot edit or complete without taking
     the query again, while a genuinely new post-boundary claim and a completion are respected."""
     db = isolated_db["db"]
+    # sessions are issued on the real clock (token expiry is checked against it); the fake clock drives the queue only
+    t1, t2, cust, admin = await auth(login_helper, "9000000001"), await auth(login_helper, "9000000002"), await auth(login_helper, "9000000004"), await auth(login_helper, "9000000000")
     clock = {"now": ist(2026, 9, 19, 22, 0)}
     monkeypatch.setattr(c, "now", lambda: clock["now"])
-    t1, t2, cust, admin = await auth(login_helper, "9000000001"), await auth(login_helper, "9000000002"), await auth(login_helper, "9000000004"), await auth(login_helper, "9999813334")
     await db.queue_cycles.insert_one({"_id": "2026-09-19", "status": "completed"})   # yesterday's cycle already ran
     rid = (await api_client.post("/api/requests", json={"request_type": "callback"}, headers=cust)).json()["id"]
     assert (await api_client.post(f"/api/requests/{rid}/claim", headers=t1)).status_code == 200
@@ -168,8 +174,13 @@ async def test_f04_post_boundary_edit_cannot_keep_yesterdays_claim(api_client, i
                    "created_at": ist(2026, 9, 19, 12, 0).isoformat(), "claimed_at": ist(2026, 9, 20, 3, 0, 0).isoformat(), "updated_at": ist(2026, 9, 20, 3, 0, 0).isoformat(), "events": []}
     await db.requests.insert_one(dict(fresh_claim))
     assert await db.requests.count_documents({"id": "fresh", **queue_reset.candidate_query(cycle_id, boundary.isoformat())}) == 0
-    await queue_reset.run_cycle(cycle_id, boundary)   # idempotent second run of the same cycle
+    # the cycle is already complete: the worker's next pass still SWEEPS the late-eligible stale assignment (F04) and
+    # leaves the genuine post-boundary claim alone; a further pass finds nothing
+    swept = await queue_reset.tick()
+    assert swept and swept[0]["swept"] == 1
     assert (await db.requests.find_one({"id": "stale"}))["assignee_id"] == "" and (await db.requests.find_one({"id": "fresh"}))["assignee_id"] == "u_tele2"
+    assert await queue_reset.tick() == []
+    assert (await db.queue_cycles.find_one({"_id": cycle_id}))["swept"] == 1
     # detail view after the boundary reflects the release (never shows yesterday's claimant as the owner)
     await db.requests.insert_one({**stale, "id": "stale2", "reset_cycle": None})
     await db.requests.update_one({"id": "stale2"}, {"$unset": {"reset_cycle": ""}})
@@ -193,7 +204,9 @@ async def test_f05_old_unseen_products_beyond_the_session_bound_are_still_discov
         await api_client.post("/api/discovery/impressions", json={"product_ids": newest[start:start + 50]}, headers=cust)
     s = (await api_client.post("/api/discovery/sessions", json={"limit": 50}, headers=cust)).json()
     assert s["unseen"] == 1 and s["exhausted"] is False and s["products"][0]["id"] == "f05-040" and s["truncated"] is False
-    assert s["total"] == 41 and len({p["id"] for p in s["products"]}) == 41       # unseen first, then the least-recently-seen fallback
+    # the OLDEST product (outside the newest-40 window the review reproduced) leads the session; the seen fallback fills
+    # the bounded session (40 ids: 1 unseen + the 39 least-recently-seen), so nothing is duplicated
+    assert s["total"] == 40 and len({p["id"] for p in s["products"]}) == 40 and s["seen"] == 39
     # a catalogue larger than the bound: the session is bounded (truncated=true) but every unseen product is reachable
     # over successive refreshes once the earlier ones were seen
     await db.products.insert_many([{"id": f"f05-x{i:03d}", "title": f"X{i}", "metal_type": "gold", "visibility": "visible", "is_deleted": False,
@@ -209,7 +222,7 @@ async def test_f05_old_unseen_products_beyond_the_session_bound_are_still_discov
 
 # ---- F06 --------------------------------------------------------------------------------------------------------------
 
-async def test_f06_query_alert_is_never_lost_when_the_outbox_is_unavailable_at_creation(api_client, isolated_db, seeded_users, login_helper, recording_transport, monkeypatch):
+async def test_f06_query_alert_is_never_lost_when_the_outbox_is_unavailable_at_creation(api_client, isolated_db, seeded_users, login_helper, recording_transport):
     """Review: an enqueue failure at creation was logged and forgotten; the outbox worker had nothing to retry. Now the
     request carries a durable `notify_state=pending` marker that the worker (and a same-key creation retry) turns into
     the one operational event - for both creation paths (POST /requests and the cart submission)."""
@@ -220,32 +233,42 @@ async def test_f06_query_alert_is_never_lost_when_the_outbox_is_unavailable_at_c
 
     async def outbox_down(*a, **k):
         raise RuntimeError("outbox unavailable")
-    monkeypatch.setattr(notifications, "fan_out", outbox_down)
-    r = await api_client.post("/api/requests", json={"request_type": "callback", "notes": "hi"}, headers={**cust, "Idempotency-Key": "f06-1"})
-    assert r.status_code == 200                                                # the customer's request never fails
-    rid = r.json()["id"]
-    assert (await api_client.post("/api/cart/add", json={"product_id": "pf06", "quantity": 1}, headers=cust)).status_code == 200
-    cart = await api_client.post("/api/cart/submit", json={"notes": "cart"}, headers=cust)
-    assert cart.status_code == 200
-    rid_cart = cart.json()["request_id"]
+    with pytest.MonkeyPatch.context() as fault:
+        fault.setattr(notifications, "fan_out", outbox_down)
+        r = await api_client.post("/api/requests", json={"request_type": "callback", "notes": "hi"}, headers={**cust, "Idempotency-Key": "f06-1"})
+        assert r.status_code == 200                                                # the customer's request never fails
+        rid = r.json()["id"]
+        assert (await api_client.post("/api/cart/add", json={"product_id": "pf06", "quantity": 1}, headers=cust)).status_code == 200
+        cart = await api_client.post("/api/cart/submit", json={"notes": "cart"}, headers=cust)
+        assert cart.status_code == 200
+        rid_cart = cart.json()["request_id"]
     for x in (rid, rid_cart):
         doc = await db.requests.find_one({"id": x}, {"_id": 0})
         assert doc["notify_state"] == "pending" and doc["notify_attempts"] == 1 and doc["notify_errors"][0]["error"] == "RuntimeError"
     assert await db.notification_outbox.count_documents({}) == 0 and await db.notifications.count_documents({}) == 0
-    monkeypatch.undo()
+    # a crash BEFORE notify_created even runs leaves the same durable marker: both creation paths store it with the request
+    crashed = await api_client.post("/api/cart/add", json={"product_id": "pf06", "quantity": 1}, headers=cust)
+    assert crashed.status_code == 200
+    with pytest.MonkeyPatch.context() as fault:
+        fault.setattr(queries, "notify_created", outbox_down)
+        with pytest.raises(RuntimeError):
+            await api_client.post("/api/cart/submit", json={"notes": "crash"}, headers=cust)
+    crashed_doc = await db.requests.find_one({"notes": "crash"}, {"_id": 0})
+    assert crashed_doc["notify_state"] == "pending" and "notify_attempts" not in crashed_doc
     # (a) the same-key creation retry queues the alert
     again = await api_client.post("/api/requests", json={"request_type": "callback", "notes": "hi"}, headers={**cust, "Idempotency-Key": "f06-1"})
     assert again.status_code == 200 and again.json()["id"] == rid
     assert (await db.requests.find_one({"id": rid}))["notify_state"] == "queued"
     assert await db.notification_outbox.count_documents({"request_id": rid}) == 1
-    # (b) the worker reconciles the cart request without any client action (after the settle delay), exactly once
-    assert await queries.reconcile_pending_notifications(min_age_seconds=0) == 1
+    # (b) the worker reconciles the cart requests without any client action (after the settle delay), exactly once each
+    assert await queries.reconcile_pending_notifications(min_age_seconds=0) == 2
     assert await queries.reconcile_pending_notifications(min_age_seconds=0) == 0
     assert (await db.requests.find_one({"id": rid_cart}))["notify_state"] == "queued"
+    assert (await db.requests.find_one({"id": crashed_doc["id"]}))["notify_state"] == "queued"
     await notifications.tick()
     delivered = sorted(m["data"]["request_id"] for batch in recording_transport for m in batch)
-    assert delivered == sorted([rid, rid_cart])                              # one alert per query, none duplicated
-    assert await db.notifications.count_documents({"user_id": "u_tele1", "kind": "operational"}) == 2
+    assert delivered == sorted([rid, rid_cart, crashed_doc["id"]])            # one alert per query, none duplicated
+    assert await db.notifications.count_documents({"user_id": "u_tele1", "kind": "operational"}) == 3
     # the outbox worker's own pass performs the same reconcile (no separate scheduler needed)
     await db.requests.update_one({"id": rid_cart}, {"$set": {"notify_state": "pending", "created_at": (c.now() - timedelta(minutes=5)).isoformat()}})
     await notifications.tick()
@@ -255,7 +278,7 @@ async def test_f06_query_alert_is_never_lost_when_the_outbox_is_unavailable_at_c
 
 async def test_f06_campaign_never_sticks_in_sending_and_a_resend_completes_without_duplicates(api_client, isolated_db, seeded_users, login_helper, recording_transport, monkeypatch):
     db = isolated_db["db"]
-    admin = await auth(login_helper, "9999813334")
+    admin = await auth(login_helper, "9000000000")
     for uid in ("u_cust1", "u_cust2"):
         h = await auth(login_helper, seeded_users[uid]["phone"])
         await api_client.post("/api/notifications/devices", json={"token": f"ExponentPushToken[camp{uid}xxxxxxx]"[:30] + "]", "platform": "android"}, headers=h)
@@ -284,15 +307,18 @@ async def test_f06_campaign_never_sticks_in_sending_and_a_resend_completes_witho
 
 async def test_f07_completed_query_then_customer_deletion_scrubs_the_ledger_but_keeps_attribution(api_client, isolated_db, seeded_users, login_helper, recording_transport):
     db = isolated_db["db"]
-    admin, t1, cust = await auth(login_helper, "9999813334"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
+    admin, t1, cust = await auth(login_helper, "9000000000"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
     rid = (await api_client.post("/api/requests", json={"request_type": "callback"}, headers=cust)).json()["id"]
     await api_client.post(f"/api/requests/{rid}/claim", headers=t1)
     assert (await api_client.post(f"/api/requests/{rid}/complete", json={"outcome": "converted"}, headers=t1)).status_code == 200
     row = await db.request_completions.find_one({"request_id": rid}, {"_id": 0})
     assert row["customer_name"] == "Customer One" and row["shop_name"]                  # personal data present before deletion
-    # an unsent marketing message for the customer is queued as well
+    # an unsent marketing message for the customer (and one for another customer) is queued as well
     await api_client.post("/api/notifications/devices", json={"token": "ExponentPushToken[f07cccccccccccccc]"[:30] + "]", "platform": "android"}, headers=cust)
+    cust2 = await auth(login_helper, "9000000005")
+    await api_client.post("/api/notifications/devices", json={"token": "ExponentPushToken[f07dddddddddddddd]"[:30] + "]", "platform": "android"}, headers=cust2)
     await notifications.fan_out("f07-mkt", "marketing", ["u_cust1", "u_cust2"], "Offer", "B", "/(tabs)")
+    assert len((await db.notification_outbox.find_one({"key": "f07-mkt:0"}))["messages"]) == 2
     r = await api_client.post("/api/customers/u_cust1/delete", json={"reason": "customer asked", "confirm_user_id": "u_cust1", "confirm_phone_last4": "0004"}, headers=admin)
     assert r.status_code == 200, r.text
     row = await db.request_completions.find_one({"request_id": rid}, {"_id": 0})

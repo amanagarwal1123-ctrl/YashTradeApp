@@ -1,0 +1,97 @@
+{
+  "B1": {
+    "post_requests_captured": [
+      {
+        "status": 200,
+        "body_id": "a2426c2bdb3a599b99614115bcdc0cb1",
+        "body": {
+          "category": "",
+          "created_at": "2026-09-21T07:39:02.679228+00:00",
+          "head": "pending",
+          "id": "a2426c2bdb3a599b99614115bcdc0cb1",
+          "linked_products": [],
+          "notes": "iteration 37-B independent check",
+          "notify_state": "pending",
+          "pending_since": "2026-09-21T07:39:02.679228+00:00",
+          "preferred_time": "",
+          "product_id": "",
+          "product_ids": [],
+          "queue_sort_at": "2026-09-21T07:39:02.679228+00:00",
+          "request_type": "callback",
+          "shop_name": "Sample Jewellers (synthetic)",
+          "status": "pending",
+          "updated_at": "2026-09-21T07:39:02.679228+00:00",
+          "user_city": "Delhi",
+          "user_id": "review-customer-0001",
+          "user_name": "Review Customer (synthetic)",
+          "user_phone": "9100000101",
+          "version": 0,
+          "customer_id": "review-customer-0001",
+          "first_response_at": null,
+          "resolved_at": null,
+          "legacy_timing_unknown": false,
+          "age_seconds": 0,
+          "pending_seconds": 0,
+          "handling_seconds": null,
+          "item_count": 0
+        }
+      }
+    ],
+    "reached_success": true,
+    "customer_url_after": "https://app-first-signin.preview.emergentagent.com/request-success?type=call&time=soon",
+    "RID": "a2426c2bdb3a599b99614115bcdc0cb1",
+    "tele1_url": "https://app-first-signin.preview.emergentagent.com/telecaller",
+    "requests_alerts_button_present": true,
+    "tele1_after_alerts_url": "https://app-first-signin.preview.emergentagent.com/notifications",
+    "notification_row_for_RID_found": false,
+    "notif_contains_new_customer_query": true,
+    "notif_contains_sample_jewellers": true
+  },
+  "B7": {
+    "step1_9100000101": {
+      "preview_kind": "staff-phone-preview-customer",
+      "preview_text": "This number belongs to an existing customer. Promote this customer to staff?\nName: Review Customer (synthetic)\nNumber: ******0101 \u00b7 Current role: customer \u00b7 active\nThis number belongs to existing cust",
+      "has_promote_confirm": true
+    },
+    "preview_available_after_199": true,
+    "preview_available_text_199": "Change Review Telecaller Two (synthetic)'s login number to +91 91000 00199?\nReview Telecaller Two (synthetic) keeps the same account, role, code, assignments and history. Only the login number changes",
+    "done_visible_199": true,
+    "done_text_199": "Review Telecaller Two (synthetic) now signs in with +91 91000 00199. All their sessions were signed out; the new number must be verified by OTP at the next sign-in.",
+    "list_shows_00199": true,
+    "list_shows_00105_before_revert": false,
+    "revert_9100000105": {
+      "preview_kind": "staff-phone-preview-available",
+      "preview_text": "Change Review Telecaller Two (synthetic)'s login number to +91 91000 00105?\nReview Telecaller Two (synthetic) keeps the same account, role, code, assignments and history. Only the login number changes",
+      "has_promote_confirm": false,
+      "done_visible": true,
+      "done_text": "Review Telecaller Two (synthetic) now signs in with +91 91000 00105. All their sessions were signed out; the new number must be verified by OTP at the next sign-in."
+    },
+    "list_shows_00105_after_revert": true,
+    "list_shows_00199_after_revert": false
+  },
+  "B8": {
+    "exec_status_before": "Active",
+    "staff_account_info_visible": true,
+    "staff_account_info_text": "Disabled. Sign-in is blocked immediately. The number stays reserved for this account.",
+    "exec_status_after_disable": "Inactive",
+    "staff_reenable_info_visible": true,
+    "staff_reenable_info_text": "Re-enabled. The account can sign in again with OTP.",
+    "exec_status_after_enable": "Active",
+    "customer_url": "https://app-first-signin.preview.emergentagent.com/customer-directory",
+    "customer_status_before": "Account active \u00b7 ID review-customer-0004",
+    "customer_account_info_visible": true,
+    "customer_account_info_text": "Disabled. Sign-in is blocked immediately. The number stays reserved for this account.",
+    "customer_status_after_disable": "Account inactive \u00b7 ID review-customer-0004",
+    "customer_reenable_info_text": "Re-enabled. The account can sign in again with OTP.",
+    "customer_status_after_enable": "Account active \u00b7 ID review-customer-0004"
+  },
+  "sign_in": {
+    "customer": true,
+    "telecaller1": true,
+    "admin": true
+  },
+  "health": {
+    "status": 503,
+    "body_head": "{\"status\":\"not_ready\",\"ready\":false,\"build\":\"shared-v2-operations-2026-09-20\",\"commit\":\"unrecorded\",\"capabilities\":{\"canonical_auth\":1,\"enrollment_grants\":1,\"staff_directory\":1,\"query_ledger\":1,\"rates_versioning\":1,\"pdf_template\":1,\"legacy_units\":1,\"catalog_pagination\":1,\"pdf_authoring\":1,\"pdf_source_preview\":1,\"media_accounting\":1,\"managed_delete\":0,\"credential_readiness\":1,\"customer_id_history\":1,\"deletion_outbox_cursor\":1,\"review_access\":2,\"icon_font_fallback\":1,\"owner_admin_bootstrap\":1,\"review_owner_console\":1,\"ai_consent\":1},\"configuration\":{\"JWT_SECRET\":true,\"ENROLLMENT_INTEGRATION_KEY\":true,\"STAFF_SERVICE_KEY\":false,\"MSG91_AUTHKEY\":true,\"MSG91_TEMPLATE_ID\":true,\"MONGO_URL\":true,\"DB_NAME\":true,\"REVIEW_ACCESS_ENABLED\":true,\"REVIEW_STORAGE_USABLE\":true,\"AI_CONSENT_VERSION\":\"2026-09-14"
+  }
+}

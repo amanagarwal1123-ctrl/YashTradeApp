@@ -36,7 +36,7 @@ async def test_d2_static_customer_search_reaches_billing_handler_before_dynamic_
 
 
 async def test_d2_search_role_scope_and_directory_protection(api_client, login_helper, seeded_users):
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     res = await api_client.get("/api/customers/search?q=90000000", headers=bearer(admin))
     assert res.status_code == 200 and len(res.json()["customers"]) >= 2
     # Short/blank terms never enumerate the directory; deleted customers are excluded.
@@ -51,7 +51,7 @@ async def test_d2_search_role_scope_and_directory_protection(api_client, login_h
 
 
 async def test_d2_dynamic_customer_id_route_still_resolves(api_client, login_helper, seeded_users):
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     detail = await api_client.get("/api/customers/u_cust1", headers=bearer(admin))
     assert detail.status_code == 200, detail.text
     assert detail.json()["id"] == "u_cust1" and detail.json()["detail_limit"] == 100
@@ -85,7 +85,7 @@ async def test_d3_customer_id_filter_exact_paginated_history_over_100_records(ap
     # OLD name and phone snapshot (a name/phone change scenario). Phone search would mix them; ID must not.
     await seed_history(db, "u_cust1", 130, "Customer One", "9000000004")
     await seed_history(db, "u_cust2", 40, "Customer One", "9000000004", start_days=10)
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     page1 = await api_client.get("/api/requests?customer_id=u_cust1&page=1&limit=100&status=all&sort=newest", headers=bearer(admin))
     assert page1.status_code == 200, page1.text
     body = page1.json()
@@ -108,7 +108,7 @@ async def test_d3_customer_id_filter_exact_paginated_history_over_100_records(ap
 
 
 async def test_d3_customer_id_validation_missing_ids_role_scope_and_deleted_history(api_client, login_helper, seeded_users, isolated_db):
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     bad = await api_client.get("/api/requests?customer_id=%24where%3A1", headers=bearer(admin))
     assert bad.status_code == 422 and bad.json()["code"] == "INVALID_FILTER"
     too_long = await api_client.get("/api/requests?customer_id=" + "a" * 65, headers=bearer(admin))

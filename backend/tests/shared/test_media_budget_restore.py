@@ -29,7 +29,7 @@ def _chunks(data, size=CHUNK):
 
 
 async def _admin_token(login_helper):
-    return (await login_helper("9999813334"))["token"]
+    return (await login_helper("9000000000"))["token"]
 
 
 async def _init(api_client, token, pdf, batch_id="b1", filename="sample.pdf"):

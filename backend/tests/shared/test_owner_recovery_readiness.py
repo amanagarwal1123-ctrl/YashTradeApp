@@ -31,7 +31,7 @@ async def _owner_reference_snapshot(db):
     return {
         "owner": await db.users.find_one({"id": "u_admin"}, {"_id": 0}),
         "same_phone_users": await db.users.find(
-            {"phone_normalized": "9999813334"}, {"_id": 0, "id": 1, "phone": 1}
+            {"phone_normalized": "9000000000"}, {"_id": 0, "id": 1, "phone": 1}
         ).to_list(20),
         "reward_transactions": await db.reward_transactions.find({"user_id": "u_admin"}, {"_id": 0}).to_list(50),
         "requests_by_customer": await db.requests.find({"customer_id": "u_admin"}, {"_id": 0}).to_list(50),
@@ -58,7 +58,7 @@ async def test_recovery_dry_run_no_write_and_customer_start(isolated_db, seeded_
     before = await db.users.find_one({"id": "u_admin"}, {"_id": 0})
     report = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="dryrun-owner-001",
@@ -124,13 +124,13 @@ async def test_recovery_apply_revokes_old_tokens_and_allows_fresh_admin_mobile_a
     before_snapshot = await _owner_reference_snapshot(db)
     before_user_count = await db.users.count_documents({})
 
-    old_login = await login_helper("9999813334", channel="mobile")
+    old_login = await login_helper("9000000000", channel="mobile")
     old_access = old_login["token"]
     old_refresh = old_login["refresh_token"]
 
     dry = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="apply-owner-001",
@@ -142,7 +142,7 @@ async def test_recovery_apply_revokes_old_tokens_and_allows_fresh_admin_mobile_a
 
     result = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="apply-owner-001",
@@ -179,17 +179,17 @@ async def test_recovery_apply_revokes_old_tokens_and_allows_fresh_admin_mobile_a
     assert old_refresh_used.status_code == 401
 
     await db.otp_challenges.update_many(
-        {"phone": "9999813334", "purpose": "login"},
+        {"phone": "9000000000", "purpose": "login"},
         {"$set": {"created_at": c.now() - c.timedelta(seconds=61)}},
     )
 
-    mobile_new = await login_helper("9999813334", channel="mobile")
+    mobile_new = await login_helper("9000000000", channel="mobile")
     await db.otp_challenges.update_many(
-        {"phone": "9999813334", "purpose": "login"},
+        {"phone": "9000000000", "purpose": "login"},
         {"$set": {"created_at": c.now() - c.timedelta(seconds=61)}},
     )
     portal_new = await login_helper(
-        "9999813334",
+        "9000000000",
         channel="portal",
         headers={"X-Staff-Service-Key": os.environ.get("STAFF_SERVICE_KEY", "")},
     )
@@ -215,7 +215,7 @@ async def test_recovery_missing_approval_and_identity_negatives(isolated_db, see
 
     dry = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="neg-owner-001",
@@ -227,7 +227,7 @@ async def test_recovery_missing_approval_and_identity_negatives(isolated_db, see
     with pytest.raises(Exception) as missing_approval:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="neg-owner-001",
@@ -243,7 +243,7 @@ async def test_recovery_missing_approval_and_identity_negatives(isolated_db, see
     with pytest.raises(Exception) as wrong_db:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db="wrong-db",
             operation_id="neg-owner-002",
@@ -258,7 +258,7 @@ async def test_recovery_missing_approval_and_identity_negatives(isolated_db, see
     await db.users.insert_one(
         {
             "id": "u_dup_phone",
-            "phone": "+91 99998 13334",
+            "phone": "+91 90000 00000",
             "role": "customer",
             "account_status": "active",
             "status": "active",
@@ -275,7 +275,7 @@ async def test_recovery_missing_approval_and_identity_negatives(isolated_db, see
     with pytest.raises(Exception) as duplicate:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="neg-owner-003",
@@ -294,7 +294,7 @@ async def test_recovery_stale_hash_and_repromote_block_after_demotion(isolated_d
 
     dry = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="stale-owner-001",
@@ -307,7 +307,7 @@ async def test_recovery_stale_hash_and_repromote_block_after_demotion(isolated_d
     with pytest.raises(Exception) as stale:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="stale-owner-001",
@@ -324,7 +324,7 @@ async def test_recovery_stale_hash_and_repromote_block_after_demotion(isolated_d
     # Apply once using a clean operation, then demote manually and ensure same op cannot re-promote.
     dry2 = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="reuse-owner-001",
@@ -334,7 +334,7 @@ async def test_recovery_stale_hash_and_repromote_block_after_demotion(isolated_d
     )
     await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="reuse-owner-001",
@@ -349,7 +349,7 @@ async def test_recovery_stale_hash_and_repromote_block_after_demotion(isolated_d
     with pytest.raises(Exception) as reused:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="reuse-owner-001",
@@ -370,11 +370,11 @@ async def test_recovery_replay_after_partial_failure_should_keep_new_sessions_va
 ):
     db = isolated_db["db"]
     await db.users.update_one({"id": "u_admin"}, {"$set": {"role": "customer", "identity_events": []}})
-    old_login = await login_helper("9999813334", channel="mobile")
+    old_login = await login_helper("9000000000", channel="mobile")
 
     dry = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="replay-owner-001",
@@ -392,7 +392,7 @@ async def test_recovery_replay_after_partial_failure_should_keep_new_sessions_va
     with pytest.raises(RuntimeError):
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="replay-owner-001",
@@ -408,18 +408,18 @@ async def test_recovery_replay_after_partial_failure_should_keep_new_sessions_va
     assert revoked_old.status_code == 401
 
     await db.otp_challenges.update_many(
-        {"phone": "9999813334", "purpose": "login"},
+        {"phone": "9000000000", "purpose": "login"},
         {"$set": {"created_at": c.now() - c.timedelta(seconds=61)}},
     )
 
     fresh_login = await login_helper(
-        "9999813334", channel="portal", headers={"X-Staff-Service-Key": os.environ.get("STAFF_SERVICE_KEY", "")}
+        "9000000000", channel="portal", headers={"X-Staff-Service-Key": os.environ.get("STAFF_SERVICE_KEY", "")}
     )
     monkeypatch.setattr(ar, "complete", original_complete)
 
     replay = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="replay-owner-001",
@@ -564,7 +564,7 @@ async def test_readiness_database_unavailable_returns_503_but_live_stays_200(api
         (
             "normalized_raw_mismatch",
             lambda db: db.users.update_one(
-                {"id": "u_admin"}, {"$set": {"phone": "9000000099", "phone_normalized": "9999813334"}}
+                {"id": "u_admin"}, {"$set": {"phone": "9000000099", "phone_normalized": "9000000000"}}
             ),
             "RECOVERY_PHONE_CONFLICT",
         ),
@@ -616,8 +616,8 @@ async def test_recovery_negative_matrix_blocks_with_http_exception_and_no_refere
                 "identity_events": [],
                 "account_status": "active",
                 "status": "active",
-                "phone": "9999813334",
-                "phone_normalized": "9999813334",
+                "phone": "9000000000",
+                "phone_normalized": "9000000000",
             },
             "$unset": {"deleted_at": "", "is_deleted": ""},
         },
@@ -629,7 +629,7 @@ async def test_recovery_negative_matrix_blocks_with_http_exception_and_no_refere
     with pytest.raises(HTTPException) as blocked:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id=f"neg-matrix-{case_name}",
@@ -651,7 +651,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
     with pytest.raises(HTTPException) as wrong_id:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="not-u-admin",
             expected_db=db.name,
             operation_id="neg-wrong-id-001",
@@ -684,7 +684,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
     with pytest.raises(HTTPException) as duplicate_id:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="neg-dup-id-001",
@@ -697,7 +697,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
 
     dry = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="neg-collision-001",
@@ -723,7 +723,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
     with pytest.raises(HTTPException) as conflict:
         await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="neg-collision-001",
@@ -738,7 +738,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
 
     dry2 = await ar.recover(
         db,
-        phone="9999813334",
+        phone="9000000000",
         user_id="u_admin",
         expected_db=db.name,
         operation_id="neg-cas-001",
@@ -750,7 +750,7 @@ async def test_recovery_wrong_canonical_duplicate_id_operation_collision_and_cas
     async def _apply_once():
         return await ar.recover(
             db,
-            phone="9999813334",
+            phone="9000000000",
             user_id="u_admin",
             expected_db=db.name,
             operation_id="neg-cas-001",
@@ -806,7 +806,7 @@ async def test_recovery_cli_help_and_isolated_subprocess_dry_run_apply(isolated_
         "python",
         "/app/backend/tools/recover_owner_admin.py",
         "--phone",
-        "9999813334",
+        "9000000000",
         "--user-id",
         "u_admin",
         "--expected-db",

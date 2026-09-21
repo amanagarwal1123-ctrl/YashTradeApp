@@ -1,0 +1,56 @@
+{
+  "summary": "Independent E2E pass for R00-R17 + F01-F09 against the ISOLATED store-review scope on the live preview (https://app-first-signin.preview.emergentagent.com). Ran 21 focused API checks over the six synthetic reviewer accounts (customer / admin / two telecallers / billing / upload). 19 PASS, 1 SKIP (audience preview endpoint not exposed under a GET-alias variant), 1 FAIL - the R13-B daily 03:00 IST release fixture 'review-request-stale-0001' is STILL owned by review-telecaller-0001 (age 27 h) even though queue_release.current_cycle.status=='completed' and 54 rows were released today (worker OK). Browser evidence captured for the Login -> Help -> App review access -> Open reviewer sign-in flow (login-help-link, help-review-access-link, reviewer-id-input, reviewer-key-input, review-login-btn all present; legacy review-access-link on /login removed). Native-only behaviours (Android/iOS keyboard, OTP autofill, pinch gestures, hardware Back, rich image push delivery) explicitly not verified in this Chromium/Playwright runtime and are marked as such. Reviewer access keys were read from /tmp/yash-private/e2e-review-keys.json in code only and never printed, logged or screenshotted.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/requests/review-request-stale-0001 (review scope)",
+        "issue": "R13-B/F04 REGRESSION - The seeded stale fixture is still assigned to review-telecaller-0001 (assignee_id/assigned_to both set, age_seconds ~97 500). /api/requests/queue/status shows the 03:00 IST release worker is running (worker_running=true), current_cycle.id=2026-09-20, released=54, completed_at=2026-09-20T10:44:33Z, so the boundary DID cross, but this specific fixture was NOT reset (no 'Released at 03:00 x1' chip, reset_count not incremented in the response). Suggests the review-scope release query does not select this document (possible id-filter/scope-prefix mismatch, or the fixture is re-seeded on every startup AFTER the release cycle). Blocks the F04 acceptance criterion.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/health",
+        "issue": "Returns HTTP 503 (status=not_ready) because flows.staff.ready=false / STAFF_SERVICE_KEY still a placeholder in preview .env. Per /app/memory/test_credentials.md this is DELIBERATE for preview, but external monitors will trip on the 503 - document the expected 503 state or expose a separate /api/health/preview readiness so store-review readiness (flows.review.ready=true, accounts_enabled=6) is not masked."
+      },
+      {
+        "endpoint": "GET /api/admin/notifications/audience?audience=customers",
+        "issue": "HTTP 405 Method Not Allowed. If the composer preview lives on POST /api/admin/notifications/audience/preview it should also accept a GET or the composer's exact path/method should be documented in /api/requests/catalog-style metadata; today reviewers cannot discover it from the OpenAPI surface easily."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/live_preview/test_iteration34_review_e2e.py",
+    "/app/test_reports/pytest/iteration_34_live.xml",
+    "/app/test_reports/iter34_login.jpeg",
+    "/app/test_reports/iter34_review_access.jpeg"
+  ],
+  "action_items": [
+    "HIGH - Fix the review-scope daily release so review-request-stale-0001 (and any review__requests row created before today's 03:00 IST) is unassigned by the queue_release worker; verify by asserting GET /api/requests/review-request-stale-0001 -> assignee_id empty / assigned_to null, reset_count>=1, timeline contains a 'daily release' event, and requests-queue-status shows the id in last_completed_cycle. If the fixture is being reseeded from shared/review_seed.py on every boot, seed it as UNCLAIMED (or seed it with claimed_at older than the last completed_at and let the next cycle release it) and add a pytest that time-travels the boundary in isolated_db.",
+    "MINOR - Expose GET /api/admin/notifications/audience?audience=... (or advertise the POST audience/preview path in a discovery endpoint) so review-scope UI/tests can obtain the audience count without probing.",
+    "MINOR - Consider a dedicated /api/health/preview endpoint that returns 200 while STAFF_SERVICE_KEY stays a placeholder; today the required 200 status assertion in R17 has to be relaxed to accept 503.",
+    "INFO - R02 image viewer pinch/pan, R06 native keyboard avoidance, R07/R08 real OTP resend, R09 rich-image push delivery, F09 Android hardware Back are NATIVE-only and cannot be verified in this Chromium runtime; keep them covered by pytest / Detox and record them as 'not verifiable in this runtime' in the release report."
+  ],
+  "critical_code_review_comments": [
+    "shared/queue_reset.py review-scope path should be re-audited: even after today's cycle completed with released=54, the seeded 'review-request-stale-0001' row was not among the released documents. Confirm the release query iterates review__requests for review scope and does not filter out documents whose assignee_id belongs to a synthetic staff record.",
+    "shared/review_seed.py: if it re-materialises the stale fixture on every startup, it must seed it in the state that R13-B expects (i.e. claimed at least 24 h ago) rather than 'newly claimed by telecaller-0001 at boot time', otherwise the fixture will always look fresh to the release worker."
+  ],
+  "updated_files": [
+    "/app/backend/tests/live_preview/test_iteration34_review_e2e.py (new)"
+  ],
+  "success_rate": {
+    "backend": "90% (19/21 executed asserts passed; 1 skip, 1 hard fail on R13-B fixture release)",
+    "frontend": "smoke-only: sign-in path (login-help-link -> help-review-access-link -> /review-access with reviewer-id-input/reviewer-key-input/review-login-btn) verified in mobile viewport 390x844"
+  },
+  "seed_data_creation": "None persisted. Test suite temporarily added 1 fake Expo push token for the customer and unlinked it in the same test (F02); may have picked an existing pending request from the review queue and marked it completed (R13-A) - this is a synthetic review-scope row created by review_seed.py and safe to leave completed. No production data touched, no SMS sent, no owner-console write actions triggered.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Six reviewer keys in /tmp/yash-private/e2e-review-keys.json (read in code, never print). The stale-fixture failure is the only blocker in this pass; once main agent fixes the release+seed for review-request-stale-0001 rerun `pytest /app/backend/tests/live_preview/test_iteration34_review_e2e.py -v` and add explicit assertions on reset_count>=1 and timeline 'daily release' event. Native flows (R02 pinch, R06 keyboard, R09 rich push, F09 hardware Back) must be handed to on-device Detox / Play internal test - do NOT attempt them in Playwright.",
+  "rca_of_issue": "R13-B failure RCA: /api/requests/queue/status confirms the 03:00 IST worker executed today (current_cycle.status='completed', released=54 at 2026-09-20T10:44:33Z). But GET /api/requests/review-request-stale-0001 still returns assignee_id='review-telecaller-0001', assigned_to='review-telecaller-0001', age_seconds ~97 500. Two most likely causes: (a) shared/review_seed.py re-seeds the fixture on every backend startup with a fresh claim so it looks 'younger than today's boundary' to the release worker; (b) the release worker's scope-aware query in shared/queue_reset.py does not include the review__requests collection or filters out documents with synthetic assignees. Reproduction: (1) restart backend, (2) GET /api/requests/queue/status -> current_cycle completed, (3) GET /api/requests/review-request-stale-0001 -> still assigned. Mitigation: seed the fixture with claimed_at older than the last-completed boundary AND ensure shared/queue_reset.py iterates review__requests for review scope; add a pytest that stubs `now()` past the next 03:00 IST boundary and asserts reset_count grew by 1."
+}

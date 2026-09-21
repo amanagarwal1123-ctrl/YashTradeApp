@@ -1,7 +1,7 @@
 """Provider-erasure ledger: app/website cleanup and provider erasure are two separate outcomes.
 
 Isolated synthetic database, intercepted SMS (test transport only), fake AI provider. The synthetic owner-admin
-session belongs to the seeded fixture record 9999813334 in the ISOLATED database; no real SMS is dispatched."""
+session belongs to the seeded fixture record 9000000000 in the ISOLATED database; no real SMS is dispatched."""
 import pytest
 
 from shared import core as c
@@ -70,7 +70,7 @@ async def test_cleanup_and_provider_erasure_are_separate_outcomes(api_client, is
     assert after["providers"] == ledger
     assert pe.summary(after["providers"]) == "outstanding"
     # Admin view separates the two outcomes explicitly.
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     listing = await api_client.get("/api/admin/deletion-requests", headers=bearer(admin))
     assert listing.status_code == 200
     row = next(r for r in listing.json()["requests"] if r["reference"] == ref)
@@ -84,7 +84,7 @@ async def test_manual_provider_request_lifecycle_is_recorded_with_dates_outcomes
     db = isolated_db["db"]
     uid, body = await delete_customer(api_client, isolated_db, login_helper, "9000000005", use_ai=True)
     ref = body["reference"]
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     url = f"/api/admin/deletion-requests/{ref}/providers"
     # A confirmation cannot be recorded before the request itself; a not-applicable provider cannot be requested at all.
     early = await api_client.post(f"{url}/sms_provider", json={"action": "confirmed", "outcome": "deleted everything"}, headers=bearer(admin))
@@ -137,7 +137,7 @@ async def test_ledger_endpoints_are_admin_only_and_no_procedure_stays_outstandin
     assert (await api_client.get("/api/admin/deletion-requests", headers=bearer(telecaller))).status_code == 403
     assert (await api_client.post(f"/api/admin/deletion-requests/{ref}/providers/sms_provider", json={"action": "requested"}, headers=bearer(telecaller))).status_code == 403
     assert (await api_client.get("/api/admin/deletion-requests")).status_code == 401
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     short = await api_client.post(f"/api/admin/deletion-requests/{ref}/providers/sms_provider", json={"action": "no_procedure", "outcome": "none"}, headers=bearer(admin))
     assert short.status_code == 422
     res = await api_client.post(f"/api/admin/deletion-requests/{ref}/providers/sms_provider",
@@ -179,7 +179,7 @@ async def test_legacy_pre_shared_deletion_rows_are_stripped_merged_and_never_mar
     again = await pe.reconcile()
     assert again["legacy_handled"] == 0 and again["legacy_duplicates_merged"] == 0 and again["providers_backfilled"] == 0
     # The admin view lists both rows with the two outcomes and never as erased.
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     listed = {r["reference"]: r for r in (await api_client.get("/api/admin/deletion-requests", headers=bearer(admin))).json()["requests"]}
     assert listed["DEL-20260909-AAAAAA"]["provider_erasure"] == "outstanding"
     assert listed["DEL-20260909-BBBBBB"]["provider_erasure"] == "superseded"
@@ -194,7 +194,7 @@ async def test_interrupted_app_cleanup_is_resumed_only_by_an_explicit_admin_acti
     from server import app
     db = isolated_db["db"]
     assert not hasattr(app.state, "deletion_worker")  # the startup hook registers no deletion worker any more
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     ts = c.stamp()
     await db.users.insert_one({"id": "cust-int", "phone": "9100009903", "name": "Interrupted", "role": "customer", "account_status": "deleted",
                                "status": "deleted", "session_version": 2})

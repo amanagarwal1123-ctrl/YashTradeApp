@@ -23,7 +23,7 @@ jest.mock('../api', () => ({ BACKEND_URL: 'https://yash-tryon-test.emergent.host
   api: { get: (...args: [string]) => mockGet(...args), post: (...args: [string, any?]) => mockPost(...args) } }));
 jest.mock('../utils/alert', () => ({ showAlert: (...args: any[]) => mockAlert(...args), confirmAlert: (...args: any[]) => (mockConfirm as any)(...args) }));
 jest.mock('../context/LanguageContext', () => ({ useLang: () => ({ t: (k: string) => k, language: 'en' }) }));
-jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'admin', phone: '9999813334' }, loading: false }) }));
+jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'admin', phone: '9000000000' }, loading: false }) }));
 
 // eslint-disable-next-line import/first
 import ReviewKeysScreen from '../../app/review-keys';

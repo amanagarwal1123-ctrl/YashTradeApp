@@ -75,7 +75,7 @@ async def test_display_variants_are_bounded_and_sized_from_the_master(api_client
 
 @pytest.mark.asyncio
 async def test_hidden_deleted_and_admin_only_media_is_never_cacheable(api_client, isolated_db, login_helper):
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
     customer = (await login_helper("9000000004"))["token"]
     hidden, _ = await _product(isolated_db, "p-hidden", visibility="hidden")
     res = await api_client.get(f"/api/files/{hidden}", headers=_auth(admin))
@@ -98,7 +98,7 @@ async def test_hidden_deleted_and_admin_only_media_is_never_cacheable(api_client
 
 @pytest.mark.asyncio
 async def test_replacing_a_photo_produces_a_new_url_never_a_rewritten_one(api_client, isolated_db, login_helper):
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
     data = _jpeg(1200, 900)
     first = await api_client.post("/api/products/upload-image", headers=_auth(admin), files={"file": ("a.jpg", data, "image/jpeg")})
     second = await api_client.post("/api/products/upload-image", headers=_auth(admin), files={"file": ("a.jpg", data, "image/jpeg")})
@@ -115,7 +115,7 @@ async def test_replacing_a_photo_produces_a_new_url_never_a_rewritten_one(api_cl
 
 @pytest.mark.asyncio
 async def test_banner_media_follows_the_active_flag(api_client, isolated_db, login_helper):
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
     path = "yash-trade/banners/b1.jpg"
     isolated_db["object_store"][path] = (_jpeg(1200, 545), "image/jpeg")
     await isolated_db["db"].banners.insert_one({"id": "b1", "title": "Festive", "image_url": f"/api/files/{path}", "is_active": True})

@@ -71,13 +71,14 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
           {!billing && <Button id="requests-section-reports" title="Completion reports" icon="bar-chart-outline" active={section === 'reports'} onPress={() => setSection('reports')} />}
           {onCRM && <Button id="requests-open-crm" title="Customer leads" onPress={onCRM} icon="people-outline" />}
           <Button id="requests-refresh" title="Refresh" onPress={load} icon="refresh" />
+          {!billing && <Button id="requests-alerts" title="Alerts" icon="notifications-outline" onPress={() => router.push('/notifications')} />}
           <Button id="requests-logout" title="Sign out" onPress={async () => { await logout(); router.replace('/login'); }} />
         </View>
         {!!error && <Text testID="requests-error" style={ui.error}>{error}</Text>}
 
         {push && push.state !== 'granted' && !billing && <View style={ui.card} testID="requests-push-card">
           <Text style={ui.label}>NEW-QUERY ALERTS</Text>
-          <Text style={ui.muted}>Allow notifications so a new customer query reaches this phone immediately. Receiving an alert never claims the query — the first explicit "Take this query" does.</Text>
+          <Text style={ui.muted}>Allow notifications so a new customer query reaches this phone immediately. Receiving an alert never claims the query — the first explicit &quot;Take this query&quot; does.</Text>
           {push.state === 'blocked'
             ? <Button id="requests-push-settings" title="Open Settings" icon="settings-outline" onPress={() => Linking.openSettings()} />
             : <Button id="requests-push-enable" title="Allow notifications" icon="notifications-outline" onPress={async () => { const s = await enablePush(); setPush({ state: s, canAskAgain: s !== 'blocked' }); }} />}

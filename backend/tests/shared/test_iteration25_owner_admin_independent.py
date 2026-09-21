@@ -11,7 +11,7 @@ from shared import owner_admin
 
 pytestmark = pytest.mark.asyncio
 
-OWNER = "9999813334"
+OWNER = "9000000000"
 STAFF_HEADERS = {"X-Staff-Service-Key": "staff-service-key-1234567890-abcdef"}
 
 
@@ -53,7 +53,7 @@ async def test_a_empty_db_creates_owner_and_both_surfaces_return_admin(api_clien
 
     assert await owner_admin.ensure_owner_admin() is True
     st = owner_admin.status()
-    assert st["action"] == "created" and st["phone_suffix"] == "3334"
+    assert st["action"] == "created" and st["phone_suffix"] == "0000"
 
     docs = await db.users.find({"phone_normalized": OWNER}, {"_id": 0}).to_list(5)
     assert len(docs) == 1
@@ -140,7 +140,7 @@ async def test_c_two_records_for_phone_are_refused_without_changes(api_client, i
     monkeypatch.setenv("OWNER_ADMIN_PHONE", OWNER)
 
     d1 = _customer_doc("u_first", OWNER)
-    d2 = _customer_doc("u_second", "+91 99998 13334")
+    d2 = _customer_doc("u_second", "+91 90000 00000")
     del d2["phone_normalized"]  # legacy formatting, no normalized field -> regex still matches
     await db.users.insert_many([d1, d2])
     before = sorted([d async for d in db.users.find({}, {"_id": 0})], key=lambda x: x["id"])
@@ -157,7 +157,7 @@ async def test_c_two_records_for_phone_are_refused_without_changes(api_client, i
     flow = resp.json()["flows"]["owner_admin"]
     assert flow["issues"] == ["OWNER_ADMIN_IDENTITY_CONFLICT"]
     assert flow["ready"] is False
-    assert flow["phone_suffix"] == "3334"
+    assert flow["phone_suffix"] == "0000"
 
 
 # ---- (3d) owner protection through staff API ------------------------------

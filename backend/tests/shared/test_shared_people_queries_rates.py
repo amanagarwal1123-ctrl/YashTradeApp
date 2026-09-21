@@ -11,7 +11,7 @@ def _headers(token: str):
 
 @pytest.mark.asyncio
 async def test_last_admin_guard_blocks_demotion(api_client, login_helper):
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     token = admin["token"]
     res = await api_client.patch("/api/integrations/staff/u_admin", json={"status": "inactive"}, headers=_headers(token))
     assert res.status_code == 409
@@ -55,7 +55,7 @@ async def test_phone_change_conflict_has_no_partial_update(api_client, isolated_
 
 @pytest.mark.asyncio
 async def test_requests_listing_pagination_and_types_over_200(api_client, isolated_db, login_helper):
-    admin = await login_helper("9999813334")
+    admin = await login_helper("9000000000")
     token = admin["token"]
     now = datetime.now(timezone.utc)
     types = ["video_call", "ask_price", "callback", "similar_products", "hold_item", "quick_reorder", "cart_selection"]
@@ -117,7 +117,7 @@ async def test_telecaller_claim_race_and_resolver_ownership(api_client, isolated
 
     tele1 = (await login_helper("9000000001"))["token"]
     tele2 = (await login_helper("9000000002"))["token"]
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
 
     c1 = await api_client.post("/api/requests/race-1/claim", headers=_headers(tele1))
     assert c1.status_code == 200
@@ -160,7 +160,7 @@ async def test_telecaller_claim_race_and_resolver_ownership(api_client, isolated
 
 @pytest.mark.asyncio
 async def test_metrics_ist_summary_handles_zero_and_data(api_client, login_helper):
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
 
     empty = await api_client.get("/api/requests/metrics/summary?start=2035-01-01&end=2035-01-01", headers=_headers(admin))
     assert empty.status_code == 200

@@ -17,7 +17,7 @@ from .auth import issue, rate_limit
 
 router = APIRouter(prefix="/api", tags=["Store review access"])
 ROUNDS = 12
-REVIEW_ROLES = ("customer", "admin", "telecaller", "billing_executive")
+REVIEW_ROLES = ("customer", "admin", "telecaller", "billing_executive", "upload_executive")
 # Constant-cost verification for unknown reviewer IDs (created once per process, never issued).
 DUMMY_HASH = bcrypt.hashpw(secrets.token_urlsafe(32).encode(), bcrypt.gensalt(ROUNDS)).decode()
 
@@ -72,7 +72,7 @@ async def review_login(req: ReviewLogin, request: Request):
             # old one returns (history, uploads, consent, sessions). Only review_accounts rows ever get here, so an
             # ordinary customer can never be recreated by this path.
             from .review_seed import restore_profile
-            user = await restore_profile(account["role"], user)
+            user = await restore_profile(account["reviewer_id"], user)
             restored = True
             await audit("review_profile_recreated", req.reviewer_id, ip, True, "fresh synthetic profile after deletion")
         ts = c.stamp()

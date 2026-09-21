@@ -46,7 +46,7 @@ async def test_review_login_is_denied_when_review_access_is_disabled(api_client,
 
 async def test_reviewer_roles_come_from_server_side_accounts_only(api_client, review_env, seeded_users):
     keys = await provision(review_env)
-    assert set(keys) == {"store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-billing"}
+    assert set(keys) == {"store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-telecaller-2", "store-review-billing", "store-review-upload"}
     for reviewer_id, role in (("store-review-customer", "customer"), ("store-review-admin", "admin"),
                               ("store-review-telecaller", "telecaller"), ("store-review-billing", "billing_executive")):
         res = await review_login(api_client, reviewer_id, keys[reviewer_id])
@@ -119,7 +119,7 @@ async def test_review_sessions_cannot_read_or_modify_production_records(api_clie
     assert await prod.users.count_documents({"phone": "9100000199"}) == 0
     assert await review_env["db"].users.count_documents({"phone": "9100000199"}) == 1
     # Production staff still see only genuine records.
-    real_admin = await login_helper("9999813334")
+    real_admin = await login_helper("9000000000")
     real_list = await api_client.get("/api/customers?limit=100", headers=bearer(real_admin))
     assert all("synthetic" not in row["name"] for row in real_list.json()["customers"])
     assert (await api_client.get("/api/customers/review-customer-0001", headers=bearer(real_admin))).status_code == 404
@@ -160,10 +160,18 @@ async def test_review_actions_persist_in_review_database_and_simulate_external_e
     assert served.status_code == 200 and served.headers["content-type"] == "image/jpeg"
     public_sample = await api_client.get("/api/files/yash-trade/review/products/review-product-0001.png", headers=bearer(customer))
     assert public_sample.status_code == 200 and public_sample.headers["content-type"] == "image/png"
-    # The same paths are invisible to production sessions and anonymous callers (private → auth, then 404).
-    assert (await api_client.get("/api/files/yash-trade/review/products/review-product-0001.png")).status_code in (401, 404)
+    # Anonymous callers (image tags carry no bearer) may read ONLY public review media: a visible synthetic product photo or an
+    # active review banner. Private review uploads, hidden review products and production sessions never reach review bytes.
+    assert (await api_client.get(f"/api/files/{path}")).status_code == 401  # admin upload not attached to any visible product
+    anon_sample = await api_client.get("/api/files/yash-trade/review/products/review-product-0001.png")
+    assert anon_sample.status_code == 200 and anon_sample.headers["content-type"] == "image/png"
+    assert (await api_client.get("/api/files/yash-trade/review/banners/review-banner-1.png")).status_code == 200
+    await review.products.update_one({"id": "review-product-0002"}, {"$set": {"visibility": "hidden"}})
+    assert (await api_client.get("/api/files/yash-trade/review/products/review-product-0002.png")).status_code == 401
+    assert (await api_client.get("/api/files/yash-trade/review/products/review-product-0002.png", headers=bearer(admin))).status_code == 200
+    assert (await api_client.get("/api/files/yash-trade/review/products/review-product-0002.png", headers=bearer(customer))).status_code == 403
     real_admin_token = None
-    for phone in ("9999813334",):
+    for phone in ("9000000000",):
         sent = await api_client.post("/api/auth/send-otp", json={"phone": phone, "channel": "mobile"})
         otp = review_env["sent_otps"][(phone, "login")]
         real_admin_token = (await api_client.post("/api/auth/verify-otp", json={"phone": phone, "channel": "mobile", "otp": otp,
@@ -319,5 +327,5 @@ async def test_reviewer_deletion_then_repeat_login_starts_a_fresh_sample_profile
     with c.scoped(c.REVIEW):
         summary = await review_seed.seed_dataset(reset=True)
         status = await review_seed.status()
-    assert summary["products"] == 12 and len(status["accounts"]) == 4 and all("secret_hash" not in a for a in status["accounts"])
+    assert summary["products"] == 12 and len(status["accounts"]) == 6 and all("secret_hash" not in a for a in status["accounts"])
     assert await review.otp_challenges.count_documents({}) == 0 and (await review.users.find_one({"id": "review-customer-0001"}))["account_status"] == "active"

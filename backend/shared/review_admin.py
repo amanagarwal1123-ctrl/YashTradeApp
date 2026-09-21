@@ -45,9 +45,9 @@ async def account_table():
         table = await review_seed.status()
     known = {row["reviewer_id"]: row for row in table["accounts"]}
     rows = []
-    for role, meta in review_seed.ACCOUNTS.items():
+    for meta in review_seed.ACCOUNTS.values():
         row = known.get(meta["reviewer_id"])
-        rows.append({"reviewer_id": meta["reviewer_id"], "role": role, "role_label": review_seed.ROLE_LABELS[role],
+        rows.append({"reviewer_id": meta["reviewer_id"], "role": meta["role"], "role_label": review_seed.ROLE_LABELS[meta["role"]],
                      "exists": row is not None, "enabled": bool(row and row.get("enabled") and not row.get("revoked_at")),
                      "created_at": row.get("created_at") if row else None, "rotated_at": row.get("rotated_at") if row else None,
                      "revoked_at": row.get("revoked_at") if row else None, "last_login_at": row.get("last_login_at") if row else None})
@@ -87,7 +87,7 @@ class KeyAction(BaseModel):
 async def keys(req: KeyAction, user=Depends(owner_console)):
     require_review_storage()
     if req.action in {"rotate", "revoke"} and review_seed.role_of(req.reviewer_id) == "unknown":
-        c.fail(422, "UNKNOWN_REVIEWER", "Choose one of the four reviewer accounts")
+        c.fail(422, "UNKNOWN_REVIEWER", "Choose one of the reviewer accounts")
     # Fresh authentication: the OTP challenge is bound to THIS owner record and this purpose, and is consumed here.
     await check_challenge(c.phone(user["phone"]), PURPOSE, user["id"], req.otp, req.challenge_id)
     issued, revoked, reset = {}, None, None
@@ -103,7 +103,7 @@ async def keys(req: KeyAction, user=Depends(owner_console)):
                     c.fail(404, "REVIEWER_NOT_PROVISIONED", "Provision the reviewer accounts before rotating a key")
             elif req.action == "reset_data":
                 # Same as the CLI --reset-data: only the allow-listed review__ collections are emptied and reseeded; the
-                # four credentials (review_accounts) keep their hashes; every review session/refresh token is gone.
+                # the reviewer credentials (review_accounts) keep their hashes; every review session/refresh token is gone.
                 reset = await review_seed.seed_dataset(reset=True)
             else:
                 try:
@@ -116,7 +116,7 @@ async def keys(req: KeyAction, user=Depends(owner_console)):
     unchanged = [a["reviewer_id"] for a in accounts if a["exists"] and a["reviewer_id"] not in issued]
     note = review_seed.note_lines(req.environment, req.api_base_url, c.db.name, issued, unchanged, None) if issued else None
     detail = ("Keys are shown once; only hashes are stored." if issued else
-              "Sample data rebuilt: the four access keys are unchanged and every reviewer session was signed out." if reset else
+              "Sample data rebuilt: the access keys are unchanged and every reviewer session was signed out." if reset else
               "No key was issued: existing accounts keep their keys. Use rotate to issue a new key.")
     return {"action": req.action, "accounts": accounts, "dataset": dataset, "revoked": revoked, "reset": reset,
             "issued": [{"reviewer_id": rid, "role": review_seed.role_of(rid), "role_label": review_seed.ROLE_LABELS[review_seed.role_of(rid)],

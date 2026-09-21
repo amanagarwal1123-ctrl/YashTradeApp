@@ -23,8 +23,8 @@ pytestmark = pytest.mark.asyncio
 BACKEND = Path("/app/backend")
 TOOL = BACKEND / "tools/provision_review_access.py"
 KEY_LINE = re.compile(r"^ONE-TIME ACCESS KEY\s+(\S+): (\S+)$", re.M)
-ROLES = {"store-review-customer": "customer", "store-review-admin": "admin",
-         "store-review-telecaller": "telecaller", "store-review-billing": "billing_executive"}
+ROLES = {"store-review-customer": "customer", "store-review-admin": "admin", "store-review-telecaller": "telecaller",
+         "store-review-telecaller-2": "telecaller", "store-review-billing": "billing_executive", "store-review-upload": "upload_executive"}
 
 
 def bearer(session):
@@ -62,7 +62,7 @@ async def test_cli_provisions_seeds_reports_status_and_is_idempotent_on_repeat(a
     assert out["database"] == review_env["name"] and out["unprefixed_collections_untouched"] is True
     assert out["storage"] == "prefixed_collections" and out["isolation"] == "application_enforced"
     assert sorted(out["new_accounts"]) == sorted(ROLES)
-    assert out["dataset"] == {"users": 10, "products": 12, "requests": 8, "rate_slabs": 6}
+    assert out["dataset"] == {"users": 12, "products": 12, "requests": 8, "rate_slabs": 6}
     keys = keys_from(err)
     assert set(keys) == set(ROLES) and all(len(k) >= 40 for k in keys.values())
     assert "secret_hash" not in json.dumps(out) and not any(k in out.__repr__() for k in keys.values())
@@ -73,7 +73,7 @@ async def test_cli_provisions_seeds_reports_status_and_is_idempotent_on_repeat(a
     after = {row["reviewer_id"]: row["secret_hash"] async for row in review_env["db"].review_accounts.find({})}
     assert after == before
     status, _ = cli(review_env, "--status")
-    assert len(status["status"]["accounts"]) == 4 and all("secret_hash" not in a and a["enabled"] for a in status["status"]["accounts"])
+    assert len(status["status"]["accounts"]) == 6 and all("secret_hash" not in a and a["enabled"] for a in status["status"]["accounts"])
     # Every role signs in through the API with the parsed key, refreshes, and is bound to the review scope.
     sessions = {}
     for reviewer_id, role in ROLES.items():
@@ -166,7 +166,7 @@ async def test_cli_private_note_rotate_revoke_and_reset(api_client, review_env, 
                                         headers={**bearer(customer), "Idempotency-Key": "cli-reset-1"})
         assert created.status_code == 200
         reset, _ = cli(review_env, "--reset-data")
-        assert reset["dataset"] == {"users": 10, "products": 12, "requests": 8, "rate_slabs": 6}
+        assert reset["dataset"] == {"users": 12, "products": 12, "requests": 8, "rate_slabs": 6}
         assert await review_env["db"].requests.count_documents({"id": created.json()["id"]}) == 0
         assert (await login(api_client, "store-review-customer", keys["store-review-customer"])).status_code == 200
         assert (await api_client.get("/api/auth/me", headers=bearer(customer))).status_code == 401  # reset wiped sessions too
@@ -368,20 +368,20 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
         refused, _ = cli(review_env, "--provision", "--environment", "production", expect_ok=False)
         assert "requires --write-note" in refused["detail"]
         assert await review_env["db"].review_accounts.count_documents({}) == 0
-        # Full path: provision + seed + verify against the live HTTP backend -> exit 0, all four roles proven.
+        # Full path: provision + seed + verify against the live HTTP backend -> exit 0, every reviewer account proven.
         out, err = cli(review_env, "--provision", "--seed", "--status", "--environment", "production", "--api-base-url", live_server,
                        "--verify", "--write-note", str(note1))
-        assert out["outcome"] == "ok" and out["verified_all"] is True and out["all_four_roles_verified"] is True
+        assert out["outcome"] == "ok" and out["verified_all"] is True and out["all_accounts_verified"] is True
         assert sorted(out["verified_accounts"]) == sorted(ROLES) and out["issued_accounts"] == sorted(ROLES)
         assert all(r == {"ok": True, "role": ROLES[rid], "review_environment": True, "session_closed": True, "repeat_login": True} for rid, r in out["verification"].items())
-        assert len(out["status"]["accounts"]) == 4  # account table survives beside the run outcome
+        assert len(out["status"]["accounts"]) == 6  # account table survives beside the run outcome
         assert keys_from(err) == {} and "ONE-TIME" not in err
         text1 = note1.read_text()
         keys = {m.group(1): m.group(2) for m in re.finditer(r"Reviewer ID: (\S+)\s+Role: .+?Access key: (\S+)$", text1, re.M)}
-        assert set(keys) == set(ROLES) and "PRODUCTION" in text1 and text1.count("PASS") == 4 and "FAIL" not in text1
+        assert set(keys) == set(ROLES) and "PRODUCTION" in text1 and text1.count("PASS") == 6 and "FAIL" not in text1
         assert not any(k in json.dumps(out) for k in keys.values())
         # Every verification session was closed on the server: the audit shows logins and logouts, no live sessions leak.
-        assert await review_env["db"].review_access_log.count_documents({"event": "review_login_succeeded", "success": True}) == 8  # sign-in + repeat sign-in per role
+        assert await review_env["db"].review_access_log.count_documents({"event": "review_login_succeeded", "success": True}) == 12  # sign-in + repeat sign-in per reviewer account (6 accounts)
         # Recovery re-verification of the stored note against the live backend: exit 0, results appended, nothing mutated.
         before = {row["reviewer_id"]: row["secret_hash"] async for row in review_env["db"].review_accounts.find({})}
         again, _ = cli(review_env, "--verify-note", str(note1), "--environment", "production", "--api-base-url", live_server)
@@ -393,6 +393,9 @@ async def test_cli_verify_against_live_backend_returns_strict_exit_codes(review_
         assert "read-only" in mixed["detail"]
         # A revoked account makes the recorded verification FAIL -> exit 2, never a silent PASS.
         cli(review_env, "--revoke", "store-review-telecaller")
+        # Test convenience only: three verification runs (6 accounts x 2 sign-ins each) within one minute would trip the
+        # per-IP brute-force limit of the reviewer login (30/min); the limit itself is asserted in test_review_access_isolation.
+        await review_env["db"].otp_limits.delete_many({})
         failed, _ = cli(review_env, "--verify-note", str(note1), "--environment", "production", "--api-base-url", live_server, expect_code=2)
         assert failed["outcome"] == "verification_failed" and failed["verified_all"] is False
         assert failed["verification"]["store-review-telecaller"] == {"ok": False, "step": "login", "http_status": 401, "code": "REVIEW_CREDENTIALS_INVALID"}
@@ -499,7 +502,7 @@ async def test_review_background_jobs_and_workers_stay_in_review_scope(api_clien
     jid = init.json()["upload_id"]
     assert await review_env["db"].import_jobs.count_documents({"id": jid}) == 1
     assert await review_env["primary"].import_jobs.count_documents({}) == 0
-    real_admin = await login_helper("9999813334")
+    real_admin = await login_helper("9000000000")
     assert (await api_client.get(f"/api/pdf-upload/{jid}/status", headers=bearer(real_admin))).status_code == 404
     assert (await api_client.get(f"/api/pdf-upload/{jid}/status", headers=bearer(admin))).status_code == 200
     # Media accounting for a review admin reads only review-scope assets and reports the provider's real capability.

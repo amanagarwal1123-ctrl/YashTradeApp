@@ -27,7 +27,7 @@ def _chunks(data: bytes, size: int = CHUNK):
 
 
 async def _admin_token(login_helper):
-    return (await login_helper("9999813334"))["token"]
+    return (await login_helper("9000000000"))["token"]
 
 
 async def _init_upload(api_client, token: str, pdf: bytes, mode: str = "template_v1"):
@@ -121,8 +121,8 @@ async def test_pdf_owner_authorization_enforced(api_client, isolated_db, seeded_
     await isolated_db["db"].users.insert_one(
         {
             "id": "u_admin2",
-            "phone": "9999813335",
-            "phone_normalized": "9999813335",
+            "phone": "9000000010",
+            "phone_normalized": "9000000010",
             "name": "Second Admin",
             "role": "admin",
             "account_status": "active",
@@ -136,7 +136,7 @@ async def test_pdf_owner_authorization_enforced(api_client, isolated_db, seeded_
             "location": "Delhi",
         }
     )
-    token2 = (await login_helper("9999813335"))["token"]
+    token2 = (await login_helper("9000000010"))["token"]
     upload_id, _, _ = await _init_upload(api_client, token1, FIXTURE_PDF.read_bytes())
 
     forbidden = await api_client.get(f"/api/pdf-upload/{upload_id}/status", headers=_auth(token2))
@@ -428,7 +428,7 @@ async def test_requests_visible_to_staff_roles_over_200_customer_created(api_cli
         )
     await isolated_db["db"].requests.insert_many(rows)
 
-    admin = (await login_helper("9999813334"))["token"]
+    admin = (await login_helper("9000000000"))["token"]
     tele = (await login_helper("9000000001"))["token"]
     bill = (await login_helper("9000000003"))["token"]
 

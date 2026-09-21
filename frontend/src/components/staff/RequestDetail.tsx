@@ -48,10 +48,10 @@ export default function RequestDetail({ requestId, onClose, onChanged, staff, on
       await load(); onChanged();
     } catch (e: any) {
       const body409 = e.body || {};
+      await load(); onChanged();   // the latest server state first (load clears stale errors), then the reason
       if (e.code === 'ALREADY_ASSIGNED') setError(`${body409.assignee_name || 'Another telecaller'} took this query first`);
       else if (e.code === 'VERSION_CONFLICT') setError('This query changed on the server; the latest state is shown now');
       else setError(e.message);
-      await load(); onChanged();
     } finally { setBusy(false); }
   };
 
@@ -63,8 +63,45 @@ export default function RequestDetail({ requestId, onClose, onChanged, staff, on
   const canWork = !!perms.can_work && open;
   const heldByOther = open && request?.assignee_id && request.assignee_id !== user?.id;
   const contact = request?.contact || {};
-  const openTel = () => contact.tel && Linking.openURL(`tel:${contact.tel}`).catch(() => setError('No phone app available on this device'));
-  const openWhatsApp = () => contact.whatsapp && Linking.openURL(`https://wa.me/${contact.whatsapp}`).catch(() => setError('WhatsApp is not available on this device'));
+  // F08: for a telecaller, Call / WhatsApp are WORK actions on the query. They require holding it: an unclaimed query
+  // is claimed atomically first (first tap wins, everyone else is told who holds it); a query already theirs is
+  // re-checked on the server immediately before dialling (a post-03:00 release or a takeover is respected); a query
+  // held by another telecaller has the actions off. Administrators and billing executives are explicit exceptions.
+  const contactState: 'none' | 'allowed' | 'claim_first' | 'revalidate' | 'held_by_other' | 'closed' =
+    !request ? 'none' : (isAdmin || isBilling) ? 'allowed'
+      : !open ? (request.resolver_id === user?.id ? 'allowed' : 'closed')
+      : !request.assignee_id ? 'claim_first' : request.assignee_id === user?.id ? 'revalidate' : 'held_by_other';
+  const contactBlocked = contactState === 'held_by_other' || contactState === 'closed' || contactState === 'none';
+  const contactCustomer = async (kind: 'tel' | 'whatsapp') => {
+    const target = kind === 'tel' ? contact.tel : contact.whatsapp;
+    if (!request || !target || contactBlocked) return;
+    const url = kind === 'tel' ? `tel:${target}` : `https://wa.me/${target}`;
+    const unavailable = kind === 'tel' ? 'No phone app available on this device' : 'WhatsApp is not available on this device';
+    if (contactState === 'allowed') { Linking.openURL(url).catch(() => setError(unavailable)); return; }
+    setBusy(true); setError('');
+    try {
+      if (contactState === 'claim_first') {
+        const res = await api.post(`/requests/${request.id}/claim`);
+        setInfo(res.already_claimed ? 'Already yours' : 'Query is now yours');
+      }
+      const fresh = await api.get(`/requests/${request.id}`); // the server releases an expired (post-03:00) assignment here
+      setDetail(fresh); onChanged();
+      const mine = !['resolved', 'cancelled'].includes(fresh.status) && fresh.assignee_id === user?.id;
+      if (!mine) {
+        setError(fresh.assignee_id && fresh.assignee_id !== user?.id
+          ? `${fresh.assignee_name || 'Another telecaller'} holds this query now; take it again before calling`
+          : 'Take the query before contacting the customer');
+        return;
+      }
+      Linking.openURL(url).catch(() => setError(unavailable));
+    } catch (e: any) {
+      await load(); onChanged();
+      if (e.code === 'ALREADY_ASSIGNED') setError(`${e.body?.assignee_name || 'Another telecaller'} took this query first`);
+      else setError(e.message);
+    } finally { setBusy(false); }
+  };
+  const openTel = () => contactCustomer('tel');
+  const openWhatsApp = () => contactCustomer('whatsapp');
   const heads: string[] = catalog?.heads || ['new', 'contacted', 'interested', 'follow_up', 'unreachable'];
   const headLabels: Record<string, string> = catalog?.head_labels || {};
 
@@ -91,11 +128,15 @@ export default function RequestDetail({ requestId, onClose, onChanged, staff, on
                 <Text style={ui.muted}>{request.customer_shop_name || 'Shop not recorded'} · {request.customer_location || request.user_city || 'Place not recorded'}</Text>
                 <Text testID="request-detail-phone" style={ui.text}>{request.customer_phone_display || request.user_phone}</Text>
                 <View style={ui.row}>
-                  <Button id="request-call" title="Call" icon="call" onPress={openTel} disabled={!contact.tel} />
-                  <Button id="request-whatsapp" title={request.request_type === 'video_call' ? 'Open WhatsApp chat' : 'WhatsApp'} icon="logo-whatsapp" onPress={openWhatsApp} disabled={!contact.whatsapp} />
+                  <Button id="request-call" title="Call" icon="call" onPress={openTel} disabled={!contact.tel || contactBlocked || busy} />
+                  <Button id="request-whatsapp" title={request.request_type === 'video_call' ? 'Open WhatsApp chat' : 'WhatsApp'} icon="logo-whatsapp" onPress={openWhatsApp} disabled={!contact.whatsapp || contactBlocked || busy} />
                   {onOpenCustomer && request.customer_id && <Button id="request-open-customer" title={`Customer history (${request.other_requests || 0} more)`} icon="person-outline" onPress={() => onOpenCustomer(request.customer_id)} />}
                 </View>
-                {request.request_type === 'video_call' && <Text style={ui.muted} testID="request-video-note">Video call requested. WhatsApp offers no direct video-call link: open the chat and use WhatsApp's own video-call button.</Text>}
+                {contactState === 'claim_first' && <Text style={ui.muted} testID="request-contact-gate">Call or WhatsApp takes this query for you first (the first telecaller to act wins).</Text>}
+                {contactState === 'held_by_other' && <Text style={ui.muted} testID="request-contact-gate">Call and WhatsApp are available to the telecaller holding this query.</Text>}
+                {contactState === 'closed' && <Text style={ui.muted} testID="request-contact-gate">Completed by another staff member — contact actions are off for this query.</Text>}
+                {(isAdmin || isBilling) && open && !!request.assignee_id && request.assignee_id !== user?.id && <Text style={ui.muted} testID="request-contact-gate">Contacting as {isAdmin ? 'administrator' : 'billing'} does not take the query from {request.assignee_name || 'its telecaller'}.</Text>}
+                {request.request_type === 'video_call' && <Text style={ui.muted} testID="request-video-note">Video call requested. WhatsApp offers no direct video-call link: open the chat and use WhatsApp&apos;s own video-call button.</Text>}
                 {!!request.customer?.lead_status && <Text style={ui.muted}>Customer lead state: {String(request.customer.lead_status).replace(/_/g, ' ')} (separate from this query)</Text>}
               </View>
 

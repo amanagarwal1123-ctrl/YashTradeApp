@@ -421,7 +421,7 @@ async def test_admin_authenticated_routes_and_reviewed_pdf_flow(api_client, isol
     await _seed_ui_data(isolated_db)
     pw, browser, context, page = await _start_routed_browser(api_client)
     try:
-        await _login_via_otp_ui(page, isolated_db, "9999813334", "panel")
+        await _login_via_otp_ui(page, isolated_db, "9000000000", "panel")
         await _assert_no_horizontal_overflow(page, "admin-panel")
 
         await page.click('[data-testid="panel-tab-requests"]')
@@ -700,8 +700,8 @@ async def test_admin_mobile_web_catalog_author_export_and_media_usage(api_client
         {
             "$set": {
                 "id": "u_admin2",
-                "phone": "9999813335",
-                "phone_normalized": "9999813335",
+                "phone": "9000000010",
+                "phone_normalized": "9000000010",
                 "name": "Owner Admin Two",
                 "role": "admin",
                 "account_status": "active",
@@ -737,7 +737,7 @@ async def test_admin_mobile_web_catalog_author_export_and_media_usage(api_client
         }
     )
 
-    admin_token = (await login_helper("9999813335"))["token"]
+    admin_token = (await login_helper("9000000010"))["token"]
     control_upload = await api_client.post(
         "/api/products/upload-image",
         headers=_auth_headers(admin_token),
@@ -755,7 +755,7 @@ async def test_admin_mobile_web_catalog_author_export_and_media_usage(api_client
     await context.route("**://legacy-external.test/**", route_legacy_external)
 
     try:
-        await _login_via_otp_ui(page, isolated_db, "9999813334", "panel")
+        await _login_via_otp_ui(page, isolated_db, "9000000000", "panel")
         await page.click('[data-testid="panel-tab-products"]')
         await page.wait_for_selector('[data-testid="pm-list"]', timeout=15000)
         await page.click('[data-testid="pm-list"]')

@@ -68,7 +68,7 @@ async def test_receipts_disable_unregistered_devices_and_retry_on_transport_fail
 
 async def test_deleting_staff_and_customers_keeps_completion_attribution_and_business_records(api_client, isolated_db, seeded_users, login_helper):
     db = isolated_db["db"]
-    admin, t1, cust = await auth(login_helper, "9999813334"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
+    admin, t1, cust = await auth(login_helper, "9000000000"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
     await db.products.insert_one({"id": "p_keep", "title": "Bangle", "metal_type": "silver", "visibility": "visible", "is_deleted": False, "created_at": c.stamp()})
     done = (await api_client.post("/api/requests", json={"request_type": "ask_price", "product_ids": ["p_keep"], "notes": "price please"}, headers=cust)).json()
     pending = (await api_client.post("/api/requests", json={"request_type": "callback", "notes": "call me"}, headers=cust)).json()

@@ -8,7 +8,7 @@ import pytest
 from shared import core as c
 
 pytestmark = pytest.mark.asyncio
-OWNER = "9999813334"
+OWNER = "9000000000"
 
 
 def bearer(session):
@@ -29,7 +29,7 @@ async def test_only_the_owner_in_production_scope_may_open_the_console(api_clien
     owner = await login_helper(OWNER)
     ok = await api_client.get("/api/admin/review/status", headers=bearer(owner))
     assert ok.status_code == 200 and ok.json()["storage"] == "prefixed_collections" and ok.json()["isolation"] == "application_enforced"
-    assert ok.json()["missing_accounts"] == ["store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-billing"]
+    assert ok.json()["missing_accounts"] == ["store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-telecaller-2", "store-review-billing", "store-review-upload"]
     # A second, non-owner administrator is refused server-side; so are staff and customers.
     await review_env["primary"].users.insert_one({"id": "u_admin2", "phone": "9000000099", "phone_normalized": "9000000099", "name": "Other Admin",
         "role": "admin", "account_status": "active", "status": "active", "session_version": 0, "onboarding_status": "completed", "phone_verified": True})
@@ -70,13 +70,13 @@ async def test_keys_need_a_fresh_single_use_otp_are_shown_once_and_never_rotate_
     assert set(review_env["sent_otps"]) == {(OWNER, "login"), (OWNER, "review_keys")}  # owner's own number only
     assert await prod.otp_challenges.count_documents({"purpose": "review_keys", "subject": owner["user"]["id"]}) == 1
     assert await review.otp_challenges.count_documents({}) == 0
-    # Correct OTP: four accounts issued, plaintext shown once in the response body only.
+    # Correct OTP: all six accounts issued, plaintext shown once in the response body only.
     provisioned = await api_client.post("/api/admin/review/keys", json={"action": "provision", "otp": otp, "challenge_id": cid,
                                         "environment": "production", "api_base_url": "https://yash-tryon-test.emergent.host/api"}, headers=bearer(owner))
     assert provisioned.status_code == 200, provisioned.text
     body = provisioned.json()
     keys = {row["reviewer_id"]: row["access_key"] for row in body["issued"]}
-    assert set(keys) == {"store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-billing"}
+    assert set(keys) == {"store-review-customer", "store-review-admin", "store-review-telecaller", "store-review-telecaller-2", "store-review-billing", "store-review-upload"}
     assert body["shown_once"] is True and body["unchanged"] == [] and body["dataset"]["products"] == 12
     assert "PRODUCTION" in body["note_text"] and "https://yash-tryon-test.emergent.host/api" in body["note_text"]
     assert all(k in body["note_text"] for k in keys.values()) and "Play Console" in body["note_text"]
@@ -132,7 +132,7 @@ async def test_keys_need_a_fresh_single_use_otp_are_shown_once_and_never_rotate_
     assert row["enabled"] is False and row["revoked_at"]
     # Health exposes the count only (no ids, no hashes).
     health = (await api_client.get("/api/health")).json()
-    assert health["flows"]["review"]["accounts_enabled"] == 3
+    assert health["flows"]["review"]["accounts_enabled"] == 5
 
 
 async def test_reset_sample_data_needs_fresh_otp_keeps_keys_and_signs_reviewers_out(api_client, review_env, seeded_users, login_helper, monkeypatch):

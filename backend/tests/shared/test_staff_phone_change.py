@@ -28,7 +28,7 @@ async def _previewed(api_client, admin, body, ref=None):
 
 
 async def _admin(login_helper):
-    return (await login_helper("9999813334"))["token"]
+    return (await login_helper("9000000000"))["token"]
 
 
 async def _signup(api_client, isolated_db, phone):
@@ -162,7 +162,7 @@ async def test_conflicts_confirmation_permissions_and_protections(api_client, is
     assert (await api_client.post(f"/api/integrations/staff/{TELE}/phone", headers=_auth(admin), json=_body("9111111111", reason="short"))).status_code == 422
     assert (await api_client.post(f"/api/integrations/staff/{TELE}/phone", headers=_auth(admin), json=_body("12345"))).json()["code"] == "INVALID_PHONE"
     # owner and other administrators are never renumbered by this operation; customers need promotion, not renumbering
-    assert (await api_client.post(f"/api/integrations/staff/{OWNER}/phone", headers=_auth(admin), json=_body("9111111111", expected="9999813334", uid=OWNER))).json()["code"] == "OWNER_ADMIN_PROTECTED"
+    assert (await api_client.post(f"/api/integrations/staff/{OWNER}/phone", headers=_auth(admin), json=_body("9111111111", expected="9000000000", uid=OWNER))).json()["code"] == "OWNER_ADMIN_PROTECTED"
     await isolated_db["db"].users.insert_one({"id": "u_admin2", "phone": "9000000016", "phone_normalized": "9000000016", "name": "Second Admin",
         "role": "admin", "account_status": "active", "status": "active", "session_version": 0, "created_at": c.stamp(), "updated_at": c.stamp()})
     assert (await api_client.post("/api/integrations/staff/u_admin2/phone", headers=_auth(admin), json=_body("9111111111", expected="9000000016", uid="u_admin2"))).json()["code"] == "ADMIN_SELF_SERVICE_REQUIRED"
@@ -175,7 +175,7 @@ async def test_conflicts_confirmation_permissions_and_protections(api_client, is
     assert (await api_client.post(f"/api/integrations/staff/{TELE}/phone", headers=_auth(cust), json=_body("9111111111"))).status_code == 403
     # the owner record itself is untouched by all of the above
     owner = await isolated_db["db"].users.find_one({"id": OWNER}, {"_id": 0})
-    assert owner["phone"] == "9999813334" and owner["role"] == "admin" and c.account_status(owner) == "active"
+    assert owner["phone"] == "9000000000" and owner["role"] == "admin" and c.account_status(owner) == "active"
     # legacy PATCH with a phone points to the new operation instead of changing anything
     res = await api_client.patch(f"/api/integrations/staff/{TELE}", headers=_auth(admin), json={"phone": "9111111111"})
     assert res.status_code == 409 and res.json()["code"] == "PHONE_CHANGE_OPERATION_REQUIRED"
@@ -183,7 +183,7 @@ async def test_conflicts_confirmation_permissions_and_protections(api_client, is
 
 @pytest.mark.asyncio
 async def test_recent_authentication_is_required(api_client, isolated_db, login_helper):
-    session = await login_helper("9999813334")
+    session = await login_helper("9000000000")
     admin = session["token"]
     # age the sign-in beyond the step-up window: the change is refused, preview (read-only) still works
     await isolated_db["db"].session_families.update_many({"user_id": OWNER}, {"$set": {"authenticated_at": "2026-01-01T00:00:00+00:00"}})
@@ -195,8 +195,8 @@ async def test_recent_authentication_is_required(api_client, isolated_db, login_
     await isolated_db["db"].session_families.update_many({"user_id": OWNER}, {"$unset": {"authenticated_at": ""}})
     assert (await api_client.post(f"/api/integrations/staff/{TELE}/phone", headers=_auth(admin), json=_body("9111111111"))).json()["code"] == "RECENT_AUTH_REQUIRED"
     # a fresh OTP sign-in satisfies the step-up
-    await isolated_db["db"].otp_challenges.delete_many({"phone": "9999813334"})
-    fresh = (await login_helper("9999813334"))["token"]
+    await isolated_db["db"].otp_challenges.delete_many({"phone": "9000000000"})
+    fresh = (await login_helper("9000000000"))["token"]
     assert (await api_client.post(f"/api/integrations/staff/{TELE}/phone", headers=_auth(fresh), json=await _previewed(api_client, fresh, _body("9111111111")))).status_code == 200
 
 

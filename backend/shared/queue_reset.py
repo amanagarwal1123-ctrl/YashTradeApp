@@ -140,8 +140,22 @@ async def run_cycle(cycle_id, boundary):
         raise
 
 
+async def sweep(cycle_id, boundary):
+    """After the cycle completed, a document can still become eligible (a pre-boundary claim written after the batch
+    query, an out-of-order write, a restored backup): every worker pass releases such leftovers with the same atomic
+    predicate (bounded), so a stale assignment never survives the day just because the cycle already closed (F04)."""
+    boundary_iso = boundary.isoformat()
+    docs = await c.db.requests.find(candidate_query(cycle_id, boundary_iso), {"_id": 0}).sort([("created_at", 1), ("id", 1)]).limit(BATCH).to_list(BATCH)
+    released = sum([int(await release_one(doc, cycle_id, boundary_iso)) for doc in docs])
+    if released:
+        await c.db.queue_cycles.update_one({"_id": cycle_id}, {"$inc": {"released": released, "swept": released}, "$set": {"last_sweep_at": c.stamp()}})
+        state["last_released"] = state.get("last_released", 0) + released
+    return released
+
+
 async def tick(moment=None):
-    """Runs the latest due cycle in every usable data scope when it has not completed yet (startup catch-up included)."""
+    """Runs the latest due cycle in every usable data scope when it has not completed yet (startup catch-up included);
+    a completed cycle is swept for late-eligible leftovers."""
     moment = moment or c.now()
     cycle_id, boundary = boundary_for(moment)
     results = []
@@ -149,6 +163,9 @@ async def tick(moment=None):
         with c.scoped(scope):
             existing = await c.db.queue_cycles.find_one({"_id": cycle_id}, {"status": 1})
             if existing and existing.get("status") == "completed":
+                swept = await sweep(cycle_id, boundary)
+                if swept:
+                    results.append({"cycle": cycle_id, "leased": False, "completed": True, "released": 0, "swept": swept})
                 continue
             results.append(await run_cycle(cycle_id, boundary))
     state["last_tick"] = c.stamp()

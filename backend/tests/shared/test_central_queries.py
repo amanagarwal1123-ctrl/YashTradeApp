@@ -125,7 +125,7 @@ async def test_creation_paths_notify_telecallers_once_and_first_claim_wins(api_c
 async def test_admin_reports_reopen_and_staff_disable_release(api_client, isolated_db, seeded_users, login_helper, push_double):
     db = isolated_db["db"]
     await seed_products(db, 1)
-    admin, t1, cust = await auth(login_helper, "9999813334"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
+    admin, t1, cust = await auth(login_helper, "9000000000"), await auth(login_helper, "9000000001"), await auth(login_helper, "9000000004")
     ids = []
     for i in range(3):
         r = await api_client.post("/api/requests", json={"request_type": "callback", "notes": f"n{i}"}, headers={**cust, "Idempotency-Key": f"cb-{i}"})
@@ -187,7 +187,7 @@ async def test_search_and_pagination_cover_full_history(api_client, isolated_db,
         rows.append({"id": f"legacy{i:03d}", "request_type": "callback", "user_id": "u_cust2", "user_name": "Customer Two", "user_phone": "9000000005",
                      "status": "pending", "created_at": ts, "notes": "old one" if i < 5 else "recent"})
     await db.requests.insert_many(rows)
-    admin = await auth(login_helper, "9999813334")
+    admin = await auth(login_helper, "9000000000")
     page1 = await api_client.get("/api/requests?view=all_pending&limit=100", headers=admin)
     page2 = await api_client.get("/api/requests?view=all_pending&limit=100&page=2", headers=admin)
     assert page1.json()["total"] == 130 and page1.json()["pages"] == 2 and len(page2.json()["requests"]) == 30

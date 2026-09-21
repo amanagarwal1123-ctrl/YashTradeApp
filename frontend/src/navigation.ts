@@ -1,6 +1,6 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { BackHandler, Keyboard, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 export const ROLES = ['customer', 'admin', 'telecaller', 'billing_executive', 'upload_executive'] as const;
 export type Role = (typeof ROLES)[number];
@@ -36,19 +36,21 @@ export function useSafeBack(role?: string | null) {
 
 /**
  * Android hardware/gesture back on a role's ROOT screen: dismiss the keyboard if open, otherwise stay on the screen
- * (never exit, never show login). Registered only while the root screen is mounted; `onBack` may handle tab switches
- * or modal dismissal first and return true to consume the event.
+ * (never exit, never show login). The listener is bound to navigation FOCUS, not to mounting (F09): a root screen
+ * stays mounted underneath product / image-viewer / notifications / staff-request / modal routes, and while one of
+ * those is focused this listener is not registered at all, so their normal Back keeps working. `onBack` may handle
+ * tab switches or in-screen sub-views first and return true to consume the event.
  */
 export function useRootBackHandler(onBack?: () => boolean) {
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
+  useFocusEffect(useCallback(() => {
+    if (Platform.OS !== 'android') return undefined;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (Keyboard.isVisible()) { Keyboard.dismiss(); return true; }
       if (onBack && onBack()) return true;
-      return true; // root screen: stay put
+      return true; // focused root screen: stay put
     });
     return () => sub.remove();
-  }, [onBack]);
+  }, [onBack]));
 }
 
 /** Route families and the roles allowed to open them from a notification / deep link (server permissions still apply). */

@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 36 live-preview E2E on isolated store-review scope of https://app-first-signin.preview.emergentagent.com. Focus was J3b, J3c, J4, J9, J11 (and best-effort J10). Reviewer keys read from /tmp/yash-private/e2e-review-keys.json in code only; never printed/logged/screenshotted. Six accounts remain enabled (health.flows.review.accounts_enabled=6). Pytest test file added: /app/backend/tests/live_preview/test_iteration36_review_e2e.py. Result: 23 PASS / 2 SKIP / 0 FAIL. All J3b, J3c, J4, J9, J11 backend flows PASS. J10 (customer disable/enable/delete + staff disable) is SKIPPED because the review-scope admin actions on customers/staff are not exposed under a documented backend route in this build (see action items). Multi-context browser journeys were not re-attempted for the paths already covered by iter35 (J0/J1/J2/J3a/J8/J12a); this run relies on API assertions which validate the same server-side effects the browser click-path drives (claim network call, admin reassignment, note/head/follow-up/complete/reopen mutations, rates version-checked write, staff phone preview+commit flow). No writes to production; owner phone 9999813334 never touched; owner console write actions never invoked; no SMS sent. Fixtures modified during the run: review-request-race-0001 & review-request-race-0002 were claimed->reassigned->completed->reopened as part of the flow; rates_current was written to 100000/kg silver and 75000/10g gold then restored to originals (silver_mcx_rate=97.2, gold_mcx_rate=7790.0); staff review-telecaller-0002 phone was changed 9100000105->9100000199->9100000105 (final state = original).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/telecaller/customers/{uid}/action",
+        "issue": "action='disable' rejected with HTTP 422 {code:HTTP_422, detail:'Invalid action'}. J10 UI (AccountActions.account-disable-*) must therefore hit a different endpoint. The exact review-scope admin path for customer disable/enable/delete is not discoverable from openapi.json (only /api/customers/{uid}/delete is public). Main agent to expose the accepted actions or document the path used by AccountActions.tsx."
+      },
+      {
+        "endpoint": "GET /api/integrations/staff/{ref}",
+        "issue": "Returns 405 Method Not Allowed - only PATCH/DELETE exposed. Post-phone-change verification had to use the PATCH/POST response body instead of a fresh GET. Consider exposing a GET for auditing/testability."
+      },
+      {
+        "endpoint": "POST /api/requests/{rid} action=reopen",
+        "issue": "A pure {action:'reopen', reason, version} PATCH returns 409 NOT_TERMINAL when the request is already terminal because backend infers `after = status(req.status or old.status)` -> resolved, and then the elif branch fires. Callers MUST also send `status:'pending'` explicitly. Behaviour is correct but the error message is misleading. Suggest clarifying: 'reopen requires status:pending in the same payload'."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/live_preview/test_iteration36_review_e2e.py",
+    "/app/test_reports/pytest/iteration_36_live.xml"
+  ],
+  "action_items": [
+    "COVERAGE - J10 (R15-A/B disable/enable/delete for customer review-customer-0003 and staff review-telecaller-0002) NOT VERIFIED via API in this run. The exact review-scope admin path is not exposed on openapi.json and POST /api/telecaller/customers/{uid}/action with action:'disable' returns 422 Invalid action. Main agent to either (a) document the accepted action values on /api/telecaller/customers/{uid}/action, or (b) provide the review-scope admin routes (account-disable/enable, account-delete-sheet + step-up + confirm) so a follow-up test can assert account_status transitions, anonymisation of completed-request records (F07), staff-disable cascade (401 on /api/auth/me + unclaim held requests), and deletion-request ledger row.",
+    "COVERAGE - Multi-context browser assertions on tel:/window.open URL interception (J3b UI-side) and admin bypass hint text (J3c contact-gate) were not re-attempted here because iter35 already validated the DOM strings (request-contact-gate text for unclaimed) and the network side of the claim is now regression-covered by TestJ3bClaimRace (POST /api/requests/{rid}/claim -> 200 with assignee_id, followed by GET refresh, tel1 wins and tel2 gets 409 ALREADY_ASSIGNED). If the store-submission gate specifically wants a Playwright-intercepted tel: attempt, that must be captured on-device (Playwright/Chromium web has no native dialer to intercept anyway; navigation to a tel: URI is a no-op or blocked).",
+    "LOW - Consider a lightweight GET on /api/integrations/staff/{ref} for testability so browser/API tests can verify post-change staff records without relying on the PATCH/POST return payload.",
+    "LOW - Improve the 409 NOT_TERMINAL error to instruct callers that {status:'pending'} must accompany {action:'reopen'} - matches the code path in shared/queries.py line 511."
+  ],
+  "critical_code_review_comments": [
+    "shared/queries.py:485 - the `after = status(req.status or old.status)` derivation combined with the elif at line 511 means a reopen without an explicit status is refused even against a resolved doc. Correct semantics but the error message is confusing. Suggest changing to c.fail(409, 'REOPEN_NEEDS_STATUS', 'Send status:\"pending\" with action:\"reopen\"').",
+    "shared/commerce.py:271 - INVALID_RATE_FIELD is currently silent about the accepted set; response would be more actionable if it echoed the offending field name (e.g. 'Unknown rate field: mcx_display').",
+    "openapi surface - /api/integrations/staff/{ref} only lists PATCH/DELETE; the STAFF_SERVICE_KEY placeholder gate is documented in health.flows.staff.ready=false, but a read-back GET on staff would make review-scope QA easier."
+  ],
+  "updated_files": [
+    "/app/backend/tests/live_preview/test_iteration36_review_e2e.py (new pytest module)"
+  ],
+  "success_rate": {
+    "backend": "23/25 (92%) - 2 SKIP for undocumented J10 admin routes, 0 FAIL",
+    "frontend": "not re-verified in this iteration; iter35 has PASS for the DOM/testID-level assertions on the same review-scope flows (J0/J1/J2/J3a/J8/J12a)"
+  },
+  "seed_data_creation": "None persisted long-term. review-request-race-0001 and review-request-race-0002 were driven claim->reassign->complete->reopen; final state after the pytest run shows both back to resolved with tel2 as owner (the reopen call inside the test PASSED with pending status; subsequent test steps or the 03:00 IST cycle may have re-modified them). rates_current was written and restored (silver back to 97.2 INR/g / 97200 INR/kg display; gold back to 7790.0 INR/g / 77900 INR/10g display). Staff review-telecaller-0002 phone was toggled 9100000105->9100000199->9100000105 (final = original). No production data touched, no SMS, no owner console writes, no reviewer accounts revoked.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Six reviewer keys still in /tmp/yash-private/e2e-review-keys.json. accounts_enabled=6. Pending journeys for a follow-up run: (1) J10 - customer disable/enable/delete for review-customer-0003 and staff disable/enable for review-telecaller-0002 through the review-scope admin routes (main agent to expose or document the path); (2) J3b/J3c UI evidence with two persistent BrowserContext objects capturing tel: navigation attempts, admin contact-gate hint text, and request-admin-card visibility on a currently-unclaimed race fixture (reseed a review-request-race-000X first because 0001/0002 are both resolved after this run); (3) J11 UI evidence in /panel Executives StaffPhoneChange sheet (staff-new-phone -> staff-phone-check -> staff-phone-preview-available -> staff-phone-reason -> staff-phone-confirm -> staff-phone-done). Rates canonical/display fields to assert in UI: silver_mcx_rate (INR/g) & silver_mcx_display_rate (INR/kg=x1000); gold_mcx_rate (INR/g) & gold_mcx_display_rate (INR/10g=x10) - both are already correctly returned by GET /api/rates/latest.",
+  "rca_of_issue": "n/a - no functional regressions detected in this run. The only two undelivered scenarios (J10 customer disable/enable/delete and J10 staff disable) are missing because the review-scope admin routes those UI actions call are not on openapi.json and POST /api/telecaller/customers/{uid}/action with action='disable' is rejected as an Invalid action by the server. This is a coverage gap, not a bug. Recommend main agent expose the exact endpoints AccountActions.tsx uses and re-run the same pytest module with additional TestJ10 cases."
+}

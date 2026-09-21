@@ -2405,9 +2405,9 @@ async def cart_submit(req: CartSubmitRequest, user=Depends(get_current_user)):
     }
     from shared.queries import event, notify_created
     request_data.update(version=0, pending_since=now, updated_at=now, queue_sort_at=now, head="new", claimed_at=None, follow_up_at=None,
-        assignee_id="", product_ids=product_ids, shop_name=user.get("shop_name", ""),
+        assignee_id="", product_ids=product_ids, shop_name=user.get("shop_name", ""), notify_state="pending",
         events=[event("creation", user, request_data["id"], new="pending", request_status="pending")])
-    await db.requests.insert_one(request_data)
+    await db.requests.insert_one(request_data)   # `notify_state=pending` is stored WITH the request: the alert intent survives a crash right here (F06)
     await db.cart.update_many({"user_id": user["id"], "status": "active"}, {"$set": {"status": "submitted"}})
     request_data.pop("_id", None)
     await notify_created(request_data)  # same durable telecaller notification event as every other creation path

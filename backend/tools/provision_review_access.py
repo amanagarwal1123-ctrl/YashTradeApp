@@ -75,7 +75,7 @@ def _verify_issued(api_base_url, issued):
     import httpx
 
     base = _validate_target(api_base_url)
-    roles = {a["reviewer_id"]: role for role, a in review_seed.ACCOUNTS.items()}
+    roles = {a["reviewer_id"]: a["role"] for a in review_seed.ACCOUNTS.values()}
     results = {}
 
     def code_of(response):
@@ -242,7 +242,7 @@ def _summary(issued, verification):
     verified = sorted(rid for rid, r in (verification or {}).items() if r.get("ok"))
     return {"issued_accounts": sorted(issued), "verified_accounts": verified,
             "unchanged_accounts": sorted(a["reviewer_id"] for a in review_seed.ACCOUNTS.values() if a["reviewer_id"] not in issued),
-            "all_four_roles_verified": set(verified) == {a["reviewer_id"] for a in review_seed.ACCOUNTS.values()}}
+            "all_accounts_verified": set(verified) == {a["reviewer_id"] for a in review_seed.ACCOUNTS.values()}}
 
 
 async def run(args):
@@ -342,7 +342,7 @@ async def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--expected-db", required=True, help="the deployment's DB_NAME; the review__ collections live inside it")
-    parser.add_argument("--provision", action="store_true", help="create the four missing reviewer accounts")
+    parser.add_argument("--provision", action="store_true", help="create the missing reviewer accounts (customer, admin, two telecallers, billing, upload executive)")
     parser.add_argument("--seed", action="store_true", help="add missing synthetic records (idempotent)")
     parser.add_argument("--reset-data", action="store_true", help="wipe and reseed synthetic data; accounts and hashes kept")
     parser.add_argument("--rotate", default="", help="issue a new access key for one reviewer_id")

@@ -31,10 +31,10 @@ import HelpScreen from '../../app/help';
 
 const KEY = 'k'.repeat(44); // issued keys are >= 40 characters; the screen requires at least 20
 const DESTINATIONS: Record<string, string> = {
-  customer: '/(tabs)', admin: '/panel', billing_executive: '/panel', telecaller: '/telecaller',
+  customer: '/(tabs)', admin: '/panel', billing_executive: '/panel', telecaller: '/telecaller', upload_executive: '/panel',
 };
 const REVIEWER_IDS: Record<string, string> = {
-  customer: 'store-review-customer', admin: 'store-review-admin', billing_executive: 'store-review-billing', telecaller: 'store-review-telecaller',
+  customer: 'store-review-customer', admin: 'store-review-admin', billing_executive: 'store-review-billing', telecaller: 'store-review-telecaller', upload_executive: 'store-review-upload',
 };
 
 async function fillAndSubmit(reviewerId: string, key: string) {

@@ -54,7 +54,7 @@ describe('ReviewKeysScreen access gate (authorisation stays server-side)', () =>
   });
 
   it('owner administrator sees the account table and actions', async () => {
-    mockAuthState = { user: { id: 'owner', role: 'admin', phone: '9999813334' }, loading: false };
+    mockAuthState = { user: { id: 'owner', role: 'admin', phone: '9000000000' }, loading: false };
     mockGet.mockResolvedValueOnce(OWNER_STATUS);
     await render(<ReviewKeysScreen />);
     await waitFor(() => expect(screen.getByTestId('review-account-store-review-admin')).toBeTruthy());

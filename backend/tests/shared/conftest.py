@@ -19,6 +19,9 @@ def _utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+SYNTHETIC_OWNER_PHONE = "9000000000"   # isolated fixture only; never a real subscriber number
+
+
 @pytest_asyncio.fixture(loop_scope="function")
 async def isolated_db(monkeypatch):
     """Isolated synthetic Mongo database for shared canonical flows."""
@@ -48,6 +51,9 @@ async def isolated_db(monkeypatch):
 
     monkeypatch.setenv("ENROLLMENT_INTEGRATION_KEY", "integration-key-1234567890-abcdef")
     monkeypatch.setenv("STAFF_SERVICE_KEY", "staff-service-key-1234567890-abcdef")
+    # Owner-protection rules are exercised against this SYNTHETIC owner administrator only (seeded below as
+    # `u_admin`); the production owner number never appears in tests, fixtures or testing instructions.
+    monkeypatch.setenv("OWNER_ADMIN_PHONE", SYNTHETIC_OWNER_PHONE)
 
     c.configure(db, fake_sms, fake_put, fake_get)
     monkeypatch.setattr(server, "db", db, raising=False)
@@ -83,8 +89,8 @@ async def seeded_users(isolated_db):
     users = [
         {
             "id": "u_admin",
-            "phone": "9999813334",
-            "phone_normalized": "9999813334",
+            "phone": SYNTHETIC_OWNER_PHONE,
+            "phone_normalized": SYNTHETIC_OWNER_PHONE,
             "name": "Owner Admin",
             "role": "admin",
             "account_status": "active",

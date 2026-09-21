@@ -9,18 +9,30 @@ import secrets
 from datetime import timedelta
 
 from . import core as c
-from .review import REVIEW_ROLES, hash_secret, new_secret
+from .review import hash_secret, new_secret
 
+# Keyed by ACCOUNT (not by role): two telecallers exist so reviewers and the E2E run can exercise the competing-claim
+# journey, and an Upload Executive account covers the Contents/PDF role (R10). `role` is explicit per account.
 ACCOUNTS = {
-    "customer": {"reviewer_id": "store-review-customer", "user_id": "review-customer-0001", "phone": "9100000101",
+    "customer": {"reviewer_id": "store-review-customer", "user_id": "review-customer-0001", "phone": "9100000101", "role": "customer", "code": "RVW-C-001",
                  "name": "Review Customer (synthetic)", "shop_name": "Sample Jewellers (synthetic)", "location": "Delhi"},
-    "admin": {"reviewer_id": "store-review-admin", "user_id": "review-admin-0001", "phone": "9100000102",
+    "admin": {"reviewer_id": "store-review-admin", "user_id": "review-admin-0001", "phone": "9100000102", "role": "admin", "code": "RVW-A-001",
               "name": "Review Admin (synthetic)", "shop_name": "Yash Trade review desk", "location": "Delhi"},
-    "telecaller": {"reviewer_id": "store-review-telecaller", "user_id": "review-telecaller-0001", "phone": "9100000103",
+    "telecaller": {"reviewer_id": "store-review-telecaller", "user_id": "review-telecaller-0001", "phone": "9100000103", "role": "telecaller", "code": "RVW-T-001",
                    "name": "Review Telecaller (synthetic)", "shop_name": "Yash Trade review desk", "location": "Delhi"},
-    "billing_executive": {"reviewer_id": "store-review-billing", "user_id": "review-billing-0001", "phone": "9100000104",
+    "telecaller_2": {"reviewer_id": "store-review-telecaller-2", "user_id": "review-telecaller-0002", "phone": "9100000105", "role": "telecaller", "code": "RVW-T-002",
+                     "name": "Review Telecaller Two (synthetic)", "shop_name": "Yash Trade review desk", "location": "Ludhiana"},
+    "billing_executive": {"reviewer_id": "store-review-billing", "user_id": "review-billing-0001", "phone": "9100000104", "role": "billing_executive", "code": "RVW-B-001",
                           "name": "Review Billing Executive (synthetic)", "shop_name": "Yash Trade review desk", "location": "Delhi"},
+    "upload_executive": {"reviewer_id": "store-review-upload", "user_id": "review-upload-0001", "phone": "9100000106", "role": "upload_executive", "code": "RVW-U-001",
+                         "name": "Review Upload Executive (synthetic)", "shop_name": "Yash Trade review desk", "location": "Delhi"},
 }
+
+
+def account_for(reviewer_id):
+    return next((a for a in ACCOUNTS.values() if a["reviewer_id"] == reviewer_id), None)
+
+
 EXTRA_CUSTOMERS = [("review-customer-%04d" % n, "91000002%02d" % n, f"Sample Retailer {n} (synthetic)", city)
                    for n, city in zip(range(2, 8), ["Mumbai", "Jaipur", "Ludhiana", "Amritsar", "Pune", "Surat"])]
 PRODUCTS = [("Silver Payal Bridal (sample)", "silver", "Payal", "48 g", "925"), ("Silver Italian Chain (sample)", "silver", "Chain", "22 g", "925"),
@@ -68,9 +80,8 @@ async def seed_dataset(reset=False):
             assert target.name == c.REVIEW_PREFIX + name, f"refusing to reset non-review collection {target.name}"
             await target.delete_many({})
     ts = c.stamp()
-    users = [_user(a["user_id"], a["phone"], a["name"], role, a["shop_name"], a["location"], ts,
-                   customer_code=f"RVW-{role[:1].upper()}-001", code=f"RVW-{role[:1].upper()}-001",
-                   reward_points=120 if role == "customer" else 0) for role, a in ACCOUNTS.items()]
+    users = [_user(a["user_id"], a["phone"], a["name"], a["role"], a["shop_name"], a["location"], ts,
+                   customer_code=a["code"], code=a["code"], reward_points=120 if a["role"] == "customer" else 0) for a in ACCOUNTS.values()]
     tele = ACCOUNTS["telecaller"]["user_id"]
     for n, (uid, phone, name, city) in enumerate(EXTRA_CUSTOMERS):
         users.append(_user(uid, phone, name, "customer", f"{name.split(' (')[0]} Shop", city,
@@ -149,18 +160,19 @@ async def seed_dataset(reset=False):
             "requests": await c.db.requests.count_documents({}), "rate_slabs": await c.db.rate_slabs.count_documents({})}
 
 
-async def restore_profile(role, previous=None):
+async def restore_profile(reviewer_id, previous=None):
     """Fresh synthetic PROFILE for a reviewer whose sample profile was deleted or disabled inside the review copy.
     The reviewer CREDENTIAL (review_accounts) is a separate record and must already have been verified as enabled by
     the caller. Nothing of the previous profile returns: no history, uploads, reward rows, AI consent or sessions
     (session_version advances past the old one and every session family is revoked). Runs only in review scope."""
     assert c.in_review()
-    meta = ACCOUNTS[role]
+    meta = account_for(reviewer_id)
+    if not meta:
+        raise ValueError("Unknown reviewer account")
     ts = c.stamp()
     generation = int((previous or {}).get("profile_generation", 0)) + 1
-    doc = _user(meta["user_id"], meta["phone"], meta["name"], role, meta["shop_name"], meta["location"], ts,
-                customer_code=f"RVW-{role[:1].upper()}-001", code=f"RVW-{role[:1].upper()}-001",
-                profile_generation=generation, recreated_at=ts)
+    doc = _user(meta["user_id"], meta["phone"], meta["name"], meta["role"], meta["shop_name"], meta["location"], ts,
+                customer_code=meta["code"], code=meta["code"], profile_generation=generation, recreated_at=ts)
     doc["session_version"] = int((previous or {}).get("session_version", 0)) + 1
     await c.db.users.replace_one({"id": meta["user_id"]}, doc, upsert=True)
     await c.db.session_families.update_many({"user_id": meta["user_id"]}, {"$set": {"revoked": True}})
@@ -172,14 +184,13 @@ async def provision_accounts(only=None):
     """Create missing reviewer accounts; returns {reviewer_id: plaintext secret} for NEW accounts only."""
     assert c.in_review()
     issued = {}
-    for role in REVIEW_ROLES:
-        if only and role not in only:
+    for key, meta in ACCOUNTS.items():
+        if only and key not in only:
             continue
-        meta = ACCOUNTS[role]
         if await c.db.review_accounts.find_one({"reviewer_id": meta["reviewer_id"]}):
             continue
         secret = new_secret()
-        await c.db.review_accounts.insert_one({"reviewer_id": meta["reviewer_id"], "user_id": meta["user_id"], "role": role,
+        await c.db.review_accounts.insert_one({"reviewer_id": meta["reviewer_id"], "user_id": meta["user_id"], "role": meta["role"],
             "secret_hash": hash_secret(secret), "enabled": True, "revoked_at": None, "created_at": c.stamp(),
             "rotated_at": None, "last_login_at": None})
         issued[meta["reviewer_id"]] = secret
@@ -218,7 +229,8 @@ async def status():
 
 
 ROLE_LABELS = {"customer": "Customer (retail jeweller)", "admin": "Admin (owner console)",
-               "telecaller": "Telecaller (follow-up desk)", "billing_executive": "Billing executive"}
+               "telecaller": "Telecaller (follow-up desk)", "billing_executive": "Billing executive",
+               "upload_executive": "Upload executive (Contents / PDF)"}
 NOT_RECORDED = "(not recorded)"
 SIGN_IN_STEPS = [
     "1. Open the Yash Trade app. On the login screen tap 'Help' (link under the footer), then 'App review access' > 'Open reviewer sign-in'.",
@@ -229,14 +241,15 @@ STORE_FORM_TEXT = [
     "Sign-in type: username + password style (Reviewer ID + Access key). No SMS, OTP or phone number is needed to sign in.",
     "Steps: Login screen > Help > App review access > Open reviewer sign-in > enter Reviewer ID and Access key > SIGN IN AS REVIEWER.",
     "Customer role shows catalogue, rates, requests, rewards and the AI assistant on sample data (the assistant asks for AI data-sharing consent first; declining keeps every other feature available).",
-    "Admin/Telecaller/Billing roles open the staff panel with sample customers and enquiries.",
+    "Admin/Telecaller/Billing roles open the staff panel with sample customers and enquiries; two Telecaller accounts allow the shared query queue (take / complete) to be tried from both sides; the Upload Executive role opens only the Contents / PDF tools.",
     "Account deletion (Profile > Delete My Account) can be completed on the sample profile: SMS is simulated, so the one-time code is shown on the screen itself. Deleting removes the sample profile's data; the next sign-in with the same Reviewer ID and Access key starts a fresh sample profile (nothing from the deleted one comes back).",
     "The environment is isolated from live customers (application-enforced by session scope); SMS/calls are simulated and clearly labelled.",
 ]
 
 
 def role_of(reviewer_id):
-    return next((r for r, a in ACCOUNTS.items() if a["reviewer_id"] == reviewer_id), "unknown")
+    meta = account_for(reviewer_id)
+    return meta["role"] if meta else "unknown"
 
 
 def note_lines(environment, api_base_url, database, issued, unchanged, verification, verification_error=None):

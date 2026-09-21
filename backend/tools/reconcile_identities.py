@@ -7,11 +7,18 @@ transactional maintenance execution. This intentionally cannot silently merge li
 import argparse
 import hashlib
 import json
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
 
-OWNER_PHONE = "9999813334"
+
+
+def owner_phone():
+    """The default owner administrator's number comes from the same setting the backend uses (OWNER_ADMIN_PHONE);
+    the operator exports it before running this tool. Never a literal in code or tests."""
+    return re.sub(r"\D", "", os.environ.get("OWNER_ADMIN_PHONE", ""))[-10:]
+
 ROLES = {"customer", "admin", "telecaller", "billing_executive"}
 ACCOUNT_ALIASES = {"disabled": "inactive", "blocked": "inactive"}
 QUERY_ALIASES = {"completed": "resolved", "done": "resolved", "assigned": "in_progress"}
@@ -44,6 +51,7 @@ def report(app_rows, website_rows, approved_mapping=None):
             except (KeyError, ValueError):
                 issues.append({"source": source, "record_id": row.get("record_id", row.get("id")), "kind": "invalid_phone"})
     mapping = approved_mapping or {}
+    OWNER_PHONE = owner_phone()
     for phone in sorted(set(app) | set(web)):
         a, w = app[phone], web[phone]
         ids = [r.get("id", r.get("record_id")) for r in a]
@@ -103,6 +111,8 @@ if __name__ == "__main__":
     parser.add_argument("--approved-mapping")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    if len(owner_phone()) != 10:
+        parser.error("export OWNER_ADMIN_PHONE (the default owner administrator's number) before running this tool")
     read = lambda p: json.loads(Path(p).read_text()) if p else []
     result = report(read(args.app_export), read(args.website_export), read(args.approved_mapping) or {})
     output = Path(args.output)

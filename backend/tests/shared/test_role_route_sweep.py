@@ -12,7 +12,7 @@ from shared import core as c
 
 pytestmark = pytest.mark.asyncio
 
-ROLE_PHONES = {"admin": "9999813334", "telecaller": "9000000001", "billing_executive": "9000000003", "customer": "9000000004", "upload_executive": "9000000010"}
+ROLE_PHONES = {"admin": "9000000000", "telecaller": "9000000001", "billing_executive": "9000000003", "customer": "9000000004", "upload_executive": "9000000010"}
 PLACEHOLDERS = {"ref": "u_tele2", "uid": "u_cust2", "rid": "r-none", "cid": "c-none", "nid": "n-none", "sid": "s-none", "jid": "j-none",
                 "job_id": "j-none", "reference": "DEL-none", "provider": "sms_provider", "event_id": "e-none", "number": "9000000005",
                 "pid": "p-none", "product_id": "p-none", "batch_id": "b-none", "id": "x-none", "path": "x/none.png", "reviewer_id": "store-review-customer",
