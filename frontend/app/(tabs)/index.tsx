@@ -14,6 +14,7 @@ import { useLang } from '../../src/context/LanguageContext';
 import { showAlert } from '../../src/utils/alert';
 import BannerCarousel from '../../src/components/BannerCarousel';
 import { CompleteProfileCard, ProfileConflictCard } from '../../src/components/customer/ProfileCards';
+import { NotificationBell } from '../../src/components/NotificationBell';
 
 interface Story { id: string; title: string; image_url: string; category: string; link_type: string; link_id: string; }
 interface Product { id: string; title: string; images: string[]; metal_type: string; category: string; approx_weight: string; is_new_arrival: boolean; is_trending: boolean; storage_path?: string; thumbnail_path?: string; purity?: string; selling_touch?: string; selling_label?: string; }
@@ -147,18 +148,16 @@ export default function HomeScreen() {
   const headerComponent = useCallback(() => (
     <>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerText}>
           <Text style={styles.greeting}>{t.welcome}</Text>
-          <Text style={styles.userName}>{user?.name || 'Jeweller'}</Text>
+          <Text style={styles.userName} numberOfLines={1}>{user?.name || 'Jeweller'}</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity testID="cart-btn" onPress={() => router.push('/cart')} style={styles.headerIcon}>
             <Ionicons name="cart-outline" size={22} color={Colors.text} />
             {cartCount > 0 && <View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View>}
           </TouchableOpacity>
-          <TouchableOpacity testID="notifications-btn" style={styles.headerIcon} onPress={() => router.push('/notifications')} accessibilityLabel={t.notifTitle}>
-            <Ionicons name="notifications-outline" size={22} color={Colors.text} />
-          </TouchableOpacity>
+          <NotificationBell style={styles.headerIcon} accessibilityLabel={t.notifTitle} />
         </View>
       </View>
       {/* Account cards: complete name / shop / place; choose between app and website values after a website registration */}
@@ -270,7 +269,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   loader: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.md, paddingBottom: Spacing.sm },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: Spacing.md, paddingBottom: Spacing.sm, gap: Spacing.sm },
+  headerText: { flex: 1, minWidth: 0 },
   greeting: { fontSize: FontSize.sm, color: Colors.textSecondary },
   userName: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.text },
   headerRight: { flexDirection: 'row', gap: 8 },

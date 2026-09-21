@@ -28,6 +28,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
   const [staff, setStaff] = useState<any[]>([]), [openId, setOpenId] = useState<string | null>(null);
   const [section, setSection] = useState<'queue' | 'reports'>(initialSection === 'reports' ? 'reports' : 'queue'), [queue, setQueue] = useState<any>(null);
   const [push, setPush] = useState<{ state: PermissionState; canAskAgain: boolean } | null>(null);
+  const [unread, setUnread] = useState(0);
   const requestSeq = useRef(0);
   const billing = user?.role === 'billing_executive';
   const admin = user?.role === 'admin';
@@ -36,6 +37,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
     if (!user || user.role === 'customer') return;
     const seq = ++requestSeq.current;
     setLoading(true);
+    if (!billing) api.get('/notifications/inbox?page=1&limit=1').then(r => setUnread(r?.unread || 0)).catch(() => {});
     try {
       const qs = new URLSearchParams({ page: String(page), limit: '25', view, search, request_type: type, head });
       const r = await api.get(`/requests?${qs}`);
@@ -43,7 +45,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
       setData(r); setError('');
     } catch (e: any) { if (seq === requestSeq.current) setError(`Could not refresh; the list shown may be stale. ${e.message}`); }
     finally { if (seq === requestSeq.current) setLoading(false); }
-  }, [user, page, view, search, type, head]);
+  }, [user, billing, page, view, search, type, head]);
 
   useFocusEffect(useCallback(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer); }, [load]));
   useEffect(() => { const s = AppState.addEventListener('change', state => { if (state === 'active') load(); }); return () => s.remove(); }, [load]);
@@ -71,7 +73,7 @@ export default function RequestsWorkspace({ onBack, onCRM }: { onBack?: () => vo
           {!billing && <Button id="requests-section-reports" title="Completion reports" icon="bar-chart-outline" active={section === 'reports'} onPress={() => setSection('reports')} />}
           {onCRM && <Button id="requests-open-crm" title="Customer leads" onPress={onCRM} icon="people-outline" />}
           <Button id="requests-refresh" title="Refresh" onPress={load} icon="refresh" />
-          {!billing && <Button id="requests-alerts" title="Alerts" icon="notifications-outline" onPress={() => router.push('/notifications')} />}
+          {!billing && <Button id="requests-alerts" title={unread ? `Alerts (${unread > 99 ? '99+' : unread})` : 'Alerts'} icon={unread ? 'notifications' : 'notifications-outline'} onPress={() => router.push('/notifications')} />}
           <Button id="requests-logout" title="Sign out" onPress={async () => { await logout(); router.replace('/login'); }} />
         </View>
         {!!error && <Text testID="requests-error" style={ui.error}>{error}</Text>}

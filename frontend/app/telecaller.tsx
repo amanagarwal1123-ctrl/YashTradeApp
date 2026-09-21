@@ -11,6 +11,7 @@ import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
 import { homeRouteFor, useRootBackHandler } from '../src/navigation';
 import RequestsWorkspace from '../src/components/staff/RequestsWorkspace';
+import { NotificationBell } from '../src/components/NotificationBell';
 
 const STATUSES = [
   { key: 'new', label: 'New', color: Colors.info },
@@ -211,9 +212,12 @@ export default function TelecallerScreen() {
           <TouchableOpacity testID="leads-back-to-requests" onPress={() => setShowLeads(false)}><Text style={st.headerTitle}>Back to Requests</Text></TouchableOpacity>
           <Text style={st.headerSub}>{user.name || user.phone}</Text>
         </View>
-        <TouchableOpacity testID="tc-logout" style={st.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color={Colors.error} />
-        </TouchableOpacity>
+        <View style={st.headerActions}>
+          <NotificationBell testID="tc-alerts" style={st.bellBtn} />
+          <TouchableOpacity testID="tc-logout" style={st.logoutBtn} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={22} color={Colors.error} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Performance summary */}
@@ -378,6 +382,8 @@ const st = StyleSheet.create({
   headerTitle: { fontSize: FontSize.xl, fontWeight: '700', color: Colors.gold, letterSpacing: 1 },
   headerSub: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: 2 },
   logoutBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.error + '15', alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  bellBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface },
   summaryRow: { paddingHorizontal: Spacing.lg, gap: 8, paddingBottom: Spacing.sm },
   summaryCard: { minWidth: 86, backgroundColor: Colors.card, borderRadius: 12, borderWidth: 1, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center' },
   summaryValue: { fontSize: FontSize.lg, fontWeight: '700' },

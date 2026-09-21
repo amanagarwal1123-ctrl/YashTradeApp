@@ -120,7 +120,7 @@ iOS (`Info.plist` of the prebuilt project): **no** `NSCameraUsageDescription`, `
 
 | Capability | Trigger in the app | Purpose shown to the user | Code |
 | --- | --- | --- | --- |
-| User notifications (OS prompt) | after sign-in, and again only from Profile → Notifications → *Allow notifications* (pre-permission explanation, Settings link when denied) | operational enquiry updates for staff; offers for customers who keep *Offers & new collections* on (separate marketing preference, default on, opt-out in-app) | `src/push.ts`, `app/notifications.tsx`, `shared/notifications.py` preferences |
+| User notifications (OS prompt) | **First open of the app (Android + iOS, owner decision 21 Sep 2026): a branded explanation card ("Stay updated — Allow notifications to get enquiry updates and offers", Continue / Not now) is shown once per install before sign-in, then the OS dialog.** A denial or "Not now" is never re-asked at launch; afterwards only the bell → Notifications screen offers *Turn on notifications* (tap → OS dialog while the OS still asks, → app Settings once it refuses). No prompt on web/simulators or when the OS already decided | operational enquiry updates for staff; offers for customers who keep *Offers & new collections* on (separate marketing preference, default on, opt-out in-app) | `src/components/FirstOpenNotificationPrompt.tsx`, `src/push.ts` (`firstOpenPromptDue`, `requestPermission`), `app/notifications.tsx`, `src/components/NotificationBell.tsx`, `shared/notifications.py` preferences |
 | Files (document picker, no permission) | staff PDF/photo upload only | catalogue content management | `pdf-import.tsx`, `catalog-author.tsx`, `product-photos.tsx` |
 | Network | always | HTTPS to the Yash backend only | `src/api.ts` |
 

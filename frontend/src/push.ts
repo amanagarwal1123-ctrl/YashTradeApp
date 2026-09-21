@@ -1,12 +1,15 @@
 /**
- * Remote push (Expo Push Service via expo-notifications). Permission is requested only after an explicit, contextual
- * moment (never at install), the token is registered against the signed-in account, unlinked on logout, and every
- * notification tap is routed through a role-authorised destination. Nothing here works in Expo Go for remote pushes
- * on Android (SDK 54): a development/production build is required; the web preview has no push at all.
+ * Remote push (Expo Push Service via expo-notifications). The OS permission is asked once on the very first open
+ * (branded explanation card → OS dialog, owner decision 21 Sep 2026) and afterwards only from the Notifications
+ * screen (bell) — a denial is never re-asked at launch. The token is registered against the signed-in account,
+ * unlinked on logout, and every notification tap is routed through a role-authorised destination. Nothing here works
+ * in Expo Go for remote pushes on Android (SDK 54): a development/production build is required; the web preview has
+ * no push at all.
  */
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from './api';
 
 let Notifications: typeof import('expo-notifications') | null = null;
@@ -19,6 +22,7 @@ try {
 } catch { Notifications = null; }
 
 const TOKEN_KEY = 'push_token';
+const FIRST_OPEN_PROMPT_KEY = 'notif_prompt_seen';
 export type PermissionState = 'granted' | 'denied' | 'undetermined' | 'unsupported' | 'blocked';
 
 export const pushSupported = () => Platform.OS !== 'web' && !!Notifications && !!Device?.isDevice;
@@ -42,18 +46,37 @@ export function configureForeground() {
   }
 }
 
-/** Asks the OS (only when allowed) and registers the Expo token for the signed-in account. Returns the final state. */
-export async function enablePush(): Promise<PermissionState> {
+/** Asks the OS for the notification permission (only while the OS still allows asking). No token registration. */
+export async function requestPermission(): Promise<PermissionState> {
   if (!pushSupported()) return 'unsupported';
   const before = await permissionState();
-  let granted = before.state === 'granted';
-  if (!granted && before.canAskAgain) {
-    const asked = await Notifications!.requestPermissionsAsync();
-    granted = asked.granted;
-    if (!granted) return asked.canAskAgain ? 'denied' : 'blocked';
-  } else if (!granted) {
-    return 'blocked';
-  }
+  if (before.state === 'granted') return 'granted';
+  if (!before.canAskAgain) return 'blocked';
+  const asked = await Notifications!.requestPermissionsAsync();
+  if (asked.granted) return 'granted';
+  return asked.canAskAgain ? 'denied' : 'blocked';
+}
+
+/**
+ * First-open prompt bookkeeping: due exactly once per install, before sign-in, and only while the OS has not decided
+ * yet. Any decision already made (granted, denied, permission kept across an iOS reinstall) marks the prompt as seen.
+ */
+export async function firstOpenPromptDue(): Promise<boolean> {
+  if (!pushSupported()) return false;
+  try { if (await AsyncStorage.getItem(FIRST_OPEN_PROMPT_KEY)) return false; } catch { return false; }
+  const { state } = await permissionState();
+  if (state !== 'undetermined') { await markFirstOpenPromptSeen(); return false; }
+  return true;
+}
+
+export async function markFirstOpenPromptSeen() {
+  try { await AsyncStorage.setItem(FIRST_OPEN_PROMPT_KEY, new Date().toISOString()); } catch {}
+}
+
+/** Asks the OS (only when allowed) and registers the Expo token for the signed-in account. Returns the final state. */
+export async function enablePush(): Promise<PermissionState> {
+  const state = await requestPermission();
+  if (state !== 'granted') return state;
   const projectId = Constants.expoConfig?.extra?.eas?.projectId || (Constants as any).easConfig?.projectId;
   try {
     const token = (await Notifications!.getExpoPushTokenAsync(projectId ? { projectId } : undefined)).data;

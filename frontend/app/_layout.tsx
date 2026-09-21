@@ -13,6 +13,7 @@ import { IconFontGate } from '../src/fonts/IconFontGate';
 import { Colors, FontSize } from '../src/theme';
 import { authorizedDestination } from '../src/navigation';
 import { configureForeground, notificationsModule } from '../src/push';
+import { FirstOpenNotificationPrompt } from '../src/components/FirstOpenNotificationPrompt';
 
 // Hold the native splash until the icon font is registered (or has definitively failed). A hard
 // deadline guarantees the splash can never stay up forever, even if font promises hang.
@@ -97,6 +98,8 @@ export default function RootLayout() {
             <Stack.Screen name="staff-requests" />
           </Stack>
           <ReviewEnvironmentBanner />
+          {/* First open only (Android + iOS): explanation card → OS notification dialog; never re-asked at launch */}
+          <FirstOpenNotificationPrompt />
         </IconFontGate>
       </LanguageProvider>
     </AuthProvider>

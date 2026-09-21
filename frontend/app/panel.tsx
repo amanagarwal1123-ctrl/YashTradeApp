@@ -14,6 +14,7 @@ import StaffPhoneChange from '../src/components/panel/StaffPhoneChange';
 import AccountActions from '../src/components/panel/AccountActions';
 import PhoneField from '../src/components/PhoneField';
 import { KeyboardAwareScreen } from '../src/components/KeyboardScreen';
+import { NotificationBell } from '../src/components/NotificationBell';
 import { ROLE_LABELS, useRootBackHandler } from '../src/navigation';
 import { canonicalPhone, displayPhone, telLink, DEFAULT_COUNTRY } from '../src/phone';
 import type { CountryCode } from 'libphonenumber-js';
@@ -425,6 +426,7 @@ export default function PanelScreen() {
           <View style={[s.roleBadge, { backgroundColor: role === 'admin' ? Colors.gold + '20' : Colors.info + '20' }]}>
             <Text style={[s.roleText, { color: role === 'admin' ? Colors.gold : Colors.info }]} testID="panel-role-badge">{ROLE_LABELS[role || ''] || role}</Text>
           </View>
+          <NotificationBell testID="panel-alerts" size={18} />
           <TouchableOpacity testID="panel-logout" onPress={panelLogout} style={s.logoutBtn}><Ionicons name="log-out-outline" size={18} color={Colors.error} /></TouchableOpacity>
         </View>
       </View>

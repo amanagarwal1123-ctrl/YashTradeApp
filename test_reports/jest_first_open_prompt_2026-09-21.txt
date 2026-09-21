@@ -1,0 +1,30 @@
+PASS src/__tests__/zoomableImage.test.tsx
+PASS src/__tests__/reviewAccessScreen.test.tsx
+PASS src/__tests__/reviewKeysAndAiConsent.test.tsx
+PASS src/__tests__/firstOpenNotificationPrompt.test.tsx
+PASS src/__tests__/requestDetailContact.test.tsx
+PASS src/__tests__/notificationBell.test.tsx
+PASS src/__tests__/deletionRequestsLedger.test.tsx
+PASS src/__tests__/authSessionWeb.test.tsx
+PASS src/__tests__/requestsWorkspaceAlerts.test.tsx
+PASS src/__tests__/calculator.test.tsx
+PASS src/__tests__/navigationSession.test.tsx
+PASS src/__tests__/staffRates.test.tsx
+PASS src/fonts/__tests__/IconFontGate.test.tsx
+PASS src/__tests__/reviewKeysAccessGate.test.tsx
+PASS src/fonts/__tests__/fallbackFont.test.ts
+PASS src/__tests__/useDiscovery.test.tsx
+PASS src/__tests__/verifyOtp.test.tsx
+PASS src/__tests__/phoneField.test.tsx
+PASS src/__tests__/lateRefresh.test.ts
+PASS src/__tests__/profileCards.test.tsx
+PASS src/__tests__/dataCache.test.ts
+PASS src/__tests__/phone.test.ts
+PASS src/__tests__/rootBackHandler.test.tsx
+PASS src/fonts/__tests__/iconFontLoader.test.ts
+PASS src/__tests__/pushFirstOpen.test.ts
+PASS src/__tests__/appConfig.test.ts
+PASS src/__tests__/productImage.test.ts
+Test Suites: 27 passed, 27 total
+Tests:       162 passed, 162 total
+Time:        3.371 s, estimated 9 s

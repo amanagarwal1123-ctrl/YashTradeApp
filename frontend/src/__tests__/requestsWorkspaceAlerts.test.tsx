@@ -8,6 +8,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
  */
 const mockPush = jest.fn();
 let mockUser: any = { id: 't1', role: 'telecaller', name: 'Tele One' };
+let mockUnread = 0;
 
 jest.mock('@expo/vector-icons', () => {
   const ReactActual = jest.requireActual('react');
@@ -25,6 +26,7 @@ jest.mock('../api', () => ({ api: { get: async (path: string) => {
   if (path === '/requests/catalog') return { types: [], head_labels: {} };
   if (path === '/requests/queue/status') return null;
   if (path === '/requests/staff-options') return { users: [] };
+  if (path === '/notifications/inbox?page=1&limit=1') return { unread: mockUnread, total: mockUnread, notifications: [] };
   throw new Error(`unexpected GET ${path}`);
 } } }));
 jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: mockUser, logout: jest.fn(), loading: false }) }));
@@ -35,13 +37,20 @@ jest.mock('../components/staff/CompletionReports', () => () => null);
 // eslint-disable-next-line import/first
 import RequestsWorkspace from '../components/staff/RequestsWorkspace';
 
-beforeEach(() => { mockPush.mockReset(); mockUser = { id: 't1', role: 'telecaller', name: 'Tele One' }; });
+beforeEach(() => { mockPush.mockReset(); mockUser = { id: 't1', role: 'telecaller', name: 'Tele One' }; mockUnread = 0; });
 
 describe('R09-B – staff can revisit query alerts from the workspace', () => {
   it('telecaller: the Alerts button opens the shared notification history', async () => {
     render(<RequestsWorkspace />);
     fireEvent.press(await screen.findByTestId('requests-alerts'));
     expect(mockPush).toHaveBeenCalledWith('/notifications');
+  });
+
+  it('the Alerts button carries the unread count (bell, 21 Sep)', async () => {
+    mockUnread = 4;
+    render(<RequestsWorkspace />);
+    expect(await screen.findByText('Alerts (4)')).toBeTruthy();
+    expect(screen.getByTestId('icon-notifications')).toBeTruthy();
   });
 
   it('administrator gets the same entry', async () => {
