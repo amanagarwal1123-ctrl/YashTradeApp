@@ -69,7 +69,7 @@ receipts_transport = expo_receipts
 def provider_status():
     return {"provider": "expo_push_service", "endpoint": EXPO_PUSH_URL,
             "access_token_configured": bool(c.setting("EXPO_PUSH_ACCESS_TOKEN")),
-            "ios_image_attachments": "require a Notification Service Extension in the native iOS build (config plugin declared in app.json; not verifiable in Expo Go)"}
+            "ios_image_attachments": "not included in the current iOS build: the Notification Service Extension target (expo-rich-notifications) was removed on 22 Sep 2026 because the iOS build pipeline provisions the main app only; iOS shows title/body, images show on Android"}
 
 
 # ---- devices, preferences, inbox --------------------------------------------------------------------------------
@@ -178,10 +178,12 @@ def message_for(device, row):
                     "request_id": row.get("request_id", ""), "campaign_id": row.get("campaign_id", "")},
            "_user_id": device["user_id"], "_notification_id": row["id"]}
     if row.get("image_url"):
-        # Android shows the image through richContent; iOS needs the native service extension (mutableContent) and
-        # falls back to the text alert when the attachment cannot be fetched within the OS limits.
+        # Android shows the image through richContent. iOS would need the Notification Service Extension, which is not
+        # part of the current iOS build (removed 22 Sep 2026 - the build pipeline provisions the main app only); iOS
+        # therefore shows title/body. mutableContent/data.image are harmless without the extension and let a future
+        # build with the extension attach the image without a backend change.
         msg["richContent"] = {"image": row["image_url"]}
-        msg["data"]["image"] = row["image_url"]  # also readable by the iOS service extension (body.image)
+        msg["data"]["image"] = row["image_url"]
         msg["mutableContent"] = True
     return msg
 
