@@ -50,13 +50,6 @@
           "defaultChannel": "operational",
           "enableBackgroundRemoteNotifications": false
         }
-      ],
-      "./plugins/withNSEDevelopmentTeam.js",
-      [
-        "expo-rich-notifications",
-        {
-          "enableCommunicationNotifications": false
-        }
       ]
     ],
     "experiments": {
