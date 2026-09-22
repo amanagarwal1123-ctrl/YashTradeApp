@@ -51,13 +51,13 @@
           "enableBackgroundRemoteNotifications": false
         }
       ],
+      "./plugins/withNSEDevelopmentTeam.js",
       [
         "expo-rich-notifications",
         {
           "enableCommunicationNotifications": false
         }
-      ],
-      "./plugins/withNSEDevelopmentTeam.js"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
