@@ -56,7 +56,8 @@
         {
           "enableCommunicationNotifications": false
         }
-      ]
+      ],
+      "./plugins/withNSEDevelopmentTeam.js"
     ],
     "experiments": {
       "typedRoutes": true
