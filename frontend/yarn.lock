@@ -4333,11 +4333,6 @@ expo-notifications@~0.32.17:
     expo-application "~7.0.8"
     expo-constants "~18.0.13"
 
-expo-rich-notifications@^0.1.0:
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/expo-rich-notifications/-/expo-rich-notifications-0.1.0.tgz#273181a9d6337e61a06e9a5667a4e07e9cc3aee1"
-  integrity sha512-D2zoNAfkMKidrEjzos147xQHHulVpTVhQkV1CfdZSaOpvtLilRMSFxvqxCFq6akQ4Lj/UOGIT+c2h7s3x/SkHg==
-
 expo-router@~6.0.24:
   version "6.0.24"
   resolved "https://registry.npmjs.org/expo-router/-/expo-router-6.0.24.tgz"
