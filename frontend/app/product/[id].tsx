@@ -10,10 +10,16 @@ import { swrGet } from '../../src/dataCache';
 import { IMAGE_PLACEHOLDER } from '../../src/imagePlaceholder';
 import { showAlert } from '../../src/utils/alert';
 import ZoomableImage from '../../src/components/ZoomableImage';
+import { useAuth } from '../../src/context/AuthContext';
+import { useRequireSignIn } from '../../src/hooks/useRequireSignIn';
 
 export default function ProductDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuth();
+  // Guests (iOS catalogue preview) may read everything here; cart, wishlist and enquiries ask them to sign in first.
+  const requireSignIn = useRequireSignIn();
+  const openRequest = (type: string) => requireSignIn(() => router.push({ pathname: '/request-call', params: { type, productId: id } }));
   const { width: windowWidth } = useWindowDimensions();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -30,27 +36,29 @@ export default function ProductDetail() {
       setLoadError(false);
       // The detail is painted at once from the cached catalogue copy (thumbnail visible immediately) and revalidated.
       await swrGet(`/products/${id}`, p => { setProduct(p); setLoading(false); });
-      // Check wishlist status (non-critical, never cached)
-      try {
-        const wl = await api.get('/wishlist');
-        setWishlisted((wl.products || []).some((w: any) => w.id === id));
-      } catch {}
+      // Check wishlist status (non-critical, never cached; nothing to check for a guest)
+      if (user) {
+        try {
+          const wl = await api.get('/wishlist');
+          setWishlisted((wl.products || []).some((w: any) => w.id === id));
+        } catch {}
+      }
     } catch (e) { if (!(e instanceof SessionChangedError)) setLoadError(true); } finally { setLoading(false); }
   };
 
   useEffect(() => { setFullLoaded(false); loadProduct(); }, [id]);
   useEffect(() => { setFullLoaded(false); }, [currentImage]);
 
-  const toggleWishlist = async () => {
+  const toggleWishlist = () => requireSignIn(async () => {
     try {
       const r = await api.post(`/wishlist/toggle?product_id=${id}`);
       setWishlisted(r.wishlisted);
     } catch (e: any) {
       showAlert('Error', e?.message || 'Could not update wishlist. Please try again.');
     }
-  };
+  });
 
-  const addToCart = async () => {
+  const addToCart = () => requireSignIn(async () => {
     try {
       await api.post('/cart/add', { product_id: id });
       setAddedToCart(true);
@@ -58,7 +66,7 @@ export default function ProductDetail() {
     } catch (e: any) {
       showAlert('Error', e?.message || 'Could not add to cart. Please try again.');
     }
-  };
+  });
 
   if (loading) return <View style={styles.loader}><ActivityIndicator size="large" color={Colors.gold} /></View>;
   if (loadError) {
@@ -197,20 +205,20 @@ export default function ProductDetail() {
             <Ionicons name="cart" size={18} color="#000" />
             <Text style={styles.ctaPrimaryText}>Add to Cart</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="ask-price-btn" style={styles.ctaSecondary} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: id } })}>
+          <TouchableOpacity testID="ask-price-btn" style={styles.ctaSecondary} onPress={() => openRequest('ask_price')}>
             <Ionicons name="pricetag" size={18} color={Colors.gold} />
             <Text style={styles.ctaSecondaryText}>Ask Price</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.ctaSection}>
-          <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: id } })}>
+          <TouchableOpacity testID="video-call-btn" style={styles.ctaOutline} onPress={() => openRequest('video_call')}>
             <Text style={styles.ctaOutlineText}>Video Call</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="hold-item-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'hold_item', productId: id } })}>
+          <TouchableOpacity testID="hold-item-btn" style={styles.ctaOutline} onPress={() => openRequest('hold_item')}>
             <Text style={styles.ctaOutlineText}>Hold Item</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="reorder-btn" style={styles.ctaOutline} onPress={() => router.push({ pathname: '/request-call', params: { type: 'quick_reorder', productId: id } })}>
+          <TouchableOpacity testID="reorder-btn" style={styles.ctaOutline} onPress={() => openRequest('quick_reorder')}>
             <Text style={styles.ctaOutlineText}>Reorder</Text>
           </TouchableOpacity>
         </View>

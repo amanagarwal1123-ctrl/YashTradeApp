@@ -9,6 +9,7 @@ import { api } from '../src/api';
 import { displayPhone } from '../src/phone';
 import { useAuth } from '../src/context/AuthContext';
 import { showAlert, confirmAlert } from '../src/utils/alert';
+import { guestHomeRoute } from '../src/navigation';
 
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
@@ -47,7 +48,7 @@ export default function DeleteAccountScreen() {
         await logout();
         const remaining = res?.erasure?.local_personal_records_remaining;
         showAlert('Account deleted', `Your profile has been anonymized and all sessions revoked. Reference: ${res.reference}. Personal records remaining in the app: ${remaining ?? 'unknown'}. The enrolment website removes its copy on receiving this deletion event. Provider-held copies (SMS delivery logs, AI provider) are NOT erased by this request; their manual erasure requests are tracked separately under your reference.`);
-        router.replace('/login');
+        router.replace(guestHomeRoute() as any);
       } catch (e: any) {
         setError(e?.message || 'Could not verify OTP');
       } finally { setBusy(false); }

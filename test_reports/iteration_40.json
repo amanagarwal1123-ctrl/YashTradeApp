@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend-only verification (mobile web viewport 390x844) of the App Store guideline 5.1.1(v) / 2.3.10 fix: iOS-only guest catalogue preview on web. All 8 requested checks passed. /guest-preview renders the correct header ('YASH TRADE' + 'Wholesale silver & gold jewellery'), gold Sign in button, guest-preview-note ('LATEST COLLECTION \u00b7 PREVIEW' + expected body), 2-column grid, and paginates GET /api/products?page=N&limit=20 for N=1..5 only (never page=6) with NO Authorization header on the anonymous read; state fills to exactly 100 items (DOM count is lower due to FlatList virtualisation with windowSize=7 + removeClippedSubviews, which is expected). guest-preview-end card shows 'End of preview' + 'Sign in with your mobile number to browse all 345 products...' (catalogue total 345 > 100) and its guest-end-sign-in button routes to /login. guest-sign-in navigates to /login where login-browse-btn is correctly absent on web, footer reads exactly 'Yash Trade App - Wholesale silver & gold jewellery', and browser back returns to /guest-preview. From a product detail page all six gated actions (add-to-cart, wishlist, ask-price, video-call, hold-item, reorder) trigger a web window.confirm whose message starts with 'Sign in to continue' and contains 'need your account'; dismiss keeps the user on the page with NO POST /api/cart/add or /api/wishlist/toggle and NO GET /api/wishlist on load; accept navigates to /login. product-open-viewer opens /image-viewer, viewer-ask-price shows the identical confirm. Root URL / on web lands on /login (not /guest-preview) and login-browse-btn is not rendered. /help contains no 'Google Play' string and the 'App review access' card body reads 'For app store review teams only...'; help-review-access-link opens /review-access whose subtitle is 'For app store review teams' with no 'Google Play' string. Console: 3 identical React warnings 'Unexpected text node: . A text node cannot be a child of a <View>.' seen on /image-viewer (non-blocking, no red screen, no runtime error).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "image-viewer", "issue": "Console warning 'Unexpected text node: . A text node cannot be a child of a <View>.' fires 3x on /image-viewer. Likely a stray whitespace / empty expression between JSX children inside a <View>. Reference: /app/frontend/app/image-viewer.tsx around the bottomInfo block (lines 167\u2013184)."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_40_final.jpeg"],
+  "action_items": [
+    "Optional: locate and remove the stray text node inside a <View> in /app/frontend/app/image-viewer.tsx (or a component it renders) to silence the 3x 'Unexpected text node' React Native web warning."
+  ],
+  "critical_code_review_comments": [
+    "guest-preview correctly avoids sending Authorization on GET /api/products and caps state at PREVIEW_LIMIT (100).",
+    "useRequireSignIn correctly uses window.confirm on web via confirmAlert; product detail also skips the GET /api/wishlist call for guests (user gated).",
+    "login-browse-btn is Platform.OS === 'ios' only \u2014 confirmed absent in the web build.",
+    "homeRouteFor / guestHomeRoute keep Android/web on /login while iOS gets /guest-preview \u2014 web root behaviour confirmed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% (8/8 requested checks)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All Apple 5.1.1(v) + 2.3.10 guest-preview flows verified on web viewport 390x844. Only non-blocking finding is the 3x React 'Unexpected text node' warning on /image-viewer. Total catalogue reports 345 products; pagination hits exactly pages 1..5 and stops. Reviewer sign-in was NOT attempted (per instructions). No SMS was sent.",
+  "rca_of_issue": "N/A \u2014 no functional bugs found."
+}

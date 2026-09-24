@@ -32,10 +32,15 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import { setToken, TransientError } from '../api';
 
 describe('R01-A role homes, history reset and deep-link authorisation', () => {
-  it('maps every role to its root screen and unknown roles to login', () => {
+  it('maps every role to its root screen; a signed-out person lands on login (Android/web) or the iOS catalogue preview', () => {
     expect(homeRouteFor('customer')).toBe('/(tabs)');
     expect(homeRouteFor('telecaller')).toBe('/telecaller');
     for (const r of ['admin', 'billing_executive', 'upload_executive']) expect(homeRouteFor(r)).toBe('/panel');
+    (Platform as any).OS = 'ios';
+    expect(homeRouteFor(undefined)).toBe('/guest-preview');
+    (Platform as any).OS = 'android';
+    expect(homeRouteFor(undefined)).toBe('/login');
+    (Platform as any).OS = 'web';
     expect(homeRouteFor(undefined)).toBe('/login');
   });
 
@@ -72,7 +77,10 @@ describe('R01-A role homes, history reset and deep-link authorisation', () => {
     expect(authorizedDestination('/product/p1', 'customer')).toBe('/product/p1');
     expect(authorizedDestination('https://evil.example', 'customer')).toBe('/(tabs)');
     expect(authorizedDestination('//evil.example', 'customer')).toBe('/(tabs)');
+    (Platform as any).OS = 'android';
     expect(authorizedDestination('/notifications', undefined)).toBe('/login');
+    (Platform as any).OS = 'ios';
+    expect(authorizedDestination('/notifications', undefined)).toBe('/guest-preview');
   });
 });
 

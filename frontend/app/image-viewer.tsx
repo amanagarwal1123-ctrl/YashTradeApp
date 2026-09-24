@@ -9,6 +9,7 @@ import { cachedGet } from '../src/dataCache';
 import { IMAGE_PLACEHOLDER } from '../src/imagePlaceholder';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../src/context/AuthContext';
+import { useRequireSignIn } from '../src/hooks/useRequireSignIn';
 import ZoomableImage from '../src/components/ZoomableImage';
 
 export default function ImageViewerScreen() {
@@ -18,6 +19,7 @@ export default function ImageViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {user} = useAuth();
+  const requireSignIn = useRequireSignIn(); // guests (iOS catalogue preview) are asked to sign in before an enquiry
   // Live viewport: orientation / window changes re-measure the zoom area (and reset the transform).
   const { width: SCREEN_W, height: SCREEN_H } = useWindowDimensions();
   const viewerHeight = Math.round(SCREEN_H * 0.65);
@@ -170,11 +172,11 @@ export default function ImageViewerScreen() {
         {title ? <Text style={styles.imageTitle} numberOfLines={1}>{title}</Text> : null}
         {meta ? <Text style={styles.imageMeta}>{meta}</Text> : null}
         <View style={styles.bottomActions}>
-          <TouchableOpacity testID="viewer-ask-price" style={styles.actionBtn} onPress={() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: currentItem.id } })}>
+          <TouchableOpacity testID="viewer-ask-price" style={styles.actionBtn} onPress={() => requireSignIn(() => router.push({ pathname: '/request-call', params: { type: 'ask_price', productId: currentItem.id } }))}>
             <Ionicons name="pricetag" size={16} color="#000" />
             <Text style={styles.actionBtnText}>Ask Price</Text>
           </TouchableOpacity>
-          <TouchableOpacity testID="viewer-video-call" style={[styles.actionBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.gold }]} onPress={() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: currentItem.id } })}>
+          <TouchableOpacity testID="viewer-video-call" style={[styles.actionBtn, { backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.gold }]} onPress={() => requireSignIn(() => router.push({ pathname: '/request-call', params: { type: 'video_call', productId: currentItem.id } }))}>
             <Ionicons name="videocam" size={16} color={Colors.gold} />
             <Text style={[styles.actionBtnText, { color: Colors.gold }]}>Video Call</Text>
           </TouchableOpacity>

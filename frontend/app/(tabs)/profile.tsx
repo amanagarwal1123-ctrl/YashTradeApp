@@ -10,6 +10,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useLang } from '../../src/context/LanguageContext';
 import { LANGUAGE_OPTIONS } from '../../src/i18n';
 import { confirmAlert } from '../../src/utils/alert';
+import { guestHomeRoute } from '../../src/navigation';
 
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || 'https://yash-register.emergent.host/privacy';
 
@@ -38,7 +39,7 @@ export default function ProfileScreen() {
   useEffect(() => { loadProfileData(); }, []);
 
   const handleLogout = () => {
-    confirmAlert('Logout', 'Are you sure?', () => { logout(); router.replace('/login'); }, 'Logout');
+    confirmAlert('Logout', 'Are you sure?', () => { logout(); router.replace(guestHomeRoute() as any); }, 'Logout'); // Android: login; iOS: catalogue preview
   };
 
   const MenuItem = ({ icon, label, value, onPress, testID, danger }: any) => (

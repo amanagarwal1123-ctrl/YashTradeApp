@@ -1,5 +1,15 @@
 # Release readiness — follow-up NOT production-ready
 
+### 24 September 2026 — App Store rejection of iOS 1.0.2 (107) fixed in source (guest preview iOS-only + wording)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Apple verdict | **REJECTED**: 5.1.1(v) "requires users to register before browsing products"; 2.3.10 "remove Google Play references" from the binary | owner's App Store Connect message |
+| 5.1.1(v) fix | iOS-only read-only catalogue preview (`/guest-preview`, owner cap **100** products, then *End of preview* + Sign in). Only the catalogue is public; cart, wishlist, enquiries (Ask Price / Video Call / Hold / Reorder), rewards, AI, notifications, profile still require the mobile-OTP sign-in (*Sign in to continue* prompt). Android and web keep the login-first flow unchanged (`guestHomeRoute()` = `/login` there). No prices exist in the app, so nothing commercial is exposed | `src/navigation.ts`, `app/guest-preview.tsx`, `src/hooks/useRequireSignIn.ts`, `app/product/[id].tsx`, `app/image-viewer.tsx`, `app/login.tsx`; Jest `guestPreview.test.tsx` (4), `guestGate.test.tsx` (4) |
+| 2.3.10 fix | 0 × "Google Play" in `frontend/app` + `frontend/src` (Help EN/HI/PA, reviewer sign-in subtitle, owner Review-Keys label reworded). Login footer → "Yash Trade App - Wholesale silver & gold jewellery" | `grep -ri "google play" frontend/app frontend/src` → none (tests excluded) |
+| Verification | Jest 29 suites / **170 passed**, `tsc --noEmit` clean, eslint 0 errors; browser iteration 40 on web 8/8 PASS (`/guest-preview` by URL: no Authorization on reads, pages 2–5 only, 100-item cap, end card "345 products", all gated buttons → prompt → `/login`, web `/` → `/login`, no "Google Play" on `/help` / `/review-access`) | `test_reports/iteration_40.json` |
+| Still open | (1) iOS cold start → preview can only be seen on a TestFlight/device build (web cannot run as iOS); (2) App Store Connect listing text/screenshots for Google Play / Android mentions — owner only; (3) new iOS build + resubmission + reply (draft in `APP_STORE_SUBMISSION.md` §3.0); (4) the Android build is unaffected and needs no re-upload for this change. No Git action by the agent | — |
+
 ## R00–R17 implementation + independent-review closeout — 20–21 September 2026 (current source tree, build `shared-v2-operations-2026-09-20`)
 ### 22 September 2026 — iOS store build failure analysed (documentation + one health-text change only)
 

@@ -24,7 +24,7 @@ const T: Record<string, Record<string, string>> = {
     privacyBody: 'The AI assistant is optional: nothing you write is sent to the AI provider until you allow it, and you can withdraw under Profile → AI Data Sharing. You can delete your account under Profile → Delete My Account.',
     privacy: 'Privacy Policy',
     reviewTitle: 'App review access',
-    reviewBody: 'For Google Play and App Store review teams only. Sign in with the Reviewer ID and Access key given in the store review form.',
+    reviewBody: 'For app store review teams only. Sign in with the Reviewer ID and Access key given in the store review form.',
     reviewOpen: 'Open reviewer sign-in',
   },
   hi: {
@@ -40,7 +40,7 @@ const T: Record<string, Record<string, string>> = {
     privacyBody: 'AI असिस्टेंट वैकल्पिक है: आपकी अनुमति के बिना कुछ भी AI प्रोवाइडर को नहीं भेजा जाता, और आप प्रोफ़ाइल → AI Data Sharing में अनुमति वापस ले सकते हैं। प्रोफ़ाइल → Delete My Account से खाता हटाया जा सकता है।',
     privacy: 'गोपनीयता नीति',
     reviewTitle: 'App review access',
-    reviewBody: 'केवल Google Play और App Store समीक्षा टीमों के लिए। स्टोर रिव्यू फ़ॉर्म में दिए गए Reviewer ID और Access key से साइन इन करें।',
+    reviewBody: 'केवल ऐप स्टोर समीक्षा टीमों के लिए। स्टोर रिव्यू फ़ॉर्म में दिए गए Reviewer ID और Access key से साइन इन करें।',
     reviewOpen: 'रिव्यूअर साइन-इन खोलें',
   },
   pa: {
@@ -56,7 +56,7 @@ const T: Record<string, Record<string, string>> = {
     privacyBody: 'AI ਸਹਾਇਕ ਵਿਕਲਪਿਕ ਹੈ: ਤੁਹਾਡੀ ਇਜਾਜ਼ਤ ਬਿਨਾਂ ਕੁਝ ਵੀ AI ਪ੍ਰੋਵਾਈਡਰ ਨੂੰ ਨਹੀਂ ਭੇਜਿਆ ਜਾਂਦਾ, ਅਤੇ ਤੁਸੀਂ ਪ੍ਰੋਫ਼ਾਈਲ → AI Data Sharing ਵਿੱਚ ਇਜਾਜ਼ਤ ਵਾਪਸ ਲੈ ਸਕਦੇ ਹੋ। ਪ੍ਰੋਫ਼ਾਈਲ → Delete My Account ਤੋਂ ਖਾਤਾ ਹਟਾਇਆ ਜਾ ਸਕਦਾ ਹੈ।',
     privacy: 'ਗੁਪਤਤਾ ਨੀਤੀ',
     reviewTitle: 'App review access',
-    reviewBody: 'ਸਿਰਫ਼ Google Play ਅਤੇ App Store ਸਮੀਖਿਆ ਟੀਮਾਂ ਲਈ। ਸਟੋਰ ਰਿਵਿਊ ਫਾਰਮ ਵਿੱਚ ਦਿੱਤੇ Reviewer ID ਅਤੇ Access key ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+    reviewBody: 'ਸਿਰਫ਼ ਐਪ ਸਟੋਰ ਸਮੀਖਿਆ ਟੀਮਾਂ ਲਈ। ਸਟੋਰ ਰਿਵਿਊ ਫਾਰਮ ਵਿੱਚ ਦਿੱਤੇ Reviewer ID ਅਤੇ Access key ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
     reviewOpen: 'ਰਿਵਿਊਅਰ ਸਾਈਨ-ਇਨ ਖੋਲ੍ਹੋ',
   },
 };

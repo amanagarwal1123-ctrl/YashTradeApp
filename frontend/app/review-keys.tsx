@@ -195,7 +195,7 @@ export default function ReviewKeysScreen() {
 
             <View style={st.card}>
               <Text style={st.cardTitle}>Entering the credentials in the stores</Text>
-              <Text style={st.sub}>GOOGLE PLAY CONSOLE</Text>
+              <Text style={st.sub}>OTHER STORE CONSOLES (APP ACCESS FORM)</Text>
               <Text style={st.item}>App content → App access → &ldquo;All or some functionality is restricted&rdquo; → Add instructions: Reviewer ID as username, Access key as password, plus the sign-in steps below. Add the customer account first; add the admin, telecaller and billing accounts as additional credentials with their role labels.</Text>
               <Text style={st.sub}>APP STORE CONNECT</Text>
               <Text style={st.item}>App Review Information → Sign-in required → User name = Reviewer ID, Password = Access key (customer account). Put the other three accounts and the sign-in steps in Notes.</Text>

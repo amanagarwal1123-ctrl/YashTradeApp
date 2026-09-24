@@ -96,6 +96,18 @@ consent screen; add one line only if the owner wants it advertised), any "buy"/p
 
 ## 3. Reviewer access (App Review Information → Sign-in required)
 
+### 3.0 App Review rejection of iOS 1.0.2 (107) — 24 September 2026 — and the fixes in this source tree
+
+| Guideline | Apple's finding | Fix (code, this tree) | Owner action in App Store Connect |
+|---|---|---|---|
+| **5.1.1(v) Data Collection and Storage** | "The app requires users to register before browsing products. Registration can only be required for account-based features like adding to cart or checking out." | **iOS-only guest catalogue preview** (owner decision: Android keeps login-first, preview capped at **100** products, only the catalogue is public). `src/navigation.ts` `guestHomeRoute()` → `/guest-preview` on iOS, `/login` elsewhere; new `app/guest-preview.tsx` (public `GET /api/products`, pages of 20, stops at 100, then an *End of preview* card with the catalogue total and a Sign in button; header Sign in; Help link). Product detail and the photo viewer open read-only; **Add to Cart, wishlist, Ask Price, Video Call, Hold, Reorder** show *Sign in to continue* (`src/hooks/useRequireSignIn.ts`) and lead to `/login`. The login screen gets an iOS-only *Browse the collection* back control; logout / account deletion return to the preview on iOS. No prices exist anywhere in the app, so the preview reveals nothing commercial. Android/web: `/` still lands on `/login`, no exit control on login, nothing else changed | Reply to the rejection (draft below); resubmit the new build |
+| **2.3.10 Accurate Metadata** | "Revise the app's binary to remove Google Play references." | All in-app strings reworded: Help card (EN/HI/PA) "For app store review teams only…", reviewer sign-in subtitle "For app store review teams", owner Review-Keys console label "OTHER STORE CONSOLES (APP ACCESS FORM)". `grep -ri "google play" frontend/app frontend/src` → 0 hits (tests excluded) | **Check the listing yourself**: description, keywords, promotional text, What's New, review notes and screenshots must not mention Google Play / Android / Play Store — the agent cannot see or edit App Store Connect |
+| Login footer | (not cited; contradicted public browsing) | "Private app for verified jewellers only" → **"Yash Trade App - Wholesale silver & gold jewellery"** (EN/HI/PA) | — |
+
+Evidence: Jest 29 suites / **170 passed** (new `guestPreview.test.tsx` 4, `guestGate.test.tsx` 4; `navigationSession.test.tsx` updated for the platform split), `tsc --noEmit` clean, eslint 0 errors; browser iteration 40 (web, `test_reports/iteration_40.json`, 24 Sep 2026): `/guest-preview` loads without Authorization, pages 2–5 only (page 6 never requested), 100-item cap, end card "browse all 345 products", every gated button → *Sign in to continue* → `/login`, `/` on web still → `/login`, no "Google Play" on `/help` or `/review-access`. The iOS routing itself (`Platform.OS === 'ios'`) is covered by Jest only — the web preview cannot run as iOS; verify once on the TestFlight build: cold start → preview, Sign in → OTP → customer Home, logout → preview.
+
+**Draft reply to App Review (Resolution Center)** — "Thank you for the review. 5.1.1(v): the app now opens directly on a read-only preview of our jewellery catalogue (up to 100 products, product details and photographs) without any registration. Registration (mobile-number OTP) is requested only for account-based features: saving items to the cart or wishlist, submitting price / video-call / hold / reorder enquiries, reward points, notifications and the profile. There are no prices or purchases in the app; enquiries are handled by our sales team by phone. 2.3.10: all references to other platforms have been removed from the binary and we have checked the listing metadata. Reviewer accounts remain available as described in the review notes."
+
 - **Mechanism (VERIFIED in code, `shared/review.py`, `frontend/app/review-access.tsx`, `help.tsx`)**: isolated reviewer
   accounts (Reviewer ID + access key) on the `review__*` collections; path in the app: **Login → Help → App review access →
   Open reviewer sign-in → Reviewer ID + Access key → SIGN IN AS REVIEWER** (gold STORE-REVIEW ENVIRONMENT banner). No OTP,
@@ -186,6 +198,7 @@ may show real customer names/phones.
 
 ## 8. Genuine missing submission items (consolidated)
 
+0. **24 Sep 2026 rejection (§3.0)**: build a new iOS binary from this source (guest preview + wording fixes), scrub Google Play / Android mentions from the App Store Connect listing text and screenshots, resubmit with the reply drafted in §3.0.
 1. Support URL (no value exists anywhere) — **OWNER TO PROVIDE**.
 2. Confirm brand name on the listing (`Yash Silver` vs `Yash Trade App`) and the legal copyright holder.
 3. Publish the updated Privacy Policy (incl. push tokens + viewing history) at the URL configured in `EXPO_PUBLIC_PRIVACY_URL`; optionally set `EXPO_PUBLIC_TERMS_URL`.

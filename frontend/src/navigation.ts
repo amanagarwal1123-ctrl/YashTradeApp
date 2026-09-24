@@ -8,13 +8,20 @@ export const ROLE_LABELS: Record<string, string> = {
   customer: 'Customer', admin: 'Administrator', telecaller: 'Telecaller', billing_executive: 'Billing Executive', upload_executive: 'Upload Executive',
 };
 
+/**
+ * Where a signed-out person lands. iOS: the read-only catalogue preview (App Store guideline 5.1.1(v) - browsing
+ * products is not account-based, so it may not require registration); every account feature still asks to sign in.
+ * Android and web keep the login-first flow unchanged (owner decision, 24 Sep 2026).
+ */
+export const guestHomeRoute = (): string => (Platform.OS === 'ios' ? '/guest-preview' : '/login');
+
 /** The root/home screen of each role: the destination after sign-in, after a deep link with no history and on hardware back at root. */
 export const homeRouteFor = (role?: string | null): string => {
   switch (role) {
     case 'telecaller': return '/telecaller';
     case 'admin': case 'billing_executive': case 'upload_executive': return '/panel';
     case 'customer': return '/(tabs)';
-    default: return '/login';
+    default: return guestHomeRoute();
   }
 };
 

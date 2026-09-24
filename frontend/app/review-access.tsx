@@ -50,7 +50,7 @@ export default function ReviewAccessScreen() {
           <View style={styles.header}>
             <Ionicons name="clipboard-outline" size={44} color={Colors.gold} />
             <Text style={styles.title}>Store reviewer access</Text>
-            <Text style={styles.subtitle}>For Google Play / App Store review teams</Text>
+            <Text style={styles.subtitle}>For app store review teams</Text>
           </View>
 
           <View style={styles.notice} testID="review-notice">
